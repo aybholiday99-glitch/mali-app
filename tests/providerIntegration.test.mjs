@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import { installNativeTestLoader } from './nativeModuleTestLoader.mjs';
+import { fakeSyncScheduler } from './fakeSyncScheduler.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const stored = new Map();
@@ -24,7 +25,7 @@ const guest={id:'local-offline-guest',isLocalOnly:true,name:'Test',email:'test@l
 const cloud={...guest,id:'cloud-A',isLocalOnly:false};
 let api;
 function Probe(){api=useMali();return null;}
-async function mount(){let tree;await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,null,React.createElement(Probe)));});return tree;}
+async function mount(clock){let tree;await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,{syncScheduler:clock?.scheduler},React.createElement(Probe)));});return tree;}
 const account={name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'};
 
 test('real provider ignores a cache result arriving after logout and blocks hydration writes',async()=>{
@@ -172,6 +173,7 @@ test('malformed JSON and unreadable owner caches cannot be silently replaced',as
 });
 
 test('an older upload acknowledgement cannot mark newer local edits clean or discard them on relogin',async()=>{
+  const clock=fakeSyncScheduler();
   stored.clear();
   pull=async()=>({ok:false,success:false,isEmpty:true,message:'empty'});
   let releasePush,releaseStorage,signalStorage;
@@ -189,9 +191,9 @@ test('an older upload acknowledgement cannot mark newer local edits clean or dis
       await pendingStorage;
     }
   };
-  const tree=await mount();
+  const tree=await mount(clock);
   await act(async()=>{api.loginUser(cloud);});
-  await act(async()=>{api.addAccount({...account,name:'First'});});
+  await act(async()=>{api.addAccount({...account,name:'First'});await clock.advance(0);});
   await act(async()=>{api.addAccount({...account,name:'Second'});});
   await act(async()=>{releasePush({ok:true,success:true,message:'saved',updatedAt:'2030-01-01T00:00:00.000Z'});await storageStarted;});
   assert.equal(api.state.accounts.length,2);

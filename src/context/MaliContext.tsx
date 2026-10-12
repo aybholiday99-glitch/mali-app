@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   Account,
   AuthUser,
@@ -15,6 +16,10 @@ import {
 import { INITIAL_MALI_STATE } from '../data/initialData';
 import { SessionScope, emptyFinancialState } from '../services/sessionScope';
 import { SerialQueue } from '../services/serialQueue';
+import { createDurableSyncWorker, type CloudSyncStatus, type SyncOutbox, type SyncScheduler } from '../services/durableSyncWorker';
+import { subscribeSyncLifecycle } from '../services/syncLifecycle';
+import { syncConfigIdentity, validateSyncOutbox } from '../services/syncOutboxValidation';
+import { assertNativeCacheSize } from '../services/cacheSizeLimit';
 import { financialDate } from '../services/financialDate';
 import {
   pullStateFromSupabase,
@@ -191,6 +196,7 @@ interface MaliContextValue {
   isLoading: boolean;
   isSyncing: boolean;
   lastSyncMessage: string | null;
+  cloudSyncStatus: CloudSyncStatus<MaliState>;
   updateMarketRates: (rates: Partial<MarketRates>) => boolean;
   addContact: (input: AddContactInput) => ContactPerson | null;
   updateContact: (contactId: string, partial: Partial<ContactPerson>) => boolean;
@@ -242,13 +248,14 @@ function mergePartialCloudState(base: MaliState, cloud: Partial<MaliState>, upda
   };
 }
 
-export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?: SyncScheduler }> = ({ children, syncScheduler }) => {
   const [state, setState] = useState<MaliState>(INITIAL_MALI_STATE);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus<MaliState>>({ phase: 'idle', outbox: null });
   const [authCleanupPending, setAuthCleanupPending] = useState(false);
   const pendingLogoutConfig = useRef<SupabaseConfig | null>(null);
 
@@ -263,7 +270,58 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncQueue = useRef(new SerialQueue());
   const storageQueue = useRef(new SerialQueue());
   const hydrating = useRef(false);
+  const foreground = useRef(true);
+  const syncWorker = useRef<ReturnType<typeof createDurableSyncWorker<MaliState>> | null>(null);
   const applyState = (next: MaliState) => { stateRef.current = next; setState(next); };
+
+  const saveCache = (next: MaliState, ownerId?: string | null, retained?: SyncOutbox<MaliState> | null) => {
+    const record = retained === undefined ? syncWorker.current?.getRecord() : retained;
+    const raw = JSON.stringify({ ...next, cloudOutbox: record?.ownerId === ownerId ? record : undefined });
+    return storageQueue.current.run(() => { if (Platform?.OS !== 'web') assertNativeCacheSize(raw); return AsyncStorage.setItem(getStorageKeyForUser(ownerId), raw); });
+  };
+
+  function activateWorker() {
+    syncWorker.current?.setActive(foreground.current && !hydrating.current && !recoveryRequired.current && stateRef.current.supabaseConfig.autoSync);
+  }
+
+  function startSyncWorker(user: AuthUser, token: ReturnType<SessionScope['capture']>, initial?: SyncOutbox<MaliState>) {
+    syncWorker.current?.dispose();
+    const worker = createDurableSyncWorker<MaliState>({
+      ownerId: user.id, initial, scheduler: syncScheduler,
+      withBaseline: (payload, timestamp) => ({ ...payload, supabaseConfig: { ...payload.supabaseConfig, lastSyncedAt: timestamp } }),
+      persist: record => storageQueue.current.run(async () => {
+        if (!scope.current.isCurrent(token)) throw new Error('Stale session.');
+        const before = stateRef.current;
+        const sameConfig = syncConfigIdentity(before.supabaseConfig) === record.configId;
+        const next = { ...before,
+          pendingCloudSync: !!record.pending || (record.acknowledgedRevision !== undefined && localRevision.current > record.acknowledgedRevision),
+          supabaseConfig: sameConfig ? { ...before.supabaseConfig, lastSyncedAt: record.syncedAt } : before.supabaseConfig };
+        const raw = JSON.stringify({ ...next, cloudOutbox: record });
+        if (Platform?.OS !== 'web') assertNativeCacheSize(raw);
+        const key = getStorageKeyForUser(user.id);
+        await AsyncStorage.setItem(key, raw);
+        if (await AsyncStorage.getItem(key) !== raw) throw new Error('Unverified outbox write.');
+        if (scope.current.isCurrent(token) && stateRef.current === before) applyState(next);
+      }),
+      send: (payload, signal) => syncQueue.current.run(async () => {
+        if (!scope.current.isCurrent(token) || signal.aborted) return { ok: false, success: false, failureKind: 'session', message: 'تغيرت جلسة المستخدم.' };
+        if (syncConfigIdentity(payload.supabaseConfig) !== syncConfigIdentity(stateRef.current.supabaseConfig)) return { ok: false, success: false, failureKind: 'configuration', message: 'تغير مشروع المزامنة. تم إلغاء طلب الرفع السابق.' };
+        return pushStateToSupabase(payload, payload.supabaseConfig, user, { signal });
+      }),
+      onStatus: status => {
+        if (!scope.current.isCurrent(token)) return;
+        setCloudSyncStatus(status); setIsSyncing(status.phase === 'uploading');
+        if (status.phase === 'storage-error') setLastSyncMessage('تعذر حفظ قائمة الرفع على الجهاز. تم إيقاف الرفع؛ صدّر نسخة احتياطية وأعد المحاولة.');
+      },
+      onResult: result => { if (scope.current.isCurrent(token)) setLastSyncMessage(result.message); },
+    });
+    syncWorker.current = worker;
+    return worker;
+  }
+
+  useEffect(() => subscribeSyncLifecycle(active => {
+    foreground.current = active; activateWorker();
+  }, () => syncWorker.current?.wake()), []);
 
   useEffect(() => {
     const boot = scope.current.capture();
@@ -283,7 +341,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (mounted && scope.current.isCurrent(boot)) setIsLoading(false);
       }
     })();
-    return () => { mounted = false; scope.current.begin(null); };
+    return () => { mounted = false; scope.current.begin(null); syncWorker.current?.dispose(); };
   }, []);
 
   const toggleTheme = () => {
@@ -309,28 +367,16 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     applyState(next);
     // Side effects run once, outside React's replayable state updater.
     setLastSyncMessage(null);
-    void storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(next))).then(() => {
+    const worker = syncWorker.current || (user && !user.isLocalOnly ? startSyncWorker(user, token) : null);
+    const persistence = user && !user.isLocalOnly && worker
+      ? worker.enqueue(next, revision, syncConfigIdentity(next.supabaseConfig), next.supabaseConfig.lastSyncedAt)
+      : saveCache(next, user?.id);
+    void persistence.then(() => {
       if (scope.current.isCurrent(token) && user?.isLocalOnly && stateRef.current === next) setLastSyncMessage('تم الحفظ على هذا الجهاز.');
     }).catch(() => {
       if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر حفظ التعديل على هذا الجهاز. يرجى تصدير نسخة احتياطية.');
     });
-    if (user && !user.isLocalOnly && next.supabaseConfig.autoSync) {
-      void syncQueue.current.run(async () => {
-        if (!scope.current.isCurrent(token)) return;
-        const cfg = { ...next.supabaseConfig, lastSyncedAt: stateRef.current.supabaseConfig.lastSyncedAt };
-        const res = await pushStateToSupabase(next, cfg, user);
-        if (!scope.current.isCurrent(token)) return;
-        setLastSyncMessage(res.message);
-        if (res.ok && res.updatedAt) {
-          const current = stateRef.current;
-          const acknowledged = { ...current, pendingCloudSync: localRevision.current !== revision, supabaseConfig: { ...current.supabaseConfig, lastSyncedAt: res.updatedAt } };
-          applyState(acknowledged);
-          await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user.id), JSON.stringify(acknowledged)));
-        }
-      }).catch(() => {
-        if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر رفع التعديل. تم الاحتفاظ به محلياً.');
-      });
-    }
+    activateWorker();
     return true;
   };
 
@@ -849,7 +895,10 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Configuration is device metadata, not an unsynced financial mutation.
     applyState(next);
     try {
-      await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(next)));
+      await syncWorker.current?.changeConfiguration(syncConfigIdentity(config));
+      if (!scope.current.isCurrent(token)) return false;
+      await saveCache(stateRef.current, user?.id);
+      activateWorker();
       return scope.current.isCurrent(token);
     } catch {
       if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر حفظ إعدادات المزامنة على هذا الجهاز.');
@@ -860,27 +909,22 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncToCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
     const token = scope.current.capture();
     const user = userRef.current;
-    setIsSyncing(true);
-    return syncQueue.current.run(async () => {
     try {
       if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
-      if (recoveryRequired.current) return { ok: false, success: false, message: 'استرجع نسخة صحيحة قبل الرفع.' };
+      if (recoveryRequired.current || hydrating.current) return { ok: false, success: false, message: 'استرجع نسخة صحيحة قبل الرفع.' };
+      if (!user || user.isLocalOnly) return { ok: false, success: false, failureKind: 'session', message: 'سجل الدخول بحساب سحابي قبل الرفع.' };
       const current = stateRef.current;
-      const revision = localRevision.current;
       const cfg = overrideCfg || current.supabaseConfig;
-      const res = await pushStateToSupabase(current, cfg, user);
-      if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
-      setLastSyncMessage(res.message);
-      if (res.ok && res.updatedAt) {
-        const next = { ...stateRef.current, pendingCloudSync: localRevision.current !== revision, supabaseConfig: { ...cfg, lastSyncedAt: res.updatedAt } };
-        applyState(next);
-        await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(next)));
-      }
-      return res;
-    } finally {
-      if (scope.current.isCurrent(token)) setIsSyncing(false);
+      const worker = syncWorker.current || startSyncWorker(user, token);
+      const acknowledgement = worker.getRecord();
+      if (cloudSyncStatus.phase === 'storage-error' && acknowledgement?.pending === null && acknowledgement.acknowledgedRevision === localRevision.current
+        && acknowledgement.syncedAt && acknowledgement.configId === syncConfigIdentity(cfg)) return await worker.flush();
+      await worker.enqueue({ ...current, supabaseConfig: cfg }, localRevision.current, syncConfigIdentity(cfg), cfg.lastSyncedAt);
+      await worker.resumeAfterRepair(syncConfigIdentity(cfg));
+      return await worker.flush();
+    } catch {
+      return { ok: false, success: false, message: 'تعذر حفظ قائمة الرفع محلياً. تم الاحتفاظ بالتعديل.' };
     }
-    });
   };
 
   const pullFromCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
@@ -911,13 +955,15 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         const cleared = { ...before, supabaseConfig: { ...(overrideCfg || before.supabaseConfig), lastSyncedAt: undefined } };
         applyState(cleared);
-        await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(cleared)));
+        await syncWorker.current?.observeCloudBaseline(undefined, true);
+        await saveCache(cleared, user?.id);
       }
       if (res.ok && res.state) {
         recoveryRequired.current = false;
         const merged = mergePartialCloudState({ ...before, supabaseConfig: overrideCfg || before.supabaseConfig }, res.state, res.updatedAt, res.snapshotUpdatedAt);
         applyState(merged);
-        await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(merged)));
+        await syncWorker.current?.observeCloudBaseline(res.snapshotUpdatedAt === null ? undefined : res.snapshotUpdatedAt || res.updatedAt);
+        await saveCache(merged, user?.id);
       }
       return res;
     } finally {
@@ -935,6 +981,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   function loginUser(user: AuthUser) {
+    syncWorker.current?.dispose(); syncWorker.current = null;
+    setCloudSyncStatus({ phase: 'idle', outbox: null });
     pendingLogoutConfig.current = null;
     setAuthCleanupPending(false);
     const token = scope.current.begin(user.id);
@@ -954,6 +1002,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (async () => {
       const key = getStorageKeyForUser(user.id);
       let cacheLoaded = false;
+      let identityVerified = false;
+      let outbox: SyncOutbox<MaliState> | null = null;
       try {
         const cachedRaw = await storageQueue.current.run(() => AsyncStorage.getItem(key));
         if (!scope.current.isCurrent(token)) return;
@@ -966,8 +1016,20 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
           const parsed = JSON.parse(cachedRaw);
+          try { outbox = validateSyncOutbox(parsed.cloudOutbox, user.id, raw => validateAndSanitizeBackupPayload(raw, userState).valid); }
+          catch {
+            recoveryRequired.current = true;
+            await storageQueue.current.run(() => AsyncStorage.setItem(key + '_recovery', cachedRaw));
+            setLastSyncMessage('قائمة الرفع المحلية تحتاج مراجعة. تم الاحتفاظ بها دون رفع أو استبدال.');
+            return;
+          }
           const revision = parsed.localRevision;
           localRevision.current = Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+          if (outbox?.pending && outbox.pending.revision > localRevision.current) {
+            recoveryRequired.current = true;
+            await storageQueue.current.run(() => AsyncStorage.setItem(key + '_recovery', cachedRaw));
+            return;
+          }
           const pending = typeof parsed.pendingCloudSync === 'boolean' ? parsed.pendingCloudSync :
             Boolean(parsed.lastModifiedAt && (!parsed.supabaseConfig?.lastSyncedAt || Date.parse(parsed.lastModifiedAt) > Date.parse(parsed.supabaseConfig.lastSyncedAt)));
           userState = { ...validation.state, localRevision: localRevision.current, pendingCloudSync: pending, supabaseConfig: {
@@ -989,16 +1051,19 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const res = await syncQueue.current.run(() => pullStateFromSupabase(userState.supabaseConfig, user));
         if (!scope.current.isCurrent(token)) return;
         setLastSyncMessage(res.message);
-        const hasPendingLocal = Boolean(userState.pendingCloudSync);
+        identityVerified = res.identityVerified === true;
+        const hasPendingLocal = Boolean(userState.pendingCloudSync || outbox?.pending || outbox?.stop);
         if (res.ok && res.state && !hasPendingLocal && stateRef.current === before) {
           const merged = mergePartialCloudState(userState, res.state, res.updatedAt, res.snapshotUpdatedAt);
           applyState(merged);
-          await storageQueue.current.run(() => AsyncStorage.setItem(key, JSON.stringify(merged)));
+          if (outbox) outbox = { ...outbox, syncedAt: merged.supabaseConfig.lastSyncedAt };
+          await saveCache(merged, user.id, outbox);
         } else if (res.isEmpty) {
           // New cloud users keep an empty vault; no demo data is uploaded on login.
           const cleared = { ...stateRef.current, supabaseConfig: { ...stateRef.current.supabaseConfig, lastSyncedAt: undefined } };
           applyState(cleared);
-          await storageQueue.current.run(() => AsyncStorage.setItem(key, JSON.stringify(cleared)));
+          if (outbox && !outbox.stop) outbox = { ...outbox, syncedAt: undefined, pending: outbox.pending ? { ...outbox.pending, payload: { ...outbox.pending.payload, supabaseConfig: { ...outbox.pending.payload.supabaseConfig, lastSyncedAt: undefined } } } : null };
+          await saveCache(cleared, user.id, outbox);
         } else if (hasPendingLocal) {
           setLastSyncMessage('توجد تعديلات محلية غير مرفوعة. تم الاحتفاظ بها؛ ارفعها أو صدّر نسخة احتياطية قبل استرجاع السحابة.');
         }
@@ -1008,12 +1073,24 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLastSyncMessage(cacheLoaded ? 'تعذر تحميل السحابة. تم الاحتفاظ بالتعديلات المحلية.' : 'تعذر قراءة الخزنة المحلية. تم إيقاف التعديلات لحماية البيانات؛ استرجع نسخة صحيحة.');
         }
       } finally {
-        if (scope.current.isCurrent(token)) { hydrating.current = false; setIsLoading(false); setIsSyncing(false); }
+        if (scope.current.isCurrent(token)) {
+          hydrating.current = false; setIsLoading(false); setIsSyncing(false);
+          if (cacheLoaded && !recoveryRequired.current && !user.isLocalOnly) {
+            const worker = startSyncWorker(user, token, outbox || undefined);
+            void (async () => {
+              if (identityVerified) await worker.resumeVerifiedSession();
+              if (stateRef.current.pendingCloudSync || outbox?.pending || outbox?.stop) await worker.enqueue(stateRef.current, localRevision.current, syncConfigIdentity(stateRef.current.supabaseConfig), stateRef.current.supabaseConfig.lastSyncedAt);
+              if (scope.current.isCurrent(token)) activateWorker();
+            })().catch(() => { if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر استعادة قائمة الرفع المحلية.'); });
+          }
+        }
       }
     })();
   }
 
   function invalidateLocalSession() {
+    syncWorker.current?.dispose(); syncWorker.current = null;
+    setCloudSyncStatus({ phase: 'idle', outbox: null });
     setMutationSession(scope.current.begin(null));
     recoveryRequired.current = false;
     hydrating.current = false;
@@ -1066,6 +1143,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isSyncing,
         lastSyncMessage,
+        cloudSyncStatus,
         authCleanupPending,
         updateMarketRates,
         addContact,

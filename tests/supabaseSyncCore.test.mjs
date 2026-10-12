@@ -54,6 +54,33 @@ function fixture(options = {}) {
   return { service, queries, calls, client };
 }
 
+test('typed write failure categories distinguish transient transport, session, validation and permanent rejection',async()=>{
+  for(const [options,kind] of [
+    [{authError:{message:'network',name:'AuthRetryableFetchError'}},'transient'],
+    [{authError:{message:'invalid token',status:401}},'session'],
+    [{rpcResult:{data:null,error:{message:'temporarily unavailable',status:503}}},'transient'],
+    [{rpcResult:{data:null,error:{message:'permission denied',code:'42501',status:403}}},'permanent'],
+    [{rpcResult:{data:{ok:false},error:null}},'permanent'],
+  ]){const f=fixture(options);assert.equal((await f.service.pushStateToSupabase(baseState(),undefined,user)).failureKind,kind);}
+  const f=fixture(),invalid=baseState();invalid.accounts=[account(),account()];
+  assert.equal((await f.service.pushStateToSupabase(invalid,undefined,user)).failureKind,'validation');assert.equal(f.calls.length,0);
+});
+
+test('aborted identity verification releases the write and never issues a later RPC',async()=>{
+  const f=fixture(),controller=new AbortController();let release;
+  f.client.auth.getUser=()=>new Promise(resolve=>{release=resolve;});
+  const pending=f.service.pushStateToSupabase(baseState(),undefined,user,{signal:controller.signal});controller.abort();
+  assert.equal((await pending).failureKind,'transient');release({data:{user:{id:USER_ID}},error:null});await Promise.resolve();assert.equal(f.calls.length,0);
+});
+
+test('production RPC builder receives cancellation signal and late committed responses cannot be acknowledged',async()=>{
+  const f=fixture(),controller=new AbortController();let release,seen;
+  f.client.rpc=()=>({abortSignal:signal=>{seen=signal;return new Promise(resolve=>{release=resolve;});}});
+  const pending=f.service.pushStateToSupabase(baseState(),undefined,user,{signal:controller.signal});
+  for(let n=0;n<15;n++)await Promise.resolve();assert.equal(seen,controller.signal);controller.abort();assert.equal((await pending).ok,false);
+  release({data:{ok:true,updatedAt:SAVED},error:null});await Promise.resolve();
+});
+
 test('cloud writes reject mismatched server user, missing caller and local guests', async () => {
   for (const [options, caller] of [[{ authUsers: [OTHER_ID] }, user], [{}, null], [{}, { ...user, isLocalOnly: true }]]) {
     const f = fixture(options);

@@ -11,19 +11,22 @@ export interface SyncResult {
   conflictDetected?: boolean;
   cloudState?: Partial<MaliState>;
   data?: MaliState;
+  failureKind?: 'transient' | 'session' | 'configuration' | 'validation' | 'permanent';
+  /** Produced only after successful server ownership verification. */
+  identityVerified?: true;
 }
 export interface PullResult extends SyncResult {
   state?: Partial<MaliState>;
   isEmpty?: boolean;
 }
-interface DbError { message: string }
+interface DbError { message: string; code?: string; status?: number; name?: string }
 interface DbResult<T = unknown> { data: T | null; error: DbError | null }
 /** Injectable boundary runs the production sync logic without native modules. */
 export interface SyncClient {
   auth: { getUser(): Promise<{ data: { user: { id: string } | null }; error: DbError | null }> };
   // The fluent query builder varies by table; every result is checked below.
   from(table: string): any;
-  rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult<any>>;
+  rpc(name: string, args: Record<string, unknown>): PromiseLike<DbResult<any>> & { abortSignal?(signal: AbortSignal): PromiseLike<DbResult<any>> };
 }
 interface SyncDependencies {
   getClient(config: SupabaseConfig): SyncClient;
@@ -35,17 +38,42 @@ const TABLES = ['mali_accounts', 'mali_contacts', 'mali_usd_deals', 'mali_transa
 const fail = (message: string): SyncResult => ({ ok: false, success: false, message });
 const isObject = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validTimestamp = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
+class SyncFailure extends Error {
+  readonly kind: NonNullable<SyncResult['failureKind']>;
+  constructor(message: string, kind: NonNullable<SyncResult['failureKind']>) { super(message); this.kind = kind; }
+}
+async function unlessAborted<T>(promise: PromiseLike<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return await promise;
+  if (signal.aborted) throw new SyncFailure('تم إلغاء طلب الرفع.', 'transient');
+  let abort: () => void = () => {};
+  try {
+    return await Promise.race([promise, new Promise<T>((_resolve, reject) => {
+      abort = () => reject(new SyncFailure('تم إلغاء طلب الرفع.', 'transient'));
+      signal.addEventListener('abort', abort, { once: true });
+    })]);
+  } finally { signal.removeEventListener('abort', abort); }
+}
+function errorKind(error: unknown, fallback: NonNullable<SyncResult['failureKind']> = 'permanent'): NonNullable<SyncResult['failureKind']> {
+  if (error instanceof SyncFailure) return error.kind;
+  const detail = error as Partial<DbError> | null;
+  if (detail?.status === 429 || (detail?.status && detail.status >= 500) || detail?.name === 'AuthRetryableFetchError'
+    || detail?.name === 'AbortError' || error instanceof TypeError || /failed to fetch|network request failed|fetch failed/i.test(detail?.message || '')) return 'transient';
+  if (detail?.status === 401 || ['bad_jwt', 'session_not_found', 'refresh_token_not_found'].includes(detail?.code || '')) return 'session';
+  return fallback;
+}
+const failure = (error: unknown) => ({ ...fail(error instanceof Error ? error.message : 'فشل الاتصال بالسحابة.'), failureKind: errorKind(error) });
 
 export function createSupabaseSyncService(deps: SyncDependencies) {
   const configured = (config: SupabaseConfig) => Boolean(config?.url?.trim() && config?.anonKey?.trim());
-  async function verifyUser(client: SyncClient, expectedId: string) {
-    const { data, error } = await client.auth.getUser();
-    if (error || !data?.user || data.user.id !== expectedId) throw new Error('تغيّرت جلسة الحساب أو انتهت صلاحيتها. يرجى تسجيل الدخول مجدداً.');
+  async function verifyUser(client: SyncClient, expectedId: string, signal?: AbortSignal) {
+    const { data, error } = await unlessAborted(client.auth.getUser(), signal);
+    if (error) throw new SyncFailure('تعذر التحقق من جلسة الحساب. يرجى تسجيل الدخول مجدداً.', errorKind(error, 'session'));
+    if (!data?.user || data.user.id !== expectedId) throw new SyncFailure('تغيّرت جلسة الحساب أو انتهت صلاحيتها. يرجى تسجيل الدخول مجدداً.', 'session');
   }
-  async function verifiedClient(config: SupabaseConfig, user?: AuthUser | null) {
-    if (!user || user.isLocalOnly || !user.id) throw new Error('يجب تسجيل الدخول بحساب سحابي موثّق لتفعيل المزامنة.');
+  async function verifiedClient(config: SupabaseConfig, user?: AuthUser | null, signal?: AbortSignal) {
+    if (!user || user.isLocalOnly || !user.id) throw new SyncFailure('يجب تسجيل الدخول بحساب سحابي موثّق لتفعيل المزامنة.', 'session');
     const client = deps.getClient(config);
-    await verifyUser(client, user.id);
+    await verifyUser(client, user.id, signal);
     return { client, userId: user.id };
   }
   function validatePayload(value: unknown, userId: string): MaliState {
@@ -86,31 +114,36 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
   }
   async function pushStateToSupabase(state: MaliState, overrideConfig?: SupabaseConfig, currentUser?: AuthUser | null,
     // Compatibility only: forceOverwrite deliberately grants no bypass.
-    _options?: { forceOverwrite?: boolean }): Promise<SyncResult> {
+    _options?: { forceOverwrite?: boolean; signal?: AbortSignal }): Promise<SyncResult> {
     const config = overrideConfig || state.supabaseConfig;
-    if (!configured(config)) return fail('إعدادات Supabase غير مكتملة.');
-    if (config.lastSyncedAt !== undefined && !validTimestamp(config.lastSyncedAt)) return fail('تاريخ آخر مزامنة غير صالح. اسحب النسخة السحابية أولاً.');
+    if (!configured(config)) return { ...fail('إعدادات Supabase غير مكتملة.'), failureKind: 'configuration' };
+    if (config.lastSyncedAt !== undefined && !validTimestamp(config.lastSyncedAt)) return { ...fail('تاريخ آخر مزامنة غير صالح. اسحب النسخة السحابية أولاً.'), failureKind: 'validation' };
     try {
-      const { client, userId } = await verifiedClient(config, currentUser);
-      const { data, error } = await client.rpc('mali_sync_vault', {
+      const { client, userId } = await verifiedClient(config, currentUser, _options?.signal);
+      if (_options?.signal?.aborted) throw new SyncFailure('تم إلغاء طلب الرفع.', 'transient');
+      let payload;
+      try { payload = payloadForState(state, userId); } catch (error) { throw new SyncFailure(error instanceof Error ? error.message : 'النسخة المالية غير صالحة.', 'validation'); }
+      const query = client.rpc('mali_sync_vault', {
         p_expected_user_id: userId, p_expected_updated_at: config.lastSyncedAt || null,
-        p_payload: payloadForState(state, userId),
+        p_payload: payload,
       });
-      if (error) throw new Error(`فشل حفظ الخزنة السحابية: ${error.message}`);
+      const { data, error } = await unlessAborted(_options?.signal && query.abortSignal ? query.abortSignal(_options.signal) : query, _options?.signal);
+      if (_options?.signal?.aborted) throw new SyncFailure('تم إلغاء طلب الرفع.', 'transient');
+      if (error) throw new SyncFailure(`فشل حفظ الخزنة السحابية: ${error.message}`, errorKind(error));
       if (!isObject(data) || typeof data.ok !== 'boolean') throw new Error('استجابة المزامنة السحابية غير صالحة.');
-      await verifyUser(client, userId);
+      await verifyUser(client, userId, _options?.signal);
       if (!data.ok) {
         if (data.conflictDetected === true && validTimestamp(data.updatedAt)) return {
           ...fail('تغيّرت الخزنة السحابية منذ آخر سحب. اسحب النسخة الأحدث قبل حفظ تعديلاتك.'),
           conflictDetected: true, updatedAt: data.updatedAt, timestamp: data.updatedAt,
           snapshotUpdatedAt: data.updatedAt, cloudState: validatePayload(data.cloudState, userId),
         };
-        return fail('رفض الخادم حفظ الخزنة السحابية.');
+        return { ...fail('رفض الخادم حفظ الخزنة السحابية.'), failureKind: 'permanent' };
       }
       if (!validTimestamp(data.updatedAt)) throw new Error('لم يُرجع الخادم تاريخ الحفظ الموثّق.');
       return { ok: true, success: true, updatedAt: data.updatedAt, timestamp: data.updatedAt,
         snapshotUpdatedAt: data.updatedAt, message: 'تم حفظ الخزنة وكافة الجداول المالية معاً بنجاح.' };
-    } catch (error) { return fail(error instanceof Error ? error.message : 'فشل الرفع إلى السحابة.'); }
+    } catch (error) { return failure(error); }
   }
   async function pullStateFromSupabase(config: SupabaseConfig, currentUser?: AuthUser | null): Promise<PullResult> {
     if (!configured(config)) return fail('إعدادات Supabase غير مكتملة.');
@@ -126,6 +159,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
         const state = validatePayload(snapshot.payload, userId);
         await verifyUser(client, userId);
         return { ok: true, success: true, state, data: state, updatedAt: snapshot.updated_at,
+          identityVerified: true,
           timestamp: snapshot.updated_at, snapshotUpdatedAt: snapshot.updated_at, message: 'تم استرجاع خزنتك السحابية بنجاح.' };
       }
       const results: DbResult<any[]>[] = await Promise.all(TABLES.map((table) => client.from(table).select('*').eq('user_id', userId)));
@@ -135,7 +169,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       }
       await verifyUser(client, userId);
       const rows = results.flatMap((result) => result.data!);
-      if (!rows.length) return { ...fail('لا توجد نسخة محفوظة لهذا الحساب.'), isEmpty: true, snapshotUpdatedAt: null };
+      if (!rows.length) return { ...fail('لا توجد نسخة محفوظة لهذا الحساب.'), isEmpty: true, snapshotUpdatedAt: null, identityVerified: true };
       if (rows.some((row) => row.user_id !== userId)) throw new Error('مالك السجلات المالية غير صالح.');
       if (new Set(rows.map((row) => row.workspace_key)).size !== 1) throw new Error('توجد مساحات عمل قديمة متعددة. تعذر دمجها تلقائياً بأمان.');
       if (!results[0].data!.length) throw new Error('توجد سجلات مالية بدون حسابات. تعذر استرجاع النسخة بأمان.');
@@ -153,6 +187,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       };
       const state = validatePayload(legacyPayload, userId);
       return { ok: true, success: true, state, data: state, updatedAt, timestamp: updatedAt,
+        identityVerified: true,
         snapshotUpdatedAt: null, message: 'تم استرجاع الجداول المالية القديمة الخاصة بحسابك.' };
     } catch (error) { return fail(error instanceof Error ? error.message : 'فشل السحب من السحابة.'); }
   }
