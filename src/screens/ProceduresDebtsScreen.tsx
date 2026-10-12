@@ -1,4 +1,5 @@
 import { nextSubmissionKey } from '../services/submissionKey';
+import { parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
 import {
   View,
@@ -132,8 +133,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
     .reduce((s, d) => s + d.remainingAmount, 0);
 
   const handleSaveDebt = () => {
-    const amt = parseFloat(debtAmount) || 0;
-    if (!personName.trim() || amt <= 0) return;
+    const amt = parseFinancialInput(debtAmount);
+    if (!personName.trim() || amt === null || amt <= 0) return;
     const validWallet = state.accounts.find(
       (a) => a.id === selectedWalletId && a.currency === debtCurrency
     );
@@ -167,8 +168,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
   const handleSaveInstallment = () => {
     if (!activeDebtForPay) return;
-    const amt = parseFloat(installmentAmt) || 0;
-    if (amt <= 0) return;
+    const amt = parseFinancialInput(installmentAmt);
+    if (amt === null || amt <= 0) return;
 
     if (!addDebtInstallment({
       idempotencyKey: submissionKey + ":addDebtInstallment",
@@ -186,6 +187,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
   const handleSaveProcedure = () => {
     if (!procTitle.trim()) return;
+    const amt = procAmt.trim() ? parseFinancialInput(procAmt) : undefined;
+    if (amt === null) return;
     const stages = procStagesText
       .split('\n')
       .map((s) => s.trim())
@@ -196,7 +199,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       procedureType: procType,
       bankOrEntity: procBank.trim() || 'مصرف / جهة مالية',
       referenceNumber: procRef.trim() || undefined,
-      amount: parseFloat(procAmt) || undefined,
+      amount: amt,
       currency: procCurrency,
       dueDate: procDueDate.trim() || undefined,
       stages,

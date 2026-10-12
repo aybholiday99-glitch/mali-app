@@ -1,4 +1,5 @@
 import { nextSubmissionKey } from '../services/submissionKey';
+import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
 import {
   View,
@@ -13,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { PaymentMethodType, UsdDeal } from '../types/mali';
 import { CalmDropdown } from '../components/CalmDropdown';
-import { calculateUsdDealCostBasis, roundMoney } from '../services/financialEngine';
+import { calculateUsdDealCostBasis } from '../services/financialEngine';
 import {
   ReceiptAttachmentField,
   ReceiptInlineStrip,
@@ -165,59 +166,48 @@ export const UsdDealsScreen: React.FC = () => {
   });
 
   // Live calculations for New Deal Modal
-  const parsedBuyUsd = parseFloat(usdBoughtStr) || 0;
-  const parsedBuyRate = parseFloat(buyRateStr) || 0;
-  const parsedBuyComm = parseFloat(buyCommStr) || 0;
-  const previewBuyGrossLyd = Number((parsedBuyUsd * parsedBuyRate).toFixed(2));
-  const previewBuyTotalLyd = Number(
-    (previewBuyGrossLyd + parsedBuyComm).toFixed(2)
-  );
+  const buyUsdValue = parseFinancialInput(usdBoughtStr);
+  const buyRateValue = parseFinancialInput(buyRateStr);
+  const buyCommValue = parseFinancialInput(buyCommStr, { optional: true });
+  const parsedBuyUsd = financialPreview(buyUsdValue);
+  const parsedBuyRate = financialPreview(buyRateValue, 4);
+  const parsedBuyComm = financialPreview(buyCommValue);
+  const previewBuyGrossLyd = financialPreview(parsedBuyUsd * parsedBuyRate);
+  const previewBuyTotalLyd = financialPreview(previewBuyGrossLyd + parsedBuyComm);
   const previewEffectiveRate =
     parsedBuyUsd > 0
-      ? Number((previewBuyTotalLyd / parsedBuyUsd).toFixed(4))
+      ? financialPreview(previewBuyTotalLyd / parsedBuyUsd, 4)
       : 0;
 
   // Immediate Sell Preview
-  const parsedImmSellUsd = Math.min(
-    parseFloat(immSellUsdStr) || 0,
-    parsedBuyUsd
-  );
-  const parsedImmSellRate = parseFloat(immSellRateStr) || 0;
-  const parsedImmSellComm = parseFloat(immSellCommStr) || 0;
-  const previewImmSellNetLyd = Number(
-    (parsedImmSellUsd * parsedImmSellRate - parsedImmSellComm).toFixed(2)
-  );
-  const previewImmSellCost = Number(
-    (parsedImmSellUsd * previewEffectiveRate).toFixed(2)
-  );
-  const previewImmSellProfit = Number(
-    (previewImmSellNetLyd - previewImmSellCost).toFixed(2)
-  );
+  const immSellUsdValue = parseFinancialInput(immSellUsdStr);
+  const immSellRateValue = parseFinancialInput(immSellRateStr);
+  const immSellCommValue = parseFinancialInput(immSellCommStr, { optional: true });
+  const parsedImmSellUsd = financialPreview(immSellUsdValue);
+  const parsedImmSellRate = financialPreview(immSellRateValue, 4);
+  const parsedImmSellComm = financialPreview(immSellCommValue);
+  const previewImmSellNetLyd = financialPreview(parsedImmSellUsd * parsedImmSellRate - parsedImmSellComm);
+  const previewImmSellCost = financialPreview(parsedImmSellUsd * previewEffectiveRate);
+  const previewImmSellProfit = financialPreview(previewImmSellNetLyd - previewImmSellCost);
 
   // Live calculations for Sale Modal (on existing deal)
-  const parsedSaleUsd = Math.min(
-    parseFloat(saleUsdStr) || 0,
-    activeDealForSale?.remainingUsd || 0
-  );
-  const parsedSaleRate = isPersonalTakeMode
+  const saleUsdValue = parseFinancialInput(saleUsdStr);
+  const saleRateValue = isPersonalTakeMode
     ? activeDealForSale?.effectiveBuyRate || 0
-    : parseFloat(saleRateStr) || 0;
-  const parsedSaleComm = isPersonalTakeMode ? 0 : parseFloat(saleCommStr) || 0;
-  const previewSaleGrossLyd = Number(
-    (parsedSaleUsd * parsedSaleRate).toFixed(2)
-  );
-  const previewSaleNetLyd = Number(
-    (previewSaleGrossLyd - parsedSaleComm).toFixed(2)
-  );
+    : parseFinancialInput(saleRateStr);
+  const saleCommValue = isPersonalTakeMode ? 0 : parseFinancialInput(saleCommStr, { optional: true });
+  const parsedSaleUsd = financialPreview(saleUsdValue);
+  const parsedSaleRate = financialPreview(saleRateValue, 4);
+  const parsedSaleComm = financialPreview(saleCommValue);
+  const previewSaleGrossLyd = financialPreview(parsedSaleUsd * parsedSaleRate);
+  const previewSaleNetLyd = financialPreview(previewSaleGrossLyd - parsedSaleComm);
   const previewSaleCostBasis = activeDealForSale && parsedSaleUsd > 0 &&
-    roundMoney(parsedSaleUsd) <= activeDealForSale.remainingUsd
-    ? calculateUsdDealCostBasis(activeDealForSale, roundMoney(parsedSaleUsd)) : 0;
+    parsedSaleUsd <= activeDealForSale.remainingUsd
+    ? financialPreview(calculateUsdDealCostBasis(activeDealForSale, parsedSaleUsd)) : 0;
   const previewSaleProfit = isPersonalTakeMode
     ? 0
-    : Number((previewSaleNetLyd - previewSaleCostBasis).toFixed(2));
-  const previewRateSpread = Number(
-    (parsedSaleRate - (activeDealForSale?.buyRate || 0)).toFixed(3)
-  );
+    : financialPreview(previewSaleNetLyd - previewSaleCostBasis);
+  const previewRateSpread = financialPreview(parsedSaleRate - (activeDealForSale?.buyRate || 0), 3);
 
   // Handlers for switching Cash vs Bank Transfer in Buy Modal
   const handleSelectBuyMode = (mode: 'cash' | 'bank') => {
@@ -289,28 +279,31 @@ export const UsdDealsScreen: React.FC = () => {
 
   const handleCreateDeal = () => {
     if (
-      parsedBuyUsd <= 0 ||
-      parsedBuyRate <= 0 ||
+      buyUsdValue === null || buyUsdValue <= 0 ||
+      buyRateValue === null || buyRateValue <= 0 ||
+      buyCommValue === null ||
       !sourceLydId ||
       !targetUsdId
     ) {
       return;
     }
+    if (includeImmediateSell && (immSellUsdValue === null || immSellUsdValue <= 0 ||
+      immSellRateValue === null || immSellRateValue <= 0 || immSellCommValue === null)) return;
 
     const srcAcc = accountMap.get(sourceLydId);
     if (!createUsdDeal({
       idempotencyKey: submissionKey + ":createUsdDeal",
       title:
         dealTitle.trim() ||
-        `شراء ${parsedBuyUsd.toLocaleString()}$ (${
+        `شراء ${buyUsdValue.toLocaleString()}$ (${
           buyMode === 'cash' ? 'نقدي كاش' : `تحويل - ${srcAcc?.bankName || ''}`
         })`,
       contactId: sellerContactId,
       counterparty: counterparty.trim() || undefined,
       counterpartyPhone: counterpartyPhone.trim() || undefined,
-      totalUsdBought: parsedBuyUsd,
-      buyRate: parsedBuyRate,
-      buyCommissionLyd: parsedBuyComm,
+      totalUsdBought: buyUsdValue,
+      buyRate: buyRateValue,
+      buyCommissionLyd: buyCommValue,
       buyPaymentMethod: buyMethod,
       sourceLydAccountId: sourceLydId,
       usdHoldingAccountId: targetUsdId,
@@ -318,11 +311,11 @@ export const UsdDealsScreen: React.FC = () => {
         buyReceiptImages.length > 0 ? buyReceiptImages : undefined,
       notes: dealNotes.trim() || undefined,
       immediateSale:
-        includeImmediateSell && parsedImmSellUsd > 0 && parsedImmSellRate > 0
+        includeImmediateSell && immSellUsdValue !== null && immSellRateValue !== null && immSellCommValue !== null
           ? {
-              usdAmount: parsedImmSellUsd,
-              sellRate: parsedImmSellRate,
-              commissionLyd: parsedImmSellComm,
+              usdAmount: immSellUsdValue,
+              sellRate: immSellRateValue,
+              commissionLyd: immSellCommValue,
               paymentMethod: immSellMethod,
               targetLydAccountId: immSellTargetLydId,
               buyerContactId: immBuyerContactId,
@@ -377,17 +370,17 @@ export const UsdDealsScreen: React.FC = () => {
   };
 
   const handleConfirmSale = () => {
-    if (!activeDealForSale || !Number.isFinite(parsedSaleUsd) || parsedSaleUsd <= 0 ||
-      roundMoney(parsedSaleUsd) > activeDealForSale.remainingUsd) return;
+    if (!activeDealForSale || saleUsdValue === null || saleUsdValue <= 0 ||
+      saleRateValue === null || saleCommValue === null) return;
     const targetId = isPersonalTakeMode ? personalUsdAccountId : saleTargetLydId;
     const target = accountMap.get(targetId);
     if (!target || target.currency !== (isPersonalTakeMode ? 'USD' : 'LYD')) return;
     if (!recordDealSale({
       idempotencyKey: submissionKey + ":recordDealSale",
       dealId: activeDealForSale.id,
-      usdAmount: parsedSaleUsd,
-      sellRate: parsedSaleRate,
-      commissionLyd: parsedSaleComm,
+      usdAmount: saleUsdValue,
+      sellRate: saleRateValue,
+      commissionLyd: saleCommValue,
       paymentMethod: saleMethod,
       targetLydAccountId: targetId,
       sourceUsdAccountId: activeDealForSale.usdHoldingAccountId,

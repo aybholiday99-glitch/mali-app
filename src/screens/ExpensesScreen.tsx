@@ -1,4 +1,5 @@
 import { nextSubmissionKey } from '../services/submissionKey';
+import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import { financialDate } from '../services/financialDate';
 import React, { useState } from 'react';
 import {
@@ -46,6 +47,8 @@ export const ExpensesScreen: React.FC = () => {
 
   // --- Fast & Concise Inline Expense State (القيمة المسحوبة + قائمة منسدلة للغرض + قائمة منسدلة للحساب) ---
   const [quickAmount, setQuickAmount] = useState('');
+  const quickAmountValue = parseFinancialInput(quickAmount);
+  const quickAmountPreview = financialPreview(quickAmountValue);
   const [quickPurposeKey, setQuickPurposeKey] = useState(
     QUICK_EXPENSE_PURPOSES[0].key
   );
@@ -161,9 +164,9 @@ export const ExpensesScreen: React.FC = () => {
 
   // 1-Tap Save Quick Expense
   const handleQuickExpenseSubmit = () => {
-    const amt = parseFloat(quickAmount) || 0;
+    const amt = quickAmountValue;
     const acc = selectedQuickAccount;
-    if (amt <= 0 || !acc) return;
+    if (amt === null || amt <= 0 || !acc) return;
 
     const purposeObj =
       QUICK_EXPENSE_PURPOSES.find((p) => p.key === quickPurposeKey) ||
@@ -202,8 +205,8 @@ export const ExpensesScreen: React.FC = () => {
   };
 
   const handleSaveOtherTransaction = () => {
-    const amt = parseFloat(txAmount) || 0;
-    if (amt <= 0 || !txAccountId) return;
+    const amt = parseFinancialInput(txAmount);
+    if (amt === null || amt <= 0 || !txAccountId) return;
     const selectedAcc = accountMap.get(txAccountId);
     const currency: Currency = selectedAcc?.currency || 'LYD';
 
@@ -365,16 +368,16 @@ export const ExpensesScreen: React.FC = () => {
             styles.submitQuickBtn,
             {
               backgroundColor:
-                parseFloat(quickAmount) > 0 ? theme.primary : theme.textMuted,
+                quickAmountPreview > 0 ? theme.primary : theme.textMuted,
             },
           ]}
           onPress={handleQuickExpenseSubmit}
         >
           <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
           <Text style={styles.submitQuickBtnText} numberOfLines={1}>
-            {parseFloat(quickAmount) > 0
+            {quickAmountPreview > 0
               ? `سحب ${formatMoney(
-                  parseFloat(quickAmount),
+                  quickAmountPreview,
                   selectedQuickAccount?.currency || 'LYD'
                 )} (${quickCustomDetail.trim() || quickPurposeKey}) من ${
                   selectedQuickAccount?.name || ''
@@ -1098,10 +1101,9 @@ export const ExpensesScreen: React.FC = () => {
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
                   if (editingBudgetCat) {
-                    const val = parseFloat(budgetLimitInput);
-                    if (Number.isFinite(val) && val >= 0) {
-                      updateCategoryBudget(editingBudgetCat, val);
-                    }
+                    const val = parseFinancialInput(budgetLimitInput);
+                    if (val === null || val < 0) return;
+                    updateCategoryBudget(editingBudgetCat, val);
                     setEditingBudgetCat(null);
                   }
                 }}

@@ -1,4 +1,5 @@
 import { nextSubmissionKey } from '../services/submissionKey';
+import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
 import {
   View,
@@ -92,18 +93,17 @@ export const AccountsScreen: React.FC = () => {
     .filter((a) => a.currency === 'USD')
     .reduce((s, a) => s + a.balance, 0);
 
-  const parsedChequeAmt = parseFloat(chequeAmount) || 0;
-  const parsedDiscount = parseFloat(discountPct) || 0;
-  const calculatedFee = Number(
-    ((parsedChequeAmt * parsedDiscount) / 100).toFixed(2)
-  );
-  const calculatedNetCash = Number(
-    (parsedChequeAmt - calculatedFee).toFixed(2)
-  );
+  const chequeValue = parseFinancialInput(chequeAmount);
+  const discountValue = parseFinancialInput(discountPct);
+  const parsedChequeAmt = financialPreview(chequeValue);
+  const parsedDiscount = financialPreview(discountValue, 4);
+  const calculatedFee = financialPreview((parsedChequeAmt * parsedDiscount) / 100);
+  const calculatedNetCash = financialPreview(parsedChequeAmt - calculatedFee);
 
   const handleCreateAccount = () => {
     if (!accName.trim()) return;
-    const bal = parseFloat(initialBalance) || 0;
+    const bal = parseFinancialInput(initialBalance);
+    if (bal === null) return;
     const colors = [
       '#0D9488',
       '#0284C7',
@@ -140,13 +140,13 @@ export const AccountsScreen: React.FC = () => {
   };
 
   const handleLiquidateCheque = () => {
-    if (!sourceBankId || !targetCashId || parsedChequeAmt <= 0) return;
+    if (!sourceBankId || !targetCashId || chequeValue === null || discountValue === null || chequeValue <= 0) return;
     if (!liquidateChequeToCash({
       idempotencyKey: submissionKey + ":liquidateChequeToCash",
       sourceBankAccountId: sourceBankId,
       targetCashAccountId: targetCashId,
-      chequeAmountLyd: parsedChequeAmt,
-      discountPercent: parsedDiscount,
+      chequeAmountLyd: chequeValue,
+      discountPercent: discountValue,
       notes: liqNotes.trim() || undefined,
     })) return;
     setSubmissionKey(nextSubmissionKey());
@@ -155,8 +155,8 @@ export const AccountsScreen: React.FC = () => {
   };
 
   const handleDirectTransfer = () => {
-    const amt = parseFloat(trAmountStr) || 0;
-    if (!trFromId || !trToId || trFromId === trToId || amt <= 0) return;
+    const amt = parseFinancialInput(trAmountStr);
+    if (!trFromId || !trToId || trFromId === trToId || amt === null || amt <= 0) return;
     const fromAcc = state.accounts.find((a) => a.id === trFromId);
     const toAcc = state.accounts.find((a) => a.id === trToId);
     if (!fromAcc || !toAcc) return;
@@ -1075,7 +1075,8 @@ export const AccountsScreen: React.FC = () => {
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
                   if (editingAccount) {
-                    const val = parseFloat(newBalanceStr);
+                    const val = parseFinancialInput(newBalanceStr);
+                    if (val === null) return;
                     if (!updateAccountBalance(editingAccount.id, val)) return;
                     setEditingAccount(null);
                   }

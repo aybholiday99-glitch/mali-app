@@ -1,4 +1,5 @@
 import { nextSubmissionKey } from '../services/submissionKey';
+import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
 import {
   View,
@@ -122,21 +123,21 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
   const accountMap = new Map(state.accounts.map((a) => [a.id, a.name]));
 
   // Calculator values
-  const parsedCalcUsd = parseFloat(calcUsdInput) || 0;
-  const parsedCalcChequeLyd = parseFloat(calcChequeLydInput) || 0;
-  const calcFeeLyd = Number(((parsedCalcChequeLyd * discPct) / 100).toFixed(2));
-  const calcNetCashLyd = Number((parsedCalcChequeLyd - calcFeeLyd).toFixed(2));
+  const parsedCalcUsd = financialPreview(parseFinancialInput(calcUsdInput));
+  const parsedCalcChequeLyd = financialPreview(parseFinancialInput(calcChequeLydInput));
+  const calcFeeLyd = financialPreview((parsedCalcChequeLyd * discPct) / 100);
+  const calcNetCashLyd = financialPreview(parsedCalcChequeLyd - calcFeeLyd);
 
   const handleSaveRates = () => {
-    const cRate = parseFloat(cashRateInput);
-    const chRate = parseFloat(chequeRateInput);
-    const disc = parseFloat(discountInput);
-    updateMarketRates({
-      cashUsdToLyd: Number.isFinite(cRate) && cRate > 0 ? cRate : cashRate,
-      chequeUsdToLyd: Number.isFinite(chRate) && chRate > 0 ? chRate : chequeRate,
-      defaultChequeDiscountPercent:
-        Number.isFinite(disc) && disc >= 0 ? disc : 2.5,
-    });
+    const cRate = parseFinancialInput(cashRateInput);
+    const chRate = parseFinancialInput(chequeRateInput);
+    const disc = parseFinancialInput(discountInput);
+    if (cRate === null || chRate === null || disc === null) return;
+    if (!updateMarketRates({
+      cashUsdToLyd: cRate,
+      chequeUsdToLyd: chRate,
+      defaultChequeDiscountPercent: disc,
+    })) return;
     setRateModalOpen(false);
   };
 
@@ -703,7 +704,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   القيمة نقداً (كاش بسعر {cashRate}):
                 </Text>
                 <Text style={[styles.calcVal, { color: theme.success }]}>
-                  {formatMoney(parsedCalcUsd * cashRate, 'LYD')}
+                  {formatMoney(financialPreview(parsedCalcUsd * cashRate), 'LYD')}
                 </Text>
               </View>
               <View style={styles.calcRow}>
@@ -711,7 +712,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   القيمة بتحويل مصرفي/صك (بسعر {chequeRate}):
                 </Text>
                 <Text style={[styles.calcVal, { color: theme.blue }]}>
-                  {formatMoney(parsedCalcUsd * chequeRate, 'LYD')}
+                  {formatMoney(financialPreview(parsedCalcUsd * chequeRate), 'LYD')}
                 </Text>
               </View>
               <View style={styles.calcRow}>
@@ -719,7 +720,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   فرق القيمة بين التحويل والكاش:
                 </Text>
                 <Text style={[styles.calcVal, { color: theme.amber }]}>
-                  +{formatMoney(parsedCalcUsd * (chequeRate - cashRate), 'LYD')}
+                  +{formatMoney(financialPreview(parsedCalcUsd * (chequeRate - cashRate)), 'LYD')}
                 </Text>
               </View>
             </View>
@@ -923,11 +924,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               <TouchableOpacity
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
-                  const amt = parseFloat(qExpAmount) || 0;
+                  const amt = parseFinancialInput(qExpAmount);
                   const acc = state.accounts.find(
                     (a) => a.id === qExpAccountId
                   );
-                  if (amt <= 0 || !acc) return;
+                  if (amt === null || amt <= 0 || !acc) return;
                   const purposeObj =
                     QUICK_EXPENSE_PURPOSES.find(
                       (p) => p.key === qExpPurposeKey
