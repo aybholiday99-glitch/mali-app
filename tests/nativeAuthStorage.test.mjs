@@ -4,7 +4,9 @@ import test from 'node:test';
 import { createNativeAuthStorage } from '../src/services/nativeAuthStorageCore.ts';
 
 const KEY = 'mali_supabase_auth_example.supabase.co';
-const prefix = key => 'mali_auth_secure_v1.' + [...key].map(c=>c.charCodeAt(0).toString(16).padStart(2,'0')).join('');
+const hex = key => [...key].map(c=>c.charCodeAt(0).toString(16).padStart(2,'0')).join('');
+const prefix = key => 'mali_auth_secure_v1.' + hex(KEY) + '.' + hex(key);
+const flow = id => `${KEY}-flow-${id.repeat(32)}-code-verifier`;
 function fixture({ secure = new Map(), legacy = new Map() } = {}) {
   let available = true, operations = 0, crashAt = null, hook = null, legacyFailure = false;
   const secureOp = async (kind,key,value) => {
@@ -145,14 +147,14 @@ test('logout refuses successful credential-removal acknowledgement when legacy r
 
 test('logout clears current session, user, fixed verifier and indexed flow slots after restart',async()=>{
   const f=fixture(), adapter=f.adapter();
-  const keys=[KEY,KEY+'-user',KEY+'-code-verifier',KEY+'-flow-flow_A-code-verifier',KEY+'-flow-flow_B-code-verifier'];
+  const keys=[KEY,KEY+'-user',KEY+'-code-verifier',flow('a'),flow('b')];
   for(const key of keys)await adapter.setItem(key,'synthetic value for '+key);
-  await adapter.setItem(KEY+'-flows-code-verifier',JSON.stringify(['flow_A','flow_B']));
-  f.legacy.set(KEY+'-flow-flow_C-code-verifier','unmigrated legacy verifier');
+  await adapter.setItem(KEY+'-flows-code-verifier',JSON.stringify(['a'.repeat(32),'b'.repeat(32)]));
+  f.legacy.set(flow('c'),'unmigrated legacy verifier');
   await f.adapter().clearAll();
-  for(const key of [...keys,KEY+'-flows-code-verifier',KEY+'-flow-flow_C-code-verifier'])assert.equal(await f.adapter().getItem(key),null);
+  for(const key of [...keys,KEY+'-flows-code-verifier',flow('c')])assert.equal(await f.adapter().getItem(key),null);
   assert.equal(f.legacy.size,0);
-  for(const raw of f.secure.values())assert.equal(JSON.parse(raw).state,'deleted');
+  for(const [name,raw] of f.secure)if(!name.endsWith('.epoch'))assert.equal(JSON.parse(raw).state,'deleted');
 });
 
 test('operations serialize so a delayed write cannot complete after logout and recreate credentials',async()=>{
@@ -176,4 +178,107 @@ test('empty strings are copied exactly and stale inactive tails are removed on s
   await adapter.setItem(KEY,'long'.repeat(300));await adapter.setItem(KEY,'other'.repeat(100));
   await adapter.setItem(KEY,'');assert.equal(await adapter.getItem(KEY),'');
   assert.equal([...f.secure.keys()].filter(k=>/\.[ab]\.[0-9]+$/.test(k)).length,0);
+});
+
+test('namespace revocation blocks an unindexed PKCE verifier after restart and successful logout',async()=>{
+  const f=fixture();
+  // Actual SDK order: write the flow slot, then write its discoverable index.
+  await f.adapter().setItem(flow('d'),'orphaned synthetic verifier');
+  await f.adapter().clearAll();
+  assert.equal(await f.adapter().getItem(flow('d')),null);
+  // Even an old plaintext writer cannot resurrect an already revoked slot.
+  f.legacy.set(flow('d'),'old plaintext verifier');
+  assert.equal(await f.adapter().getItem(flow('d')),null);
+  assert.equal(f.legacy.has(flow('d')),false);
+});
+
+test('unavailable secure logout persists a credential-free fence across restart until proven cleanup',async()=>{
+  const f=fixture();await f.adapter().setItem(KEY,'stored');await f.adapter().setItem(flow('e'),'verifier');
+  f.available(false);
+  await assert.rejects(f.adapter().clearAll());
+  const fence='@mali_auth_logout_fence_v1_'+hex(KEY);
+  assert.equal(f.legacy.get(fence),'logout-pending');
+  f.available(true);
+  const restarted=f.adapter();
+  assert.equal(await restarted.getItem(KEY),null);
+  assert.equal(await restarted.getItem(flow('e')),null);
+  await assert.rejects(restarted.setItem(KEY,'new login before cleanup'));
+  await restarted.clearAll();
+  assert.equal(f.legacy.has(fence),false);
+  assert.equal(await f.adapter().getItem(KEY),null);
+  assert.equal(await f.adapter().getItem(flow('e')),null);
+  await restarted.setItem(KEY,'new login after cleanup');
+  assert.equal(await restarted.getItem(KEY),'new login after cleanup');
+});
+
+test('failed secure epoch replacement or chunk cleanup keeps the logout fence through restart',async()=>{
+  for(const failure of ['epoch','chunk']){
+    const f=fixture();await f.adapter().setItem(KEY,'stored');
+    f.hook(async(kind,key)=>{
+      if((failure==='epoch'&&kind==='set'&&key.endsWith('.epoch'))
+        ||(failure==='chunk'&&kind==='remove'&&key.endsWith('.a.0')))throw new Error('native denied');
+    });
+    await assert.rejects(f.adapter().clearAll());
+    f.hook(null);
+    assert.equal(await f.adapter().getItem(KEY),null);
+    await assert.rejects(f.adapter().setItem(KEY,'premature login'));
+    await f.adapter().clearAll();
+    assert.equal(await f.adapter().getItem(KEY),null);
+  }
+});
+
+test('logout refuses to acknowledge an unverified durable fence',async()=>{
+  const f=fixture();await f.adapter().setItem(KEY,'stored');
+  f.deps.legacy.setItem=async()=>{};
+  await assert.rejects(f.adapter().clearAll());
+  // No irreversible native revocation is claimed if the ordinary store itself
+  // cannot persist the fence. The caller receives a cleanup failure.
+  assert.equal(await f.adapter().getItem(KEY),'stored');
+});
+
+test('strict SDK grammar rejects prefix-host keys and preserves their legacy credentials on logout',async()=>{
+  const f=fixture(),foreign=KEY+'-secondary',value=JSON.stringify({access_token:'foreign access',refresh_token:'foreign refresh'});
+  f.legacy.set(foreign,value);
+  await assert.rejects(f.adapter().getItem(foreign));
+  await assert.rejects(f.adapter().setItem(foreign,'overwrite'));
+  await assert.rejects(f.adapter().removeItem(foreign));
+  await f.adapter().clearAll();
+  assert.equal(f.legacy.get(foreign),value);
+  const other=createNativeAuthStorage(foreign,f.deps);
+  assert.equal(await other.getItem(foreign),value);
+  await f.adapter().clearAll();
+  assert.equal(await other.getItem(foreign),value);
+});
+
+test('session-shaped suffix-host credentials cannot be migrated or deleted by the shorter project',async()=>{
+  for(const suffix of ['-user','-code-verifier','-flows-code-verifier']){
+    const f=fixture(),foreign=KEY+suffix,value=JSON.stringify({access_token:'foreign access',refresh_token:'foreign refresh',user:{id:'foreign'}});
+    f.legacy.set(foreign,value);
+    assert.equal(await f.adapter().getItem(foreign),null);
+    await f.adapter().removeItem(foreign);
+    await f.adapter().clearAll();
+    assert.equal(f.legacy.get(foreign),value);
+    const other=createNativeAuthStorage(foreign,f.deps);
+    assert.equal(await other.getItem(foreign),value);
+    // The same logical string is an A suffix and B base; secure physical
+    // addresses and revocation generations remain separately namespaced.
+    const ownValue=suffix==='-flows-code-verifier'?'[]':'own verifier or user';
+    await f.adapter().setItem(foreign,ownValue);
+    assert.equal(await f.adapter().getItem(foreign),ownValue);
+    assert.equal(await other.getItem(foreign),value);
+    await f.adapter().clearAll();
+    assert.equal(await other.getItem(foreign),value);
+  }
+});
+
+test('PKCE key grammar matches validated SDK flow IDs and rejects unsupported keys',async()=>{
+  const f=fixture(),id='Flow_123-TEST';
+  const slot=KEY+'-flow-'+id+'-code-verifier';
+  await f.adapter().setItem(slot,'verifier');
+  await f.adapter().setItem(KEY+'-flows-code-verifier',JSON.stringify([id]));
+  await f.adapter().clearAll();
+  assert.equal(await f.adapter().getItem(slot),null);
+  for(const invalid of [KEY+'-unrecognized',KEY+'-flow-short-code-verifier',KEY+'-flow-'+ 'x'.repeat(65) +'-code-verifier']){
+    await assert.rejects(f.adapter().getItem(invalid));
+  }
 });

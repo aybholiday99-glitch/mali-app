@@ -42,6 +42,7 @@ registerHooks({resolve(specifier,context,nextResolve){
 const auth=await import('../src/services/authService.ts');
 const config={url:'https://native.example.invalid',anonKey:'publishable-test',workspaceKey:'unused',autoSync:false};
 const key='mali_supabase_auth_native.example.invalid';
+const flowSuffix='-flow-'+ 'a'.repeat(32) +'-code-verifier';
 function reset(){legacy.clear();secure.clear();optionsSeen.length=0;available=true;deleteFailure=false;globalThis.maliTestPlatform.OS='ios';}
 
 test('real native auth service migrates an existing session without loss and uses device-only secure options',async()=>{
@@ -60,14 +61,14 @@ test('real native auth service migrates an existing session without loss and use
 test('real native logout clears session and PKCE secrets even when remote sign-out is offline',async()=>{
   reset();auth.getSharedSupabaseClient(config);
   const storage=capturedOptions.auth.storage;
-  for(const suffix of ['', '-user','-code-verifier','-flow-test_flow-code-verifier'])await storage.setItem(key+suffix,'synthetic secret');
-  await storage.setItem(key+'-flows-code-verifier',JSON.stringify(['test_flow']));
+  for(const suffix of ['', '-user','-code-verifier',flowSuffix])await storage.setItem(key+suffix,'synthetic secret');
+  await storage.setItem(key+'-flows-code-verifier',JSON.stringify(['a'.repeat(32)]));
   legacy.set('mali_auth_session_v2','summary');legacy.set('mali_supabase_auth_token','old global');
-  legacy.set('mali_supabase_auth_token-flow-old-code-verifier','old verifier');
+  legacy.set('mali_supabase_auth_token-flow-'+ 'b'.repeat(32) +'-code-verifier','old verifier');
   await auth.clearAuthSession(config);
-  for(const suffix of ['', '-user','-code-verifier','-flow-test_flow-code-verifier','-flows-code-verifier'])assert.equal(await storage.getItem(key+suffix),null);
+  for(const suffix of ['', '-user','-code-verifier',flowSuffix,'-flows-code-verifier'])assert.equal(await storage.getItem(key+suffix),null);
   assert.equal(legacy.size,0);
-  for(const raw of secure.values())assert.equal(JSON.parse(raw).state,'deleted');
+  for(const [name,raw] of secure)if(!name.endsWith('.epoch'))assert.equal(JSON.parse(raw).state,'deleted');
 });
 
 test('real auth logout propagates failed native cleanup and its tombstone blocks session restore',async()=>{
@@ -88,8 +89,54 @@ test('real native login fails closed when secure storage is unavailable and crea
   assert.equal(secure.size,0);
 });
 
-test('real web auth client retains the existing AsyncStorage behavior',()=>{
+test('real web auth client retains the existing AsyncStorage backend',async()=>{
   reset();globalThis.maliTestPlatform.OS='web';
   auth.getSharedSupabaseClient({...config,url:'https://web.example.invalid'});
-  assert.equal(capturedOptions.auth.storage,globalThis.maliTestStorage);
+  const storage=capturedOptions.auth.storage,webKey=capturedOptions.auth.storageKey;
+  await storage.setItem(webKey,JSON.stringify(session));
+  assert.equal(legacy.get(webKey),JSON.stringify(session));
+  assert.equal(await storage.getItem(webKey),JSON.stringify(session));
+  assert.equal(optionsSeen.length,0);
+});
+
+test('real native logout failure while unavailable blocks recovery until successful cleanup retry',async()=>{
+  reset();auth.getSharedSupabaseClient(config);const storage=capturedOptions.auth.storage;
+  await storage.setItem(key,JSON.stringify(session));await storage.setItem(key+flowSuffix,'unindexed verifier');
+  available=false;
+  await assert.rejects(auth.clearAuthSession(config),/تعذر تأكيد إزالة/);
+  available=true;
+  assert.equal(await auth.getStoredAuthSession(config),null);
+  assert.equal(await storage.getItem(key+flowSuffix),null);
+  const blocked=await auth.loginWithEmail('test@example.invalid','Password-Only-A-Fake',config);
+  assert.equal(blocked.success,false);
+  await auth.clearAuthSession(config);
+  const login=await auth.loginWithEmail('test@example.invalid','Password-Only-A-Fake',config);
+  assert.equal(login.success,true);
+});
+
+test('real web SDK reads, replacements and logout preserve foreign custom-host session keys',async()=>{
+  for(const suffix of ['-secondary','-user','-code-verifier','-flows-code-verifier']){
+    reset();globalThis.maliTestPlatform.OS='web';
+    const webConfig={...config,url:'https://web.example.invalid'};
+    auth.getSharedSupabaseClient(webConfig);
+    const storage=capturedOptions.auth.storage,base=capturedOptions.auth.storageKey,foreign=base+suffix,value=JSON.stringify(session);
+    legacy.set(foreign,value);
+    if(suffix==='-secondary')await assert.rejects(storage.getItem(foreign));
+    else {
+      assert.equal(await storage.getItem(foreign),null);
+      await assert.rejects(storage.setItem(foreign,'overwrite'));
+      await storage.removeItem(foreign);
+    }
+    await auth.clearAuthSession(webConfig);
+    assert.equal(legacy.get(foreign),value);
+    assert.equal(optionsSeen.length,0);
+  }
+});
+
+test('historical global suffix cleanup preserves ambiguous project sessions',async()=>{
+  reset();auth.getSharedSupabaseClient(config);
+  const foreign='mali_supabase_auth_token-code-verifier',value=JSON.stringify(session);
+  legacy.set(foreign,value);
+  await auth.clearAuthSession(config);
+  assert.equal(legacy.get(foreign),value);
 });

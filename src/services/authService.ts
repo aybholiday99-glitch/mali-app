@@ -3,6 +3,7 @@ import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import { SerialQueue } from './serialQueue';
 import { clearAuthTokenStorage, getAuthTokenStorage } from './authTokenStorage';
+import { isAuthStorageKey, mayRemoveLegacyAuthValue } from './nativeAuthStorageCore';
 import { INITIAL_MALI_STATE } from '../data/initialData';
 import { AuthProviderType, AuthUser, SupabaseConfig } from '../types/mali';
 
@@ -216,9 +217,10 @@ async function clearAuthSessionImpl(config?: Partial<SupabaseConfig>): Promise<v
   let cleanupFailed = false;
   try { await clearAuthTokenStorage(authStorageKey(url)); } catch { cleanupFailed = true; }
   try {
-    const legacyKeys = [MALI_AUTH_SESSION_KEY, 'mali_supabase_auth_token', 'mali_supabase_auth_token-code-verifier', 'mali_supabase_auth_token-flows-code-verifier'];
+    const legacyKeys = [MALI_AUTH_SESSION_KEY, 'mali_supabase_auth_token'];
     for (const key of await AsyncStorage.getAllKeys()) {
-      if (key.startsWith('mali_supabase_auth_token-flow-') || key === 'mali_supabase_auth_token-user') legacyKeys.push(key);
+      if (isAuthStorageKey('mali_supabase_auth_token', key)
+        && mayRemoveLegacyAuthValue('mali_supabase_auth_token', key, await AsyncStorage.getItem(key))) legacyKeys.push(key);
     }
     await AsyncStorage.multiRemove(legacyKeys);
   } catch { cleanupFailed = true; }
