@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { PaymentMethodType, UsdDeal } from '../types/mali';
 import { CalmDropdown } from '../components/CalmDropdown';
+import { calculateUsdDealCostBasis, roundMoney } from '../services/financialEngine';
 import {
   ReceiptAttachmentField,
   ReceiptInlineStrip,
@@ -103,6 +104,7 @@ export const UsdDealsScreen: React.FC = () => {
   const [saleTargetLydId, setSaleTargetLydId] = useState(
     bankLydAccounts[0]?.id || lydAccounts[0]?.id || ''
   );
+  const [personalUsdAccountId, setPersonalUsdAccountId] = useState('');
   const [buyerContactId, setBuyerContactId] = useState<string | undefined>(
     undefined
   );
@@ -205,9 +207,9 @@ export const UsdDealsScreen: React.FC = () => {
   const previewSaleNetLyd = Number(
     (previewSaleGrossLyd - parsedSaleComm).toFixed(2)
   );
-  const previewSaleCostBasis = Number(
-    (parsedSaleUsd * (activeDealForSale?.effectiveBuyRate || 0)).toFixed(2)
-  );
+  const previewSaleCostBasis = activeDealForSale && parsedSaleUsd > 0 &&
+    roundMoney(parsedSaleUsd) <= activeDealForSale.remainingUsd
+    ? calculateUsdDealCostBasis(activeDealForSale, roundMoney(parsedSaleUsd)) : 0;
   const previewSaleProfit = isPersonalTakeMode
     ? 0
     : Number((previewSaleNetLyd - previewSaleCostBasis).toFixed(2));
@@ -348,7 +350,7 @@ export const UsdDealsScreen: React.FC = () => {
       setSaleRateStr(String(deal.effectiveBuyRate));
       setSaleMode('cash');
       setSaleMethod('cash');
-      setSaleTargetLydId(cashLydAccounts[0]?.id || lydAccounts[0]?.id || '');
+      setPersonalUsdAccountId(deal.usdHoldingAccountId);
     } else {
       const defaultMode = deal.buyPaymentMethod === 'cash' ? 'bank' : 'cash';
       setSaleMode(defaultMode);
@@ -371,14 +373,18 @@ export const UsdDealsScreen: React.FC = () => {
   };
 
   const handleConfirmSale = () => {
-    if (!activeDealForSale || parsedSaleUsd <= 0) return;
+    if (!activeDealForSale || !Number.isFinite(parsedSaleUsd) || parsedSaleUsd <= 0 ||
+      roundMoney(parsedSaleUsd) > activeDealForSale.remainingUsd) return;
+    const targetId = isPersonalTakeMode ? personalUsdAccountId : saleTargetLydId;
+    const target = accountMap.get(targetId);
+    if (!target || target.currency !== (isPersonalTakeMode ? 'USD' : 'LYD')) return;
     recordDealSale({
       dealId: activeDealForSale.id,
       usdAmount: parsedSaleUsd,
       sellRate: parsedSaleRate,
       commissionLyd: parsedSaleComm,
       paymentMethod: saleMethod,
-      targetLydAccountId: saleTargetLydId,
+      targetLydAccountId: targetId,
       sourceUsdAccountId: activeDealForSale.usdHoldingAccountId,
       contactId: buyerContactId,
       buyerName: buyerName.trim() || undefined,
@@ -1786,6 +1792,23 @@ export const UsdDealsScreen: React.FC = () => {
                 value={saleUsdStr}
                 onChangeText={setSaleUsdStr}
               />
+
+              {isPersonalTakeMode && (
+                <CalmDropdown
+                  label="محفظة الدولار الشخصية:"
+                  value={personalUsdAccountId}
+                  options={usdAccounts.map((acc) => ({
+                    value: acc.id,
+                    label: acc.name,
+                    subLabel: acc.id === activeDealForSale?.usdHoldingAccountId
+                      ? 'الاحتفاظ بالدولار في المحفظة الحالية'
+                      : formatMoney(acc.balance, 'USD'),
+                    icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                    badgeColor: acc.color,
+                  }))}
+                  onSelect={setPersonalUsdAccountId}
+                />
+              )}
 
               {!isPersonalTakeMode && (
                 <>

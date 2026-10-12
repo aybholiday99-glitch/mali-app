@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './financialEngine.regression.test.mjs';
 import {
   addDebtRecordMutation,
   createAccountMutation,

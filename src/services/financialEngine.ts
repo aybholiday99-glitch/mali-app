@@ -11,22 +11,122 @@ import type {
   UsdDeal,
 } from '../types/mali';
 
-/**
- * تقريب مالي صارم إلى منزلتين عشريتين لتجنب أخطاء الفاصلة العائمة (IEEE-754)
- */
-export function roundMoney(val: number): number {
-  const num = Number(val);
-  if (!Number.isFinite(num)) return 0;
-  return Math.round((num + Number.EPSILON) * 100) / 100;
+// Persisted values remain JSON numbers. All monetary arithmetic uses integer cents
+// and decimal rational intermediates; the cap preserves cent precision on conversion.
+export const MAX_MONEY_AMOUNT = 1_000_000_000_000;
+export const MAX_EXCHANGE_RATE = 1_000_000;
+const MAX_MONEY_CENTS = BigInt(MAX_MONEY_AMOUNT) * 100n;
+const MAX_SUMMARY_AMOUNT = 10_000_000_000_000;
+const MAX_SUMMARY_CENTS = BigInt(MAX_SUMMARY_AMOUNT) * 100n;
+
+function decimalFraction(value: number): [bigint, bigint] {
+  const negative = value < 0;
+  const [mantissa, exponentText = '0'] = Math.abs(value).toString().toLowerCase().split('e');
+  const [whole, fraction = ''] = mantissa.split('.');
+  const exponent = Number(exponentText) - fraction.length;
+  const digits = BigInt(whole + fraction) * (negative ? -1n : 1n);
+  return exponent >= 0
+    ? [digits * 10n ** BigInt(exponent), 1n]
+    : [digits, 10n ** BigInt(-exponent)];
 }
 
-/**
- * تقريب أسعار الصرف إلى 4 منازل عشرية بدقة
- */
-export function roundRate(val: number): number {
-  const num = Number(val);
-  if (!Number.isFinite(num)) return 0;
-  return Math.round((num + Number.EPSILON) * 10000) / 10000;
+function divideRounded(numerator: bigint, denominator: bigint): bigint {
+  const sign = numerator < 0n ? -1n : 1n;
+  const absolute = numerator < 0n ? -numerator : numerator;
+  return sign * ((absolute + denominator / 2n) / denominator);
+}
+
+function scaledInteger(value: number, scale: number, maximum: number): bigint | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > maximum) {
+    return null;
+  }
+  const [numerator, denominator] = decimalFraction(value);
+  return divideRounded(numerator * BigInt(scale), denominator);
+}
+
+function moneyFromCents(cents: bigint, maximum = MAX_MONEY_CENTS): number {
+  return cents > maximum || cents < -maximum ? NaN : Number(cents) / 100;
+}
+
+export function roundMoney(value: number): number {
+  const cents = scaledInteger(value, 100, MAX_SUMMARY_AMOUNT);
+  return cents === null ? 0 : moneyFromCents(cents, MAX_SUMMARY_CENTS);
+}
+
+export function roundRate(value: number): number {
+  const rate = scaledInteger(value, 10000, MAX_EXCHANGE_RATE);
+  return rate === null ? 0 : Number(rate) / 10000;
+}
+
+function validMoney(value: number): boolean {
+  return scaledInteger(value, 100, MAX_MONEY_AMOUNT) !== null;
+}
+
+function validFee(value: number | undefined): boolean {
+  return value === undefined || (validMoney(value) && value >= 0);
+}
+
+function moneySum(...values: number[]): number {
+  let total = 0n;
+  for (const value of values) {
+    const cents = scaledInteger(value, 100, MAX_MONEY_AMOUNT);
+    if (cents === null) return NaN;
+    total += cents;
+  }
+  return moneyFromCents(total);
+}
+
+function summarySum(...values: number[]): number {
+  let total = 0n;
+  for (const value of values) {
+    const cents = scaledInteger(value, 100, MAX_SUMMARY_AMOUNT);
+    if (cents === null) return NaN;
+    total += cents;
+  }
+  return moneyFromCents(total, MAX_SUMMARY_CENTS);
+}
+
+function moneyRatio(amount: number, numerator: number, denominator = 1, maximum = MAX_MONEY_AMOUNT): number {
+  const cents = scaledInteger(amount, 100, maximum);
+  if (cents === null || !Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return NaN;
+  }
+  const [top, topScale] = decimalFraction(numerator);
+  const [bottom, bottomScale] = decimalFraction(denominator);
+  return moneyFromCents(divideRounded(cents * top * bottomScale, topScale * bottom), BigInt(maximum) * 100n);
+}
+
+function applyAccountDeltas(
+  state: MaliState,
+  changes: [string, number][],
+  now: string
+): Account[] | null {
+  if (new Set(state.accounts.map((a) => a.id)).size !== state.accounts.length) return null;
+  const deltas = new Map<string, number>();
+  for (const [accountId, delta] of changes) {
+    if (!state.accounts.some((a) => a.id === accountId) || !validMoney(delta)) return null;
+    const combined = moneySum(deltas.get(accountId) || 0, delta);
+    if (!validMoney(combined)) return null;
+    deltas.set(accountId, combined);
+  }
+  let valid = true;
+  const accounts = state.accounts.map((account) => {
+    if (!deltas.has(account.id)) return account;
+    const balance = moneySum(account.balance, deltas.get(account.id)!);
+    // Bank accounts may represent an existing overdraft; physical cash cannot.
+    if (!validMoney(balance) || (account.isCash && balance < 0)) valid = false;
+    return { ...account, balance, updatedAt: now };
+  });
+  return valid ? accounts : null;
+}
+
+export function calculateUsdDealCostBasis(deal: UsdDeal, usdAmount: number): number {
+  if (!validMoney(usdAmount) || usdAmount <= 0 || usdAmount > deal.remainingUsd) return NaN;
+  const allocated = moneySum(...deal.sales.map((sale) => sale.costBasisLyd));
+  const remainingCost = moneySum(deal.totalLydCost, -allocated);
+  if (!validMoney(remainingCost) || remainingCost < 0 || deal.remainingUsd <= 0) return NaN;
+  // The final disposition absorbs the rounding remainder, including buy commission.
+  return moneyRatio(remainingCost, usdAmount, deal.remainingUsd);
 }
 
 export function generateId(prefix: string): string {
@@ -50,7 +150,7 @@ export function createAccountMutation(
   const cleanName = (account.name || '').trim();
   if (!cleanName) return state;
   if (account.currency !== 'LYD' && account.currency !== 'USD') return state;
-  if (!Number.isFinite(Number(account.balance))) return state;
+  if (!validMoney(account.balance) || (account.isCash && account.balance < 0)) return state;
 
   const newAcc: Account = {
     ...account,
@@ -76,7 +176,8 @@ export function updateAccountBalanceMutation(
   accountId: string,
   newBalance: number
 ): MaliState {
-  if (!Number.isFinite(Number(newBalance))) return state;
+  const account = state.accounts.find((a) => a.id === accountId);
+  if (!account || !validMoney(newBalance) || (account.isCash && newBalance < 0)) return state;
   const now = new Date().toISOString();
   return touchState({
     ...state,
@@ -87,13 +188,16 @@ export function updateAccountBalanceMutation(
 }
 
 export function deleteAccountMutation(state: MaliState, accountId: string): MaliState {
-  // منع حذف حساب مرتبط بصفقات دولار مفتوحة لتجنب اختلال الأرصدة عند استرداد أو بيع الصفقة
-  const hasOpenDeal = state.deals.some(
+  const hasFinancialReference = state.transactions.some(
+    (t) => t.accountId === accountId || t.targetAccountId === accountId
+  ) || state.debts.some(
+    (d) => d.accountId === accountId || d.installments.some((i) => i.accountId === accountId)
+  ) || state.deals.some(
     (d) =>
-      d.status !== 'closed' &&
-      (d.sourceLydAccountId === accountId || d.usdHoldingAccountId === accountId)
+      d.sourceLydAccountId === accountId || d.usdHoldingAccountId === accountId ||
+      d.sales.some((s) => s.sourceUsdAccountId === accountId || s.targetLydAccountId === accountId)
   );
-  if (hasOpenDeal) {
+  if (hasFinancialReference) {
     return state;
   }
   return touchState({
@@ -123,6 +227,7 @@ export function recordExpenseOrIncomeMutation(
     date?: string;
   }
 ): MaliState {
+  if (!validMoney(params.amount)) return state;
   const cleanAmount = roundMoney(params.amount);
   if (cleanAmount <= 0) return state;
 
@@ -137,7 +242,7 @@ export function recordExpenseOrIncomeMutation(
   }
 
   const targetAcc = state.accounts.find((a) => a.id === params.accountId);
-  if (!targetAcc) return state;
+  if (!targetAcc || targetAcc.currency !== params.currency) return state;
 
   const now = new Date().toISOString();
   const tx: Transaction = {
@@ -157,15 +262,10 @@ export function recordExpenseOrIncomeMutation(
     notes: params.notes,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (acc.id !== params.accountId) return acc;
-    const delta = params.type === 'income' ? cleanAmount : -cleanAmount;
-    return {
-      ...acc,
-      balance: roundMoney(acc.balance + delta),
-      updatedAt: now,
-    };
-  });
+  const updatedAccounts = applyAccountDeltas(state, [
+    [params.accountId, params.type === 'income' ? cleanAmount : -cleanAmount],
+  ], now);
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -191,9 +291,10 @@ export function recordTransferMutation(
 ): MaliState {
   if (!params.fromAccountId || !params.toAccountId) return state;
   if (params.fromAccountId === params.toAccountId) return state;
+  if (!validMoney(params.amount) || !validFee(params.feeAmount)) return state;
 
   const cleanAmount = roundMoney(params.amount);
-  const fee = roundMoney(Math.max(0, params.feeAmount || 0));
+  const fee = roundMoney(params.feeAmount || 0);
   if (cleanAmount <= 0) return state;
 
   if (
@@ -202,6 +303,8 @@ export function recordTransferMutation(
   ) {
     return state;
   }
+
+  if (params.id && state.transactions.some((tx) => tx.id === params.id)) return state;
 
   const fromAcc = state.accounts.find((a) => a.id === params.fromAccountId);
   const toAcc = state.accounts.find((a) => a.id === params.toAccountId);
@@ -227,23 +330,11 @@ export function recordTransferMutation(
     notes: params.notes,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (acc.id === params.fromAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance - cleanAmount - fee),
-        updatedAt: now,
-      };
-    }
-    if (acc.id === params.toAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance + cleanAmount),
-        updatedAt: now,
-      };
-    }
-    return acc;
-  });
+  const updatedAccounts = applyAccountDeltas(state, [
+    [params.fromAccountId, -moneySum(cleanAmount, fee)],
+    [params.toAccountId, cleanAmount],
+  ], now);
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -268,6 +359,7 @@ export function liquidateChequeToCashMutation(
 ): MaliState {
   if (!params.fromBankAccountId || !params.toCashAccountId) return state;
   if (params.fromBankAccountId === params.toCashAccountId) return state;
+  if (!validMoney(params.grossChequeAmountLyd)) return state;
 
   const gross = roundMoney(params.grossChequeAmountLyd);
   const pct = Number(params.discountPercent);
@@ -280,12 +372,14 @@ export function liquidateChequeToCashMutation(
     return state;
   }
 
+  if (params.id && state.transactions.some((tx) => tx.id === params.id)) return state;
+
   const fromAcc = state.accounts.find((a) => a.id === params.fromBankAccountId);
   const toAcc = state.accounts.find((a) => a.id === params.toCashAccountId);
-  if (!fromAcc || !toAcc) return state;
+  if (!fromAcc || !toAcc || fromAcc.currency !== 'LYD' || toAcc.currency !== 'LYD') return state;
 
-  const feeAmount = roundMoney(gross * (pct / 100));
-  const netCashReceived = roundMoney(gross - feeAmount);
+  const feeAmount = moneyRatio(gross, pct, 100);
+  const netCashReceived = moneySum(gross, -feeAmount);
   const now = new Date().toISOString();
 
   const tx: Transaction = {
@@ -308,23 +402,10 @@ export function liquidateChequeToCashMutation(
       `تسييل صك بقيمة ${gross} د.ل بخصم ${pct}% (${feeAmount} د.ل) -> صافي كاش مستلم ${netCashReceived} د.ل`,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (acc.id === params.fromBankAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance - gross),
-        updatedAt: now,
-      };
-    }
-    if (acc.id === params.toCashAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance + netCashReceived),
-        updatedAt: now,
-      };
-    }
-    return acc;
-  });
+  const updatedAccounts = applyAccountDeltas(state, [
+    [params.fromBankAccountId, -gross], [params.toCashAccountId, netCashReceived],
+  ], now);
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -356,9 +437,10 @@ export function createUsdDealMutation(
     buyDate?: string;
   }
 ): MaliState {
+  if (!validMoney(params.totalUsdBought) || !validFee(params.buyCommissionLyd)) return state;
   const usdBought = roundMoney(params.totalUsdBought);
   const rate = roundRate(params.buyRate);
-  const commission = roundMoney(Math.max(0, params.buyCommissionLyd || 0));
+  const commission = roundMoney(params.buyCommissionLyd || 0);
 
   if (usdBought <= 0 || rate <= 0) return state;
 
@@ -369,14 +451,18 @@ export function createUsdDealMutation(
     return state;
   }
 
+  if (params.id && state.deals.some((d) => d.id === params.id)) return state;
+
   const lydAcc = state.accounts.find((a) => a.id === params.sourceLydAccountId);
   const usdAcc = state.accounts.find((a) => a.id === params.usdHoldingAccountId);
   if (!lydAcc || !usdAcc) return state;
   if (lydAcc.currency !== 'LYD' || usdAcc.currency !== 'USD') return state;
 
-  const grossLydCost = roundMoney(usdBought * rate);
-  const totalLydCost = roundMoney(grossLydCost + commission);
+  const grossLydCost = moneyRatio(usdBought, rate);
+  const totalLydCost = moneySum(grossLydCost, commission);
+  if (!validMoney(totalLydCost)) return state;
   const effectiveBuyRate = roundRate(totalLydCost / usdBought);
+  if (effectiveBuyRate <= 0) return state;
 
   const dealNumber = `DL-${String(state.deals.length + 101).padStart(3, '0')}`;
   const dealId = params.id || generateId('deal');
@@ -437,23 +523,10 @@ export function createUsdDealMutation(
     notes: params.notes,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (acc.id === params.sourceLydAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance - totalLydCost),
-        updatedAt: now,
-      };
-    }
-    if (acc.id === params.usdHoldingAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance + usdBought),
-        updatedAt: now,
-      };
-    }
-    return acc;
-  });
+  const updatedAccounts = applyAccountDeltas(state, [
+    [params.sourceLydAccountId, -totalLydCost], [params.usdHoldingAccountId, usdBought],
+  ], now);
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -485,33 +558,38 @@ export function sellFromUsdDealMutation(
 ): MaliState {
   const deal = state.deals.find((d) => d.id === params.dealId);
   if (!deal) return state;
+  if (!validMoney(params.usdAmount) || !validFee(params.commissionLyd)) return state;
 
   const reqUsd = roundMoney(params.usdAmount);
   const rate = roundRate(params.sellRate);
-  const commission = roundMoney(Math.max(0, params.commissionLyd || 0));
+  const commission = roundMoney(params.commissionLyd || 0);
 
   if (reqUsd <= 0 || rate <= 0) return state;
-  // منع بيع كمية أكبر من المتبقي في الصفقة (مع هامش دقة 0.005)
-  if (reqUsd > deal.remainingUsd + 0.005) return state;
+  if (reqUsd > deal.remainingUsd) return state;
 
   const usdToSell = roundMoney(Math.min(reqUsd, deal.remainingUsd));
   if (usdToSell <= 0) return state;
 
   if (
     params.idempotencyKey &&
-    deal.sales.some((s) => s.idempotencyKey === params.idempotencyKey)
+    state.deals.some((d) => d.sales.some((s) => s.idempotencyKey === params.idempotencyKey))
   ) {
     return state;
   }
 
+  if (params.saleId && state.deals.some((d) => d.sales.some((s) => s.id === params.saleId))) return state;
+
   const targetLydAcc = state.accounts.find((a) => a.id === params.targetLydAccountId);
   const sourceUsdAcc = state.accounts.find((a) => a.id === params.sourceUsdAccountId);
-  if (!targetLydAcc || !sourceUsdAcc) return state;
+  if (!targetLydAcc || !sourceUsdAcc || targetLydAcc.currency !== 'LYD' ||
+    sourceUsdAcc.currency !== 'USD' || params.sourceUsdAccountId !== deal.usdHoldingAccountId ||
+    sourceUsdAcc.balance < usdToSell) return state;
 
-  const grossLyd = roundMoney(usdToSell * rate);
-  const netLydReceived = roundMoney(grossLyd - commission);
-  const costBasisLyd = roundMoney(usdToSell * deal.effectiveBuyRate);
-  const profitLyd = roundMoney(netLydReceived - costBasisLyd);
+  const grossLyd = moneyRatio(usdToSell, rate);
+  const netLydReceived = moneySum(grossLyd, -commission);
+  const costBasisLyd = calculateUsdDealCostBasis(deal, usdToSell);
+  const profitLyd = moneySum(netLydReceived, -costBasisLyd);
+  if (!validMoney(profitLyd) || !validMoney(netLydReceived) || netLydReceived < 0) return state;
 
   const matchedContact = params.contactId
     ? state.contacts.find((c) => c.id === params.contactId)
@@ -543,12 +621,11 @@ export function sellFromUsdDealMutation(
     notes: params.notes,
   };
 
-  const newSoldUsd = roundMoney(deal.soldUsd + usdToSell);
-  const newRemainingUsd = roundMoney(
-    Math.max(0, deal.totalUsdBought - newSoldUsd - deal.personalTakenUsd)
-  );
-  const newTotalLydReceived = roundMoney(deal.totalLydReceived + netLydReceived);
-  const newRealizedProfitLyd = roundMoney(deal.realizedProfitLyd + profitLyd);
+  const newSoldUsd = moneySum(deal.soldUsd, usdToSell);
+  const newRemainingUsd = moneySum(deal.totalUsdBought, -newSoldUsd, -deal.personalTakenUsd);
+  const newTotalLydReceived = moneySum(deal.totalLydReceived, netLydReceived);
+  const newRealizedProfitLyd = moneySum(deal.realizedProfitLyd, profitLyd);
+  if (![newSoldUsd, newRemainingUsd, newTotalLydReceived, newRealizedProfitLyd].every(validMoney)) return state;
   const newStatus: UsdDeal['status'] = newRemainingUsd <= 0.005 ? 'closed' : 'partial';
 
   const updatedDeal: UsdDeal = {
@@ -584,23 +661,10 @@ export function sellFromUsdDealMutation(
     notes: `صافي الربح المحقق: ${profitLyd >= 0 ? '+' : ''}${profitLyd} د.ل | ${params.notes || ''}`,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (acc.id === params.sourceUsdAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance - usdToSell),
-        updatedAt: now,
-      };
-    }
-    if (acc.id === params.targetLydAccountId) {
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance + netLydReceived),
-        updatedAt: now,
-      };
-    }
-    return acc;
-  });
+  const updatedAccounts = applyAccountDeltas(state, [
+    [params.sourceUsdAccountId, -usdToSell], [params.targetLydAccountId, netLydReceived],
+  ], now);
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -626,20 +690,30 @@ export function takePersonalFromUsdDealMutation(
   const deal = state.deals.find((d) => d.id === params.dealId);
   if (!deal) return state;
 
+  if (!validMoney(params.usdAmount)) return state;
+  const source = state.accounts.find((a) => a.id === params.sourceUsdAccountId);
+  const target = params.targetPersonalUsdAccountId
+    ? state.accounts.find((a) => a.id === params.targetPersonalUsdAccountId) : undefined;
+  if (!source || source.currency !== 'USD' || source.id !== deal.usdHoldingAccountId ||
+    (params.targetPersonalUsdAccountId && (!target || target.currency !== 'USD'))) return state;
+
   const reqUsd = roundMoney(params.usdAmount);
-  if (reqUsd <= 0 || reqUsd > deal.remainingUsd + 0.005) return state;
+  if (reqUsd <= 0 || reqUsd > deal.remainingUsd || source.balance < reqUsd) return state;
 
   const usdToTake = roundMoney(Math.min(reqUsd, deal.remainingUsd));
   if (usdToTake <= 0) return state;
 
   if (
     params.idempotencyKey &&
-    deal.sales.some((s) => s.idempotencyKey === params.idempotencyKey)
+    state.deals.some((d) => d.sales.some((s) => s.idempotencyKey === params.idempotencyKey))
   ) {
     return state;
   }
 
-  const costBasisLyd = roundMoney(usdToTake * deal.effectiveBuyRate);
+  if (params.saleId && state.deals.some((d) => d.sales.some((s) => s.id === params.saleId))) return state;
+
+  const costBasisLyd = calculateUsdDealCostBasis(deal, usdToTake);
+  if (!validMoney(costBasisLyd)) return state;
   const saleId = params.saleId || generateId('ptake');
   const now = new Date().toISOString();
 
@@ -663,10 +737,8 @@ export function takePersonalFromUsdDealMutation(
     notes: params.notes || 'مبلغ محتفظ به شخصياً بالدولار (خارج البيع التجاري)',
   };
 
-  const newPersonalTaken = roundMoney(deal.personalTakenUsd + usdToTake);
-  const newRemainingUsd = roundMoney(
-    Math.max(0, deal.totalUsdBought - deal.soldUsd - newPersonalTaken)
-  );
+  const newPersonalTaken = moneySum(deal.personalTakenUsd, usdToTake);
+  const newRemainingUsd = moneySum(deal.totalUsdBought, -deal.soldUsd, -newPersonalTaken);
   const newStatus: UsdDeal['status'] = newRemainingUsd <= 0.005 ? 'closed' : 'partial';
 
   const updatedDeal: UsdDeal = {
@@ -697,28 +769,10 @@ export function takePersonalFromUsdDealMutation(
     notes: `تكلفة الشراء المقابلة: ${costBasisLyd} د.ل | ${params.notes || ''}`,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (
-      params.targetPersonalUsdAccountId &&
-      params.targetPersonalUsdAccountId !== params.sourceUsdAccountId
-    ) {
-      if (acc.id === params.sourceUsdAccountId) {
-        return {
-          ...acc,
-          balance: roundMoney(acc.balance - usdToTake),
-          updatedAt: now,
-        };
-      }
-      if (acc.id === params.targetPersonalUsdAccountId) {
-        return {
-          ...acc,
-          balance: roundMoney(acc.balance + usdToTake),
-          updatedAt: now,
-        };
-      }
-    }
-    return acc;
-  });
+  const updatedAccounts = target && target.id !== source.id
+    ? applyAccountDeltas(state, [[source.id, -usdToTake], [target.id, usdToTake]], now)
+    : state.accounts;
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -729,13 +783,14 @@ export function takePersonalFromUsdDealMutation(
 }
 
 export function deleteUsdDealMutation(state: MaliState, dealId: string): MaliState {
-  const deal = state.deals.find((d) => d.id === dealId);
-  if (!deal) return state;
+  const matches = state.deals.filter((d) => d.id === dealId);
+  if (matches.length !== 1) return state;
+  const deal = matches[0];
 
   const balanceChanges: Record<string, number> = {};
   const addDelta = (accId: string | undefined, delta: number) => {
     if (!accId) return;
-    balanceChanges[accId] = roundMoney((balanceChanges[accId] || 0) + delta);
+    balanceChanges[accId] = moneySum(balanceChanges[accId] || 0, delta);
   };
 
   // 1. عكس جميع عمليات البيع أو السحب الشخصي المرتبطة بالصفقة
@@ -759,15 +814,8 @@ export function deleteUsdDealMutation(state: MaliState, dealId: string): MaliSta
   addDelta(deal.usdHoldingAccountId, -deal.totalUsdBought);
 
   const now = new Date().toISOString();
-  const updatedAccounts = state.accounts.map((acc) => {
-    const delta = balanceChanges[acc.id];
-    if (!delta) return acc;
-    return {
-      ...acc,
-      balance: roundMoney(acc.balance + delta),
-      updatedAt: now,
-    };
-  });
+  const updatedAccounts = applyAccountDeltas(state, Object.entries(balanceChanges), now);
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
@@ -798,6 +846,8 @@ export function addDebtRecordMutation(
     createdAt?: string;
   }
 ): MaliState {
+  if (!validMoney(params.totalAmount) || !['LYD', 'USD'].includes(params.currency) ||
+    !['receivable', 'payable'].includes(params.direction)) return state;
   const cleanAmount = roundMoney(params.totalAmount);
   const cleanPerson = (params.personName || '').trim();
   if (cleanAmount <= 0 || !cleanPerson) return state;
@@ -808,6 +858,10 @@ export function addDebtRecordMutation(
   ) {
     return state;
   }
+
+  if (params.id && state.debts.some((d) => d.id === params.id)) return state;
+  const account = params.accountId ? state.accounts.find((a) => a.id === params.accountId) : undefined;
+  if (params.accountId && (!account || account.currency !== params.currency)) return state;
 
   const debtId = params.id || generateId('debt');
   const now = new Date().toISOString();
@@ -860,14 +914,11 @@ export function addDebtRecordMutation(
     };
 
     updatedTransactions = [tx, ...state.transactions];
-    updatedAccounts = state.accounts.map((acc) => {
-      if (acc.id !== params.accountId) return acc;
-      return {
-        ...acc,
-        balance: roundMoney(acc.balance + (isMoneyOut ? -cleanAmount : cleanAmount)),
-        updatedAt: now,
-      };
-    });
+    const accounts = applyAccountDeltas(state, [
+      [params.accountId, isMoneyOut ? -cleanAmount : cleanAmount],
+    ], now);
+    if (!accounts) return state;
+    updatedAccounts = accounts;
   }
 
   return touchState({
@@ -885,7 +936,7 @@ export function settleDebtInstallmentMutation(
     idempotencyKey?: string;
     debtId: string;
     amount: number;
-    accountId: string;
+    accountId?: string;
     paymentMethod: PaymentMethodType;
     notes?: string;
     date?: string;
@@ -893,26 +944,30 @@ export function settleDebtInstallmentMutation(
 ): MaliState {
   const debt = state.debts.find((d) => d.id === params.debtId);
   if (!debt) return state;
+  if (!validMoney(params.amount)) return state;
 
   const reqAmount = roundMoney(params.amount);
   if (reqAmount <= 0 || debt.remainingAmount <= 0) return state;
 
   if (
     params.idempotencyKey &&
-    debt.installments.some((i) => i.idempotencyKey === params.idempotencyKey)
+    state.debts.some((d) => d.installments.some((i) => i.idempotencyKey === params.idempotencyKey))
   ) {
     return state;
   }
 
-  const targetAcc = state.accounts.find((a) => a.id === params.accountId);
-  if (!targetAcc) return state;
+  if (params.installmentId && state.debts.some((d) =>
+    d.installments.some((i) => i.id === params.installmentId))) return state;
+
+  const targetAcc = params.accountId ? state.accounts.find((a) => a.id === params.accountId) : undefined;
+  if (params.accountId && (!targetAcc || targetAcc.currency !== debt.currency)) return state;
 
   const effectiveAmount = roundMoney(Math.min(reqAmount, debt.remainingAmount));
   if (effectiveAmount <= 0) return state;
 
   const now = new Date().toISOString();
   const instId = params.installmentId || generateId('inst');
-  const txId = generateId('tx-dsettle');
+  const txId = params.accountId ? generateId('tx-dsettle') : undefined;
 
   const installment: DebtInstallment = {
     id: instId,
@@ -925,8 +980,9 @@ export function settleDebtInstallmentMutation(
     notes: params.notes,
   };
 
-  const newPaid = roundMoney(debt.paidAmount + effectiveAmount);
-  const newRemaining = roundMoney(Math.max(0, debt.totalAmount - newPaid));
+  const newPaid = moneySum(debt.paidAmount, effectiveAmount);
+  const newRemaining = moneySum(debt.totalAmount, -newPaid);
+  if (!validMoney(newPaid) || !validMoney(newRemaining)) return state;
   const newStatus: DebtRecord['status'] = newRemaining <= 0.005 ? 'completed' : 'active';
 
   const updatedDebt: DebtRecord = {
@@ -940,7 +996,7 @@ export function settleDebtInstallmentMutation(
 
   const isMoneyIn = debt.direction === 'receivable';
   const tx: Transaction = {
-    id: txId,
+    id: txId || '',
     idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}:tx` : undefined,
     title: isMoneyIn
       ? `تحصيل دفعة دين من: ${debt.personName}`
@@ -949,7 +1005,7 @@ export function settleDebtInstallmentMutation(
     amount: effectiveAmount,
     currency: debt.currency,
     category: isMoneyIn ? 'تحصيل ديون' : 'سداد التزامات',
-    accountId: params.accountId,
+    accountId: params.accountId || '',
     paymentMethod: params.paymentMethod,
     debtId: debt.id,
     installmentId: instId,
@@ -959,22 +1015,16 @@ export function settleDebtInstallmentMutation(
     notes: params.notes,
   };
 
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (acc.id !== params.accountId) return acc;
-    return {
-      ...acc,
-      balance: roundMoney(
-        acc.balance + (isMoneyIn ? effectiveAmount : -effectiveAmount)
-      ),
-      updatedAt: now,
-    };
-  });
+  const updatedAccounts = params.accountId ? applyAccountDeltas(state, [
+    [params.accountId, isMoneyIn ? effectiveAmount : -effectiveAmount],
+  ], now) : state.accounts;
+  if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
     accounts: updatedAccounts,
     debts: state.debts.map((d) => (d.id === debt.id ? updatedDebt : d)),
-    transactions: [tx, ...state.transactions],
+    transactions: params.accountId ? [tx, ...state.transactions] : state.transactions,
   });
 }
 
@@ -982,181 +1032,126 @@ export function settleDebtInstallmentMutation(
  * حذف سجل الدين مع عكس جميع الأرصدة والحركات المالية المرتبطة به ذرياً (إصلاح FIN-01)
  */
 export function deleteDebtMutation(state: MaliState, debtId: string): MaliState {
-  const debt = state.debts.find((d) => d.id === debtId);
-  if (!debt) return state;
-
-  const balanceChanges: Record<string, number> = {};
-  const addDelta = (accId: string | undefined, delta: number) => {
-    if (!accId) return;
-    balanceChanges[accId] = roundMoney((balanceChanges[accId] || 0) + delta);
-  };
-
-  // 1. البحث عن جميع الحركات المالية المرتبطة بهذا الدين في سجل الحركات
-  const linkedTransactions = state.transactions.filter(
-    (tx) => tx.debtId === debtId || (debt.initialTransactionId && tx.id === debt.initialTransactionId)
-  );
-
-  if (linkedTransactions.length > 0) {
-    // عكس أثر كل حركة مرتبطة بالدين على الحسابات
-    for (const tx of linkedTransactions) {
-      if (tx.type === 'debt_settlement') {
-        const wasMoneyIn = debt.direction === 'receivable' || tx.category === 'تحصيل ديون';
-        addDelta(tx.accountId, wasMoneyIn ? -tx.amount : tx.amount);
-      } else if (tx.type === 'expense') {
-        addDelta(tx.accountId, tx.amount);
-      } else if (tx.type === 'income') {
-        addDelta(tx.accountId, -tx.amount);
-      }
-    }
-  } else {
-    // في حال وجود دفعات مسجلة داخل سجل الدين لم يكن لها حركة منفصلة في جدول الحركات
-    const isReceivable = debt.direction === 'receivable';
-    for (const inst of debt.installments) {
-      if (inst.accountId) {
-        addDelta(inst.accountId, isReceivable ? -inst.amount : inst.amount);
-      }
-    }
-    if (debt.accountId) {
-      addDelta(debt.accountId, isReceivable ? debt.totalAmount : -debt.totalAmount);
+  const matches = state.debts.filter((d) => d.id === debtId);
+  if (matches.length !== 1) return state;
+  const debt = matches[0];
+  const installmentTxIds = new Set(debt.installments.map((i) => i.transactionId).filter(Boolean));
+  const linked = state.transactions.filter((tx) => tx.debtId === debtId ||
+    tx.id === debt.initialTransactionId || installmentTxIds.has(tx.id));
+  const changes: [string, number][] = [];
+  for (const tx of linked) {
+    if (tx.type === 'debt_settlement') {
+      changes.push([tx.accountId, debt.direction === 'receivable' ? -tx.amount : tx.amount]);
+    } else if (tx.type === 'expense') {
+      changes.push([tx.accountId, tx.amount]);
+    } else if (tx.type === 'income') {
+      changes.push([tx.accountId, -tx.amount]);
+    } else {
+      return state;
     }
   }
-
+  // Legacy records without transaction IDs can still be reversed individually.
+  // A declared-but-missing transaction is ambiguous; never guess and refund twice.
+  if (debt.initialTransactionId && !linked.some((tx) => tx.id === debt.initialTransactionId)) return state;
+  if (debt.accountId && !debt.initialTransactionId &&
+    !linked.some((tx) => tx.type === 'expense' || tx.type === 'income')) {
+    changes.push([debt.accountId, debt.direction === 'receivable' ? debt.totalAmount : -debt.totalAmount]);
+  }
+  for (const installment of debt.installments) {
+    if (installment.transactionId) {
+      if (!linked.some((tx) => tx.id === installment.transactionId)) return state;
+    } else if (installment.accountId && !linked.some((tx) => tx.installmentId === installment.id)) {
+      changes.push([installment.accountId,
+        debt.direction === 'receivable' ? -installment.amount : installment.amount]);
+    }
+  }
   const now = new Date().toISOString();
-  const updatedAccounts = state.accounts.map((acc) => {
-    const delta = balanceChanges[acc.id];
-    if (!delta) return acc;
-    return {
-      ...acc,
-      balance: roundMoney(acc.balance + delta),
-      updatedAt: now,
-    };
-  });
-
-  const linkedTxIds = new Set(linkedTransactions.map((t) => t.id));
-
-  return touchState({
-    ...state,
-    accounts: updatedAccounts,
-    debts: state.debts.filter((d) => d.id !== debtId),
-    transactions: state.transactions.filter(
-      (tx) => tx.debtId !== debtId && !linkedTxIds.has(tx.id)
-    ),
-  });
+  const accounts = applyAccountDeltas(state, changes, now);
+  if (!accounts) return state;
+  const ids = new Set(linked.map((tx) => tx.id));
+  return touchState({ ...state, accounts, debts: state.debts.filter((d) => d.id !== debtId),
+    transactions: state.transactions.filter((tx) => !ids.has(tx.id)) });
 }
 
-/**
- * 5. حذف حركة مالية وعكس أثرها بدقة على الحسابات وسجل الديون (إصلاح FIN-02)
- */
-export function deleteTransactionMutation(
-  state: MaliState,
-  txId: string
-): MaliState {
-  const tx = state.transactions.find((t) => t.id === txId);
-  if (!tx) return state;
-
-  // صفقات الدولار يتم حذفها أو تعديلها عبر deleteUsdDeal لضمان تطابق سجل المبيعات والربح المحقق
-  if (
-    tx.type === 'deal_buy' ||
-    tx.type === 'deal_sell' ||
-    tx.type === 'deal_personal_take'
-  ) {
+function reverseDealSale(state: MaliState, transaction: Transaction): MaliState {
+  const deal = state.deals.find((d) => d.id === transaction.dealId);
+  if (!deal) return state;
+  const personal = transaction.type === 'deal_personal_take';
+  const matches = transaction.saleId
+    ? deal.sales.filter((s) => s.id === transaction.saleId)
+    : deal.sales.filter((s) => Boolean(s.isPersonalTake) === personal &&
+      (personal ? s.usdAmount === transaction.amount : s.netLydReceived === transaction.amount));
+  if (matches.length !== 1) return state;
+  const sale = matches[0];
+  if (Boolean(sale.isPersonalTake) !== personal) return state;
+  const changes: [string, number][] = [];
+  if (personal) {
+    if (sale.targetLydAccountId && sale.targetLydAccountId !== sale.sourceUsdAccountId) {
+      changes.push([sale.sourceUsdAccountId, sale.usdAmount], [sale.targetLydAccountId, -sale.usdAmount]);
+    }
+  } else {
+    changes.push([sale.sourceUsdAccountId, sale.usdAmount], [sale.targetLydAccountId, -sale.netLydReceived]);
+  }
+  const now = new Date().toISOString();
+  const accounts = applyAccountDeltas(state, changes, now);
+  if (!accounts) return state;
+  const sales = deal.sales.filter((s) => s.id !== sale.id);
+  const soldUsd = moneySum(...sales.filter((s) => !s.isPersonalTake).map((s) => s.usdAmount));
+  const personalTakenUsd = moneySum(...sales.filter((s) => s.isPersonalTake).map((s) => s.usdAmount));
+  const remainingUsd = moneySum(deal.totalUsdBought, -soldUsd, -personalTakenUsd);
+  const totalLydReceived = moneySum(...sales.filter((s) => !s.isPersonalTake).map((s) => s.netLydReceived));
+  const realizedProfitLyd = moneySum(...sales.filter((s) => !s.isPersonalTake).map((s) => s.profitLyd));
+  if (![soldUsd, personalTakenUsd, remainingUsd, totalLydReceived, realizedProfitLyd].every(validMoney) || remainingUsd < 0) {
     return state;
   }
+  const updated: UsdDeal = { ...deal, sales, soldUsd, personalTakenUsd, remainingUsd,
+    totalLydReceived, realizedProfitLyd, updatedAt: now,
+    status: sales.length === 0 ? 'open' : remainingUsd === 0 ? 'closed' : 'partial' };
+  return touchState({ ...state, accounts,
+    deals: state.deals.map((d) => d.id === deal.id ? updated : d),
+    transactions: state.transactions.filter((tx) => tx.id !== transaction.id) });
+}
+
+/** Reverse one operation together with all linked financial records. */
+export function deleteTransactionMutation(state: MaliState, txId: string): MaliState {
+  const matches = state.transactions.filter((tx) => tx.id === txId);
+  if (matches.length !== 1) return state;
+  const tx = matches[0];
+  if (tx.type === 'deal_buy') return tx.dealId ? deleteUsdDealMutation(state, tx.dealId) : state;
+  if (tx.type === 'deal_sell' || tx.type === 'deal_personal_take') return reverseDealSale(state, tx);
+  const initialDebt = state.debts.find((d) => d.initialTransactionId === tx.id ||
+    (d.id === tx.debtId && (tx.type === 'expense' || tx.type === 'income')));
+  if (initialDebt) return deleteDebtMutation(state, initialDebt.id);
 
   const now = new Date().toISOString();
-  let updatedDebts = state.debts;
-
-  // إذا كانت الحركة عبارة عن دفعة سداد/تحصيل دين (debt_settlement)، نحدّث سجل الدين المرتبط فوراً
-  let wasDebtMoneyIn = tx.category === 'تحصيل ديون';
-  if (tx.type === 'debt_settlement' && tx.debtId) {
-    const linkedDebt = state.debts.find((d) => d.id === tx.debtId);
-    if (linkedDebt) {
-      wasDebtMoneyIn = linkedDebt.direction === 'receivable';
-      let removedMatch = false;
-      const remainingInstallments = linkedDebt.installments.filter((inst) => {
-        if (removedMatch) return true;
-        if (
-          (inst.transactionId && inst.transactionId === tx.id) ||
-          (tx.installmentId && inst.id === tx.installmentId) ||
-          (roundMoney(inst.amount) === roundMoney(tx.amount) &&
-            inst.accountId === tx.accountId)
-        ) {
-          removedMatch = true;
-          return false;
-        }
-        return true;
-      });
-
-      const recalculatedPaid = roundMoney(
-        Math.max(
-          0,
-          removedMatch
-            ? remainingInstallments.reduce((sum, i) => sum + roundMoney(i.amount), 0)
-            : linkedDebt.paidAmount - tx.amount
-        )
-      );
-      const recalculatedRemaining = roundMoney(
-        Math.max(0, linkedDebt.totalAmount - recalculatedPaid)
-      );
-
-      updatedDebts = state.debts.map((d) =>
-        d.id === linkedDebt.id
-          ? {
-              ...d,
-              paidAmount: recalculatedPaid,
-              remainingAmount: recalculatedRemaining,
-              status: recalculatedRemaining <= 0.005 ? 'completed' : 'active',
-              installments: remainingInstallments,
-              updatedAt: now,
-            }
-          : d
-      );
-    }
-  }
-
-  const updatedAccounts = state.accounts.map((acc) => {
-    if (tx.type === 'expense') {
-      if (acc.id === tx.accountId) {
-        return { ...acc, balance: roundMoney(acc.balance + tx.amount), updatedAt: now };
-      }
-    } else if (tx.type === 'income') {
-      if (acc.id === tx.accountId) {
-        return { ...acc, balance: roundMoney(acc.balance - tx.amount), updatedAt: now };
-      }
-    } else if (tx.type === 'debt_settlement') {
-      if (acc.id === tx.accountId) {
-        const delta = wasDebtMoneyIn ? -tx.amount : tx.amount;
-        return { ...acc, balance: roundMoney(acc.balance + delta), updatedAt: now };
-      }
-    } else if (tx.type === 'transfer') {
-      if (acc.id === tx.accountId) {
-        return {
-          ...acc,
-          balance: roundMoney(acc.balance + tx.amount + (tx.feeAmount || 0)),
-          updatedAt: now,
-        };
-      }
-      if (acc.id === tx.targetAccountId) {
-        return { ...acc, balance: roundMoney(acc.balance - tx.amount), updatedAt: now };
-      }
-    } else if (tx.type === 'cheque_liquidation') {
-      const netCash = roundMoney(tx.amount - (tx.feeAmount || 0));
-      if (acc.id === tx.accountId) {
-        return { ...acc, balance: roundMoney(acc.balance + tx.amount), updatedAt: now };
-      }
-      if (acc.id === tx.targetAccountId) {
-        return { ...acc, balance: roundMoney(acc.balance - netCash), updatedAt: now };
-      }
-    }
-    return acc;
-  });
-
-  return touchState({
-    ...state,
-    accounts: updatedAccounts,
-    debts: updatedDebts,
-    transactions: state.transactions.filter((t) => t.id !== txId),
-  });
+  let debts = state.debts;
+  const changes: [string, number][] = [];
+  if (tx.type === 'expense') changes.push([tx.accountId, tx.amount]);
+  else if (tx.type === 'income') changes.push([tx.accountId, -tx.amount]);
+  else if (tx.type === 'transfer') {
+    changes.push([tx.accountId, moneySum(tx.amount, tx.feeAmount || 0)], [tx.targetAccountId || '', -tx.amount]);
+  } else if (tx.type === 'cheque_liquidation') {
+    changes.push([tx.accountId, tx.amount], [tx.targetAccountId || '', -moneySum(tx.amount, -(tx.feeAmount || 0))]);
+  } else if (tx.type === 'debt_settlement') {
+    const debt = state.debts.find((d) => d.id === tx.debtId);
+    if (!debt) return state;
+    // Exact identity must win before legacy amount/account matching.
+    let installments = debt.installments.filter((i) => i.transactionId === tx.id);
+    if (installments.length === 0 && tx.installmentId) installments = debt.installments.filter((i) => i.id === tx.installmentId);
+    if (installments.length === 0 && !tx.installmentId) installments = debt.installments.filter((i) =>
+      !i.transactionId && i.amount === tx.amount && i.accountId === tx.accountId);
+    if (installments.length !== 1) return state;
+    const remaining = debt.installments.filter((i) => i.id !== installments[0].id);
+    const paidAmount = moneySum(...remaining.map((i) => i.amount));
+    const remainingAmount = moneySum(debt.totalAmount, -paidAmount);
+    if (!validMoney(paidAmount) || !validMoney(remainingAmount) || remainingAmount < 0) return state;
+    debts = state.debts.map((d) => d.id === debt.id ? { ...d, installments: remaining,
+      paidAmount, remainingAmount, status: remainingAmount === 0 ? 'completed' : 'active', updatedAt: now } : d);
+    changes.push([tx.accountId, debt.direction === 'receivable' ? -tx.amount : tx.amount]);
+  } else return state;
+  const accounts = applyAccountDeltas(state, changes, now);
+  if (!accounts) return state;
+  return touchState({ ...state, accounts, debts, transactions: state.transactions.filter((t) => t.id !== txId) });
 }
 
 /**
@@ -1193,27 +1188,27 @@ export function reconcileDashboardSummary(
   for (const acc of state.accounts) {
     const bal = roundMoney(acc.balance);
     if (acc.currency === 'LYD') {
-      if (acc.isCash) totalCashLyd = roundMoney(totalCashLyd + bal);
-      else totalBankLyd = roundMoney(totalBankLyd + bal);
+      if (acc.isCash) totalCashLyd = summarySum(totalCashLyd, bal);
+      else totalBankLyd = summarySum(totalBankLyd, bal);
     } else {
-      if (acc.isCash) totalCashUsd = roundMoney(totalCashUsd + bal);
-      else totalBankUsd = roundMoney(totalBankUsd + bal);
+      if (acc.isCash) totalCashUsd = summarySum(totalCashUsd, bal);
+      else totalBankUsd = summarySum(totalBankUsd, bal);
     }
   }
 
-  const totalLyd = roundMoney(totalCashLyd + totalBankLyd);
-  const totalUsd = roundMoney(totalCashUsd + totalBankUsd);
+  const totalLyd = summarySum(totalCashLyd, totalBankLyd);
+  const totalUsd = summarySum(totalCashUsd, totalBankUsd);
   const cashRate = roundRate(state.marketRates?.cashUsdToLyd || 0);
-  const netWorthEstimatedLyd = roundMoney(totalLyd + roundMoney(totalUsd * cashRate));
+  const netWorthEstimatedLyd = summarySum(totalLyd, moneyRatio(totalUsd, cashRate, 1, MAX_SUMMARY_AMOUNT));
 
   let totalRealizedProfitLyd = 0;
   let totalOpenDealsUsd = 0;
   let totalPersonalTakenUsd = 0;
 
   for (const d of state.deals) {
-    totalRealizedProfitLyd = roundMoney(totalRealizedProfitLyd + roundMoney(d.realizedProfitLyd));
-    totalOpenDealsUsd = roundMoney(totalOpenDealsUsd + roundMoney(d.remainingUsd));
-    totalPersonalTakenUsd = roundMoney(totalPersonalTakenUsd + roundMoney(d.personalTakenUsd));
+    totalRealizedProfitLyd = summarySum(totalRealizedProfitLyd, d.realizedProfitLyd);
+    totalOpenDealsUsd = summarySum(totalOpenDealsUsd, d.remainingUsd);
+    totalPersonalTakenUsd = summarySum(totalPersonalTakenUsd, d.personalTakenUsd);
   }
 
   let totalReceivableLyd = 0;
@@ -1225,13 +1220,13 @@ export function reconcileDashboardSummary(
     if (d.status !== 'active') continue;
     const rem = roundMoney(d.remainingAmount);
     if (d.direction === 'receivable' && d.currency === 'LYD') {
-      totalReceivableLyd = roundMoney(totalReceivableLyd + rem);
+      totalReceivableLyd = summarySum(totalReceivableLyd, rem);
     } else if (d.direction === 'payable' && d.currency === 'LYD') {
-      totalPayableLyd = roundMoney(totalPayableLyd + rem);
+      totalPayableLyd = summarySum(totalPayableLyd, rem);
     } else if (d.direction === 'receivable' && d.currency === 'USD') {
-      totalReceivableUsd = roundMoney(totalReceivableUsd + rem);
+      totalReceivableUsd = summarySum(totalReceivableUsd, rem);
     } else if (d.direction === 'payable' && d.currency === 'USD') {
-      totalPayableUsd = roundMoney(totalPayableUsd + rem);
+      totalPayableUsd = summarySum(totalPayableUsd, rem);
     }
   }
 
@@ -1241,13 +1236,11 @@ export function reconcileDashboardSummary(
 
   for (const tx of state.transactions) {
     if (!tx.date || !tx.date.startsWith(currentMonthPrefix)) continue;
-    if (tx.type === 'expense' && tx.currency === 'LYD') {
-      currentMonthExpensesLyd = roundMoney(currentMonthExpensesLyd + roundMoney(tx.amount));
+    if (tx.type === 'expense' && tx.currency === 'LYD' && !tx.debtId && tx.category !== 'ديون وأمانات') {
+      currentMonthExpensesLyd = summarySum(currentMonthExpensesLyd, tx.amount);
     }
     if (tx.type === 'cheque_liquidation' && tx.feeAmount) {
-      currentMonthChequeFeesLyd = roundMoney(
-        currentMonthChequeFeesLyd + roundMoney(tx.feeAmount)
-      );
+      currentMonthChequeFeesLyd = summarySum(currentMonthChequeFeesLyd, tx.feeAmount);
     }
   }
 
@@ -1271,6 +1264,190 @@ export function reconcileDashboardSummary(
   };
 }
 
+type BackupRecord = Record<string, unknown>;
+
+function validateFinancialBackup(parsed: BackupRecord): void {
+  const requireRecords = (value: unknown, name: string): BackupRecord[] => {
+    if (!Array.isArray(value) || value.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+      throw new Error(`جدول ${name} غير صالح.`);
+    }
+    const records = value as BackupRecord[];
+    const ids = records.map((item) => item.id);
+    if (ids.some((id) => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== ids.length) {
+      throw new Error(`معرفات ${name} مفقودة أو مكررة.`);
+    }
+    const keys = records.map((item) => item.idempotencyKey).filter((key) => key !== undefined);
+    if (keys.some((key) => typeof key !== 'string' || !key.trim()) || new Set(keys).size !== keys.length) {
+      throw new Error(`مفاتيح عمليات ${name} مكررة أو غير صالحة.`);
+    }
+    return records;
+  };
+  const amount = (record: BackupRecord, key: string, signed = false): number => {
+    const value = record[key];
+    if (typeof value !== 'number' || !validMoney(value) || (!signed && value < 0)) {
+      throw new Error(`القيمة المالية ${key} غير صالحة.`);
+    }
+    return roundMoney(value);
+  };
+  const currency = (record: BackupRecord): Currency => {
+    if (record.currency !== 'LYD' && record.currency !== 'USD') throw new Error('عملة غير صالحة.');
+    return record.currency;
+  };
+  const accounts = requireRecords(parsed.accounts, 'الحسابات');
+  for (const account of accounts) {
+    currency(account);
+    if (typeof account.name !== 'string' || !account.name.trim() || typeof account.isCash !== 'boolean') {
+      throw new Error('بيانات حساب غير صالحة.');
+    }
+    amount(account, 'balance', !account.isCash);
+  }
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const accountRef = (id: unknown, expected?: Currency): BackupRecord => {
+    const account = accountById.get(id);
+    if (typeof id !== 'string' || !account || (expected && account.currency !== expected)) {
+      throw new Error('مرجع حساب مفقود أو بعملة مختلفة.');
+    }
+    return account;
+  };
+  const transactions = requireRecords(parsed.transactions, 'الحركات');
+  const transactionById = new Map(transactions.map((tx) => [tx.id, tx]));
+  const deals = requireRecords(parsed.deals ?? [], 'الصفقات');
+  const debts = requireRecords(parsed.debts ?? [], 'الديون');
+  const dealById = new Map(deals.map((d) => [d.id, d]));
+  const debtById = new Map(debts.map((d) => [d.id, d]));
+  const saleIds = new Set<unknown>();
+  const installmentIds = new Set<unknown>();
+  const paymentMethods = ['cash', 'cheque', 'transfer', 'card'];
+  const transactionTypes = ['expense', 'income', 'transfer', 'cheque_liquidation',
+    'deal_buy', 'deal_sell', 'deal_personal_take', 'debt_settlement'];
+  for (const tx of transactions) {
+    if (!transactionTypes.includes(String(tx.type)) || !paymentMethods.includes(String(tx.paymentMethod)) ||
+      typeof tx.title !== 'string' || typeof tx.category !== 'string' ||
+      typeof tx.date !== 'string' || !Number.isFinite(Date.parse(tx.date))) {
+      throw new Error('بيانات حركة غير صالحة.');
+    }
+    amount(tx, 'amount');
+    if (tx.feeAmount !== undefined) amount(tx, 'feeAmount');
+    const txCurrency = currency(tx);
+    accountRef(tx.accountId, txCurrency);
+    if (tx.targetAccountId) accountRef(tx.targetAccountId);
+    if (tx.type === 'transfer') accountRef(tx.targetAccountId, txCurrency);
+    if (tx.type === 'cheque_liquidation') {
+      if (txCurrency !== 'LYD') throw new Error('عملة تسييل الصك غير صالحة.');
+      accountRef(tx.targetAccountId, 'LYD');
+      if (Number(tx.feeAmount || 0) > Number(tx.amount)) throw new Error('خصم الصك يتجاوز قيمته.');
+    }
+    if (tx.dealId && !dealById.has(tx.dealId)) throw new Error('مرجع صفقة مفقود.');
+    if (tx.debtId && !debtById.has(tx.debtId)) throw new Error('مرجع دين مفقود.');
+  }
+  for (const deal of deals) {
+    accountRef(deal.sourceLydAccountId, 'LYD');
+    accountRef(deal.usdHoldingAccountId, 'USD');
+    const totalUsd = amount(deal, 'totalUsdBought');
+    const totalCost = amount(deal, 'totalLydCost');
+    if (totalUsd <= 0 || typeof deal.buyRate !== 'number' || roundRate(deal.buyRate) <= 0 ||
+      typeof deal.effectiveBuyRate !== 'number' || roundRate(deal.effectiveBuyRate) <= 0) {
+      throw new Error('قيمة شراء الصفقة أو سعرها غير صالح.');
+    }
+    const commission = amount(deal, 'buyCommissionLyd');
+    if (amount(deal, 'grossLydCost') !== moneyRatio(totalUsd, roundRate(deal.buyRate)) ||
+      totalCost !== moneySum(amount(deal, 'grossLydCost'), commission)) {
+      throw new Error('تكلفة شراء الصفقة غير متطابقة.');
+    }
+    const sales = requireRecords(deal.sales, 'مبيعات الصفقة');
+    for (const sale of sales) {
+      if (saleIds.has(sale.id) || sale.dealId !== deal.id ||
+        (sale.isPersonalTake !== undefined && typeof sale.isPersonalTake !== 'boolean')) {
+        throw new Error('مرجع بيع مكرر أو غير صالح.');
+      }
+      saleIds.add(sale.id);
+      accountRef(sale.sourceUsdAccountId, 'USD');
+      amount(sale, 'usdAmount');
+      amount(sale, 'costBasisLyd');
+      if (sale.isPersonalTake) {
+        if (sale.targetLydAccountId) accountRef(sale.targetLydAccountId, 'USD');
+        if (amount(sale, 'netLydReceived') !== 0 || amount(sale, 'profitLyd', true) !== 0) {
+          throw new Error('السحب الشخصي لا ينتج إيراداً أو ربحاً.');
+        }
+      } else {
+        accountRef(sale.targetLydAccountId, 'LYD');
+        if (typeof sale.sellRate !== 'number' || roundRate(sale.sellRate) <= 0) throw new Error('سعر بيع غير صالح.');
+        const gross = amount(sale, 'grossLyd');
+        const fees = amount(sale, 'commissionLyd');
+        const net = amount(sale, 'netLydReceived');
+        if (gross !== moneyRatio(amount(sale, 'usdAmount'), roundRate(sale.sellRate)) ||
+          net !== moneySum(gross, -fees) || amount(sale, 'profitLyd', true) !== moneySum(net, -amount(sale, 'costBasisLyd'))) {
+          throw new Error('قيم البيع والربح غير متطابقة.');
+        }
+      }
+    }
+    const sold = moneySum(...sales.filter((sale) => !sale.isPersonalTake).map((sale) => amount(sale, 'usdAmount')));
+    const personal = moneySum(...sales.filter((sale) => sale.isPersonalTake).map((sale) => amount(sale, 'usdAmount')));
+    const remaining = moneySum(totalUsd, -sold, -personal);
+    const received = moneySum(...sales.map((sale) => amount(sale, 'netLydReceived')));
+    const profit = moneySum(...sales.map((sale) => amount(sale, 'profitLyd', true)));
+    const cost = moneySum(...sales.map((sale) => amount(sale, 'costBasisLyd')));
+    if (remaining < 0 || amount(deal, 'soldUsd') !== sold || amount(deal, 'personalTakenUsd') !== personal ||
+      amount(deal, 'remainingUsd') !== remaining || amount(deal, 'totalLydReceived') !== received ||
+      amount(deal, 'realizedProfitLyd', true) !== profit || cost > totalCost ||
+      (remaining === 0 && cost !== totalCost) ||
+      !['open', 'partial', 'closed'].includes(String(deal.status)) || (remaining === 0) !== (deal.status === 'closed')) {
+      throw new Error('إجماليات الصفقة غير متطابقة مع مبيعاتها.');
+    }
+  }
+  for (const debt of debts) {
+    const debtCurrency = currency(debt);
+    if (!['receivable', 'payable'].includes(String(debt.direction))) throw new Error('اتجاه دين غير صالح.');
+    if (debt.accountId) accountRef(debt.accountId, debtCurrency);
+    if (debt.initialTransactionId) {
+      const initial = transactionById.get(debt.initialTransactionId);
+      if (!initial || initial.debtId !== debt.id || initial.accountId !== debt.accountId ||
+        initial.amount !== debt.totalAmount || initial.type !== (debt.direction === 'receivable' ? 'expense' : 'income')) {
+        throw new Error('حركة إنشاء الدين مفقودة أو غير متطابقة.');
+      }
+    }
+    const installments = requireRecords(debt.installments, 'دفعات الدين');
+    for (const installment of installments) {
+      if (installmentIds.has(installment.id)) throw new Error('معرف دفعة مكرر.');
+      installmentIds.add(installment.id);
+      amount(installment, 'amount');
+      if (installment.accountId) accountRef(installment.accountId, debtCurrency);
+      if (installment.transactionId) {
+        const tx = transactionById.get(installment.transactionId);
+        if (!tx || tx.debtId !== debt.id || tx.type !== 'debt_settlement' ||
+          tx.accountId !== installment.accountId || tx.amount !== installment.amount ||
+          (tx.installmentId && tx.installmentId !== installment.id)) {
+          throw new Error('حركة دفعة مفقودة أو غير متطابقة.');
+        }
+      }
+    }
+    const total = amount(debt, 'totalAmount');
+    const paid = moneySum(...installments.map((i) => amount(i, 'amount')));
+    const remaining = moneySum(total, -paid);
+    if (total <= 0 || remaining < 0 || amount(debt, 'paidAmount') !== paid ||
+      amount(debt, 'remainingAmount') !== remaining ||
+      debt.status !== (remaining === 0 ? 'completed' : 'active')) {
+      throw new Error('إجماليات الدين غير متطابقة مع دفعاته.');
+    }
+  }
+  for (const tx of transactions) {
+    if (tx.saleId && !saleIds.has(tx.saleId)) throw new Error('مرجع بيع مفقود.');
+    if (tx.installmentId && !installmentIds.has(tx.installmentId)) throw new Error('مرجع دفعة مفقود.');
+  }
+  if (parsed.marketRates !== undefined) {
+    if (!parsed.marketRates || typeof parsed.marketRates !== 'object') throw new Error('أسعار الصرف غير صالحة.');
+    const rates = parsed.marketRates as BackupRecord;
+    for (const key of ['cashUsdToLyd', 'chequeUsdToLyd']) {
+      const rate = rates[key];
+      if (typeof rate !== 'number' || roundRate(rate) <= 0) throw new Error('سعر صرف غير صالح.');
+    }
+    const discount = rates.defaultChequeDiscountPercent;
+    if (typeof discount !== 'number' || !Number.isFinite(discount) || discount < 0 || discount >= 100) {
+      throw new Error('نسبة خصم الصك غير صالحة.');
+    }
+  }
+}
+
 /**
  * 7. التحقق الصارم من سلامة وصحة ملفات النسخ الاحتياطي (JSON Import Validation)
  */
@@ -1289,6 +1466,8 @@ export function validateAndSanitizeBackupPayload(
         error: 'ملف النسخة الاحتياطية يفتقد إلى جداول الحسابات أو الحركات الأساسية.',
       };
     }
+
+    validateFinancialBackup(parsed);
 
     const sanitizedAccounts: Account[] = parsed.accounts
       .filter((a: any) => a && typeof a.id === 'string' && typeof a.name === 'string')
