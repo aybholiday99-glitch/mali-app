@@ -1,0 +1,39 @@
+name: Mali App Security, Financial & Build CI
+
+on:
+  push:
+    branches: [main, 'security/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Typecheck, Financial Engine, RLS & Web Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run TypeScript static analysis
+        run: npm run typecheck
+
+      - name: Run Financial Engine & Edge-Case Unit Tests
+        run: npm run test:unit
+
+      - name: Run Supabase RLS & Multi-User Isolation Tests
+        run: npm run test:rls
+
+      - name: Run Sync, Conflict Resolution & Backup Integrity Tests
+        run: npm run test:sync
+
+      - name: Verify Production Web Export Build
+        run: npx expo export --platform web
