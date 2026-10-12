@@ -1,3 +1,5 @@
+> **Superseded on 2026-10-12:** production readiness has been withdrawn. See CODEX_RELEASE_GATE.md and CODEX_FINDINGS.md for current verified state and blockers. This document is retained as historical evidence only.
+
 # التقرير الختامي الشامل للتدقيق والإصلاح الهندسي والأمني والمالي — منظومة مالي (Mali App)
 
 - **تاريخ الإنجاز**: 2026-10-12

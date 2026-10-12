@@ -52,12 +52,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
   );
   const [debtCurrency, setDebtCurrency] = useState<Currency>('LYD');
   const [debtAmount, setDebtAmount] = useState('');
-  const [debtDueDate, setDebtDueDate] = useState('2026-11-01');
+  const [debtDueDate, setDebtDueDate] = useState('');
   const [affectWallet, setAffectWallet] = useState(false);
   const [selectedWalletId, setSelectedWalletId] = useState(
     state.accounts[0]?.id || ''
   );
   const [debtNotes, setDebtNotes] = useState('');
+  const [debtError, setDebtError] = useState<string | null>(null);
 
   // Debt Installment Modal State
   const [activeDebtForPay, setActiveDebtForPay] = useState<DebtRecord | null>(
@@ -79,7 +80,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const [procRef, setProcRef] = useState('');
   const [procAmt, setProcAmt] = useState('');
   const [procCurrency, setProcCurrency] = useState<Currency>('LYD');
-  const [procDueDate, setProcDueDate] = useState('2026-10-25');
+  const [procDueDate, setProcDueDate] = useState('');
   const [procStagesText, setProcStagesText] = useState(
     'تجهيز المستندات وتقديم الطلب\nمراجعة المصرف والمطابقة\nإتمام الإجراء ونزول القيمة بالحساب'
   );
@@ -134,12 +135,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
     const validWallet = state.accounts.find(
       (a) => a.id === selectedWalletId && a.currency === debtCurrency
     );
-    const fallbackWallet = state.accounts.find(
-      (a) => a.currency === debtCurrency
-    );
-    const chosenWallet = validWallet || fallbackWallet;
+    setDebtError(null);
+    if (affectWallet && !validWallet) {
+      setDebtError('اختر حساباً موجوداً بالعملة نفسها، أو ألغِ تحديث الرصيد لتسجيل دين دون حركة نقدية.');
+      return;
+    }
+    const chosenWallet = validWallet;
 
-    addDebt({
+    if (!addDebt({
       personName: personName.trim(),
       phone: phone.trim() || undefined,
       direction,
@@ -150,7 +153,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       affectAccountId:
         affectWallet && chosenWallet ? chosenWallet.id : undefined,
       paymentMethod: chosenWallet?.isCash === false ? 'transfer' : 'cash',
-    });
+    })) return;
     setPersonName('');
     setPhone('');
     setDebtAmount('');
@@ -163,13 +166,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
     const amt = parseFloat(installmentAmt) || 0;
     if (amt <= 0) return;
 
-    addDebtInstallment({
+    if (!addDebtInstallment({
       debtId: activeDebtForPay.id,
       amount: amt,
       accountId: installmentAccId || undefined,
       paymentMethod: installmentMethod,
       notes: installmentNotes.trim() || undefined,
-    });
+    })) return;
     setActiveDebtForPay(null);
     setInstallmentAmt('');
     setInstallmentNotes('');
@@ -848,6 +851,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 placeholder="مثال: محمد السنوسي / شركة..."
                 placeholderTextColor={theme.textMuted}
               />
+              {debtError && <Text accessibilityRole="alert" style={{ color: theme.danger, textAlign: 'right' }}>{debtError}</Text>}
 
               <View style={styles.twoColRow}>
                 <View style={{ flex: 2 }}>
@@ -1075,6 +1079,17 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   badgeColor: acc.color,
                 }))}
               onSelect={setInstallmentAccId}
+            />
+            <CalmDropdown
+              label="طريقة السداد"
+              value={installmentMethod}
+              options={[
+                { value: 'cash', label: 'نقدي (كاش)', icon: 'cash-outline' },
+                { value: 'transfer', label: 'حوالة مصرفية', icon: 'swap-horizontal-outline' },
+                { value: 'cheque', label: 'صك مصرفي', icon: 'document-outline' },
+                { value: 'card', label: 'بطاقة', icon: 'card-outline' },
+              ]}
+              onSelect={(value) => setInstallmentMethod(value as PaymentMethodType)}
             />
 
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>

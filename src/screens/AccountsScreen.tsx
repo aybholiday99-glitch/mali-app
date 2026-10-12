@@ -112,7 +112,7 @@ export const AccountsScreen: React.FC = () => {
     ];
     const randomColor = colors[state.accounts.length % colors.length];
 
-    addAccount({
+    if (!addAccount({
       name: accName.trim(),
       bankName: isCashAcc ? 'خزينة نقدية (كاش)' : selectedBank,
       category: isCashAcc
@@ -128,7 +128,7 @@ export const AccountsScreen: React.FC = () => {
       accountNumber: accountNumber.trim() || undefined,
       color: randomColor,
       notes: accNotes.trim() || undefined,
-    });
+    })) return;
 
     setAccName('');
     setInitialBalance('');
@@ -139,13 +139,13 @@ export const AccountsScreen: React.FC = () => {
 
   const handleLiquidateCheque = () => {
     if (!sourceBankId || !targetCashId || parsedChequeAmt <= 0) return;
-    liquidateChequeToCash({
+    if (!liquidateChequeToCash({
       sourceBankAccountId: sourceBankId,
       targetCashAccountId: targetCashId,
       chequeAmountLyd: parsedChequeAmt,
       discountPercent: parsedDiscount,
       notes: liqNotes.trim() || undefined,
-    });
+    })) return;
     setLiqModalVisible(false);
     setLiqNotes('');
   };
@@ -157,7 +157,7 @@ export const AccountsScreen: React.FC = () => {
     const toAcc = state.accounts.find((a) => a.id === trToId);
     if (!fromAcc || !toAcc) return;
 
-    addTransaction({
+    if (!addTransaction({
       title: `تحويل من ${fromAcc.name} إلى ${toAcc.name}`,
       category: 'transfer',
       type: 'transfer',
@@ -167,7 +167,7 @@ export const AccountsScreen: React.FC = () => {
       accountId: trFromId,
       targetAccountId: trToId,
       notes: trNotes.trim() || undefined,
-    });
+    })) return;
     setTransferModalVisible(false);
     setTrNotes('');
   };
@@ -1070,9 +1070,7 @@ export const AccountsScreen: React.FC = () => {
                 onPress={() => {
                   if (editingAccount) {
                     const val = parseFloat(newBalanceStr);
-                    if (Number.isFinite(val)) {
-                      updateAccountBalance(editingAccount.id, val);
-                    }
+                    if (!updateAccountBalance(editingAccount.id, val)) return;
                     setEditingAccount(null);
                   }
                 }}

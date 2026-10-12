@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthUser, SupabaseConfig } from '../types/mali';
 import { useMali } from '../context/MaliContext';
 import {
-  consumeOAuthRedirectIfPresent,
   getSupabaseOAuthRedirectUrl,
   launchSocialOAuthWindow,
   resetUserPasswordLocal,
@@ -55,14 +54,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showCustomSocialForm, setShowCustomSocialForm] = useState(false);
   const [socialName, setSocialName] = useState('');
   const [socialEmail, setSocialEmail] = useState('');
-
-  useEffect(() => {
-    consumeOAuthRedirectIfPresent(supabaseConfig).then((oauthUser) => {
-      if (oauthUser) {
-        onAuthenticated(oauthUser);
-      }
-    });
-  }, []);
 
   const handleEmailAuth = async () => {
     setErrorMessage(null);

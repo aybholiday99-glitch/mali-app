@@ -1,3 +1,4 @@
+import { financialDate } from '../services/financialDate';
 import React, { useState } from 'react';
 import {
   View,
@@ -173,7 +174,7 @@ export const ExpensesScreen: React.FC = () => {
 
     const method: PaymentMethodType = acc.isCash ? 'cash' : 'card';
 
-    addTransaction({
+    if (!addTransaction({
       title: finalTitle,
       type: 'expense',
       amount: amt,
@@ -182,7 +183,7 @@ export const ExpensesScreen: React.FC = () => {
       accountId: acc.id,
       paymentMethod: method,
       notes: detail ? `الغرض: ${detail} — سحب من ${acc.name}` : undefined,
-    });
+    })) return;
 
     setQuickAmount('');
     setQuickCustomDetail('');
@@ -213,7 +214,7 @@ export const ExpensesScreen: React.FC = () => {
       }
     }
 
-    addTransaction({
+    if (!addTransaction({
       title:
         txTitle.trim() ||
         (txType === 'income'
@@ -226,7 +227,7 @@ export const ExpensesScreen: React.FC = () => {
       accountId: txAccountId,
       targetAccountId: txType === 'transfer' ? txTargetAccountId : undefined,
       paymentMethod: selectedAcc?.isCash ? 'cash' : 'transfer',
-    });
+    })) return;
 
     setTxTitle('');
     setTxAmount('');
@@ -760,7 +761,8 @@ export const ExpensesScreen: React.FC = () => {
                 (t) =>
                   (t.type === 'expense' || t.type === 'cheque_liquidation') &&
                   t.category === b.category &&
-                  t.currency === 'LYD'
+                  t.currency === 'LYD' &&
+                  t.date.slice(0, 7) === financialDate().slice(0, 7)
               )
               .reduce(
                 (s, t) =>

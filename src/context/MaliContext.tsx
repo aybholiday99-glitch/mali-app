@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Account,
@@ -6,17 +6,16 @@ import {
   ContactPerson,
   ContactRole,
   Currency,
-  DealSale,
-  DebtRecord,
   FinancialProcedure,
   MaliState,
   MarketRates,
   PaymentMethodType,
   SupabaseConfig,
-  Transaction,
-  UsdDeal,
 } from '../types/mali';
 import { INITIAL_MALI_STATE } from '../data/initialData';
+import { SessionScope, emptyFinancialState } from '../services/sessionScope';
+import { SerialQueue } from '../services/serialQueue';
+import { financialDate } from '../services/financialDate';
 import {
   pullStateFromSupabase,
   pushStateToSupabase,
@@ -27,6 +26,7 @@ import {
   consumeOAuthRedirectIfPresent,
   getPersistedSessionUser,
   savePersistedSessionUser,
+  subscribeToAuthIdentity,
 } from '../services/authService';
 import {
   addDebtRecordMutation,
@@ -40,7 +40,7 @@ import {
   recordExpenseOrIncomeMutation,
   recordTransferMutation,
   roundMoney,
-  roundRate,
+  MAX_MONEY_AMOUNT,
   sellFromUsdDealMutation,
   settleDebtInstallmentMutation,
   takePersonalFromUsdDealMutation,
@@ -55,7 +55,6 @@ import {
 } from '../theme/calmTheme';
 
 const BASE_STORAGE_KEY = '@mali_app_state_v2';
-const LEGACY_STORAGE_KEY = '@mali_app_state_v1';
 const THEME_KEY = '@mali_app_theme_v1';
 
 function getStorageKeyForUser(userId?: string | null): string {
@@ -191,21 +190,21 @@ interface MaliContextValue {
   addContact: (input: AddContactInput) => ContactPerson;
   updateContact: (contactId: string, partial: Partial<ContactPerson>) => void;
   deleteContact: (contactId: string) => void;
-  addAccount: (acc: Omit<Account, 'id' | 'updatedAt'>) => void;
-  updateAccountBalance: (accountId: string, newBalance: number) => void;
-  deleteAccount: (accountId: string) => void;
-  liquidateChequeToCash: (input: ChequeLiquidationInput) => void;
-  createUsdDeal: (input: CreateDealInput) => void;
-  recordDealSale: (input: RecordDealSaleInput) => void;
+  addAccount: (acc: Omit<Account, 'id' | 'updatedAt'>) => boolean;
+  updateAccountBalance: (accountId: string, newBalance: number) => boolean;
+  deleteAccount: (accountId: string) => boolean;
+  liquidateChequeToCash: (input: ChequeLiquidationInput) => boolean;
+  createUsdDeal: (input: CreateDealInput) => boolean;
+  recordDealSale: (input: RecordDealSaleInput) => boolean;
   updateDealBuyReceipts: (dealId: string, images: string[]) => void;
   updateDealSaleReceipts: (dealId: string, saleId: string, images: string[]) => void;
-  deleteUsdDeal: (dealId: string, reverseBalances?: boolean) => void;
-  addTransaction: (input: AddTransactionInput) => void;
-  deleteTransaction: (txId: string) => void;
+  deleteUsdDeal: (dealId: string, reverseBalances?: boolean) => boolean;
+  addTransaction: (input: AddTransactionInput) => boolean;
+  deleteTransaction: (txId: string) => boolean;
   updateCategoryBudget: (category: string, monthlyLimitLyd: number) => void;
-  addDebt: (input: AddDebtInput) => void;
-  addDebtInstallment: (input: AddDebtInstallmentInput) => void;
-  deleteDebt: (debtId: string) => void;
+  addDebt: (input: AddDebtInput) => boolean;
+  addDebtInstallment: (input: AddDebtInstallmentInput) => boolean;
+  deleteDebt: (debtId: string) => boolean;
   addProcedure: (input: AddProcedureInput) => void;
   toggleProcedureStage: (procedureId: string, stageId: string) => void;
   addProcedureStage: (procedureId: string, stageTitle: string) => void;
@@ -214,26 +213,26 @@ interface MaliContextValue {
   syncToCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   pullFromCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   importStateJson: (jsonStr: string) => boolean;
-  resetDemoData: () => void;
 }
 
 const MaliContext = createContext<MaliContextValue | undefined>(undefined);
 
-function mergePartialCloudState(base: MaliState, cloud: Partial<MaliState>, updatedAt?: string): MaliState {
+function mergePartialCloudState(base: MaliState, cloud: Partial<MaliState>, updatedAt?: string, snapshotUpdatedAt?: string | null): MaliState {
   return {
     ...base,
     accounts: Array.isArray(cloud.accounts) ? cloud.accounts : base.accounts,
-    contacts: Array.isArray(cloud.contacts) && cloud.contacts.length > 0 ? cloud.contacts : base.contacts,
+    contacts: Array.isArray(cloud.contacts) ? cloud.contacts : base.contacts,
     transactions: Array.isArray(cloud.transactions) ? cloud.transactions : base.transactions,
     deals: Array.isArray(cloud.deals) ? cloud.deals : base.deals,
     debts: Array.isArray(cloud.debts) ? cloud.debts : base.debts,
     procedures: Array.isArray(cloud.procedures) ? cloud.procedures : base.procedures,
     budgets: Array.isArray(cloud.budgets) ? cloud.budgets : base.budgets,
     marketRates: cloud.marketRates ? { ...base.marketRates, ...cloud.marketRates } : base.marketRates,
+    pendingCloudSync: false,
     lastModifiedAt: cloud.lastModifiedAt || updatedAt || new Date().toISOString(),
     supabaseConfig: {
       ...base.supabaseConfig,
-      lastSyncedAt: updatedAt || new Date().toISOString(),
+      lastSyncedAt: snapshotUpdatedAt === null ? undefined : (snapshotUpdatedAt || updatedAt),
     },
   };
 }
@@ -248,79 +247,36 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const theme = isDarkMode ? CALM_DARK_THEME : CALM_LIGHT_THEME;
 
+  const scope = useRef(new SessionScope());
+  const [mutationSession, setMutationSession] = useState({ generation: 0, userId: null as string | null });
+  const localRevision = useRef(0);
+  const recoveryRequired = useRef(false);
+  const stateRef = useRef(state);
+  const userRef = useRef<AuthUser | null>(null);
+  const syncQueue = useRef(new SerialQueue());
+  const storageQueue = useRef(new SerialQueue());
+  const hydrating = useRef(false);
+  const applyState = (next: MaliState) => { stateRef.current = next; setState(next); };
+
   useEffect(() => {
+    const boot = scope.current.capture();
+    let mounted = true;
     (async () => {
       try {
-        const [oauthCallbackUser, savedUser, savedTheme] = await Promise.all([
-          consumeOAuthRedirectIfPresent(INITIAL_MALI_STATE.supabaseConfig),
-          getPersistedSessionUser(INITIAL_MALI_STATE.supabaseConfig),
-          AsyncStorage.getItem(THEME_KEY),
-        ]);
-        if (savedTheme === 'dark') {
-          setIsDarkMode(true);
-        }
-        const activeUser = oauthCallbackUser || savedUser;
-        if (activeUser) {
-          setCurrentUser(activeUser);
-          const userStorageKey = getStorageKeyForUser(activeUser.id);
-          const savedForUser =
-            (await AsyncStorage.getItem(userStorageKey)) ||
-            (await AsyncStorage.getItem(LEGACY_STORAGE_KEY));
-
-          let initialLoadedState = INITIAL_MALI_STATE;
-          if (savedForUser) {
-            const parsed = JSON.parse(savedForUser);
-            initialLoadedState = {
-              ...INITIAL_MALI_STATE,
-              ...parsed,
-              supabaseConfig: {
-                ...INITIAL_MALI_STATE.supabaseConfig,
-                ...(parsed.supabaseConfig || {}),
-                url:
-                  parsed.supabaseConfig?.url?.trim() ||
-                  INITIAL_MALI_STATE.supabaseConfig.url,
-                anonKey:
-                  parsed.supabaseConfig?.anonKey?.trim() ||
-                  INITIAL_MALI_STATE.supabaseConfig.anonKey,
-                workspaceKey: `mali-vault-${activeUser.id}`,
-              },
-              contacts:
-                Array.isArray(parsed.contacts) && parsed.contacts.length > 0
-                  ? parsed.contacts
-                  : INITIAL_MALI_STATE.contacts,
-            };
-            setState(initialLoadedState);
-          }
-
-          // إذا كان المستخدم موثقاً سحابياً، نسحب أحدث نسخة من السحابة للتحقق من عدم وجود تحديثات أحدث
-          if (!activeUser.isLocalOnly) {
-            const pullRes = await pullStateFromSupabase(
-              initialLoadedState.supabaseConfig,
-              activeUser
-            );
-            if (pullRes.ok && pullRes.state) {
-              const cloudTime = pullRes.updatedAt ? new Date(pullRes.updatedAt).getTime() : 0;
-              const localTime = initialLoadedState.lastModifiedAt
-                ? new Date(initialLoadedState.lastModifiedAt).getTime()
-                : 0;
-              if (!savedForUser || cloudTime >= localTime) {
-                const merged = mergePartialCloudState(
-                  initialLoadedState,
-                  pullRes.state,
-                  pullRes.updatedAt
-                );
-                setState(merged);
-                await AsyncStorage.setItem(userStorageKey, JSON.stringify(merged));
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load Mali state from storage:', e);
+        // Callback exchange must finish before looking up the persisted session.
+        const callbackUser = await consumeOAuthRedirectIfPresent(INITIAL_MALI_STATE.supabaseConfig);
+        const savedUser = callbackUser || await getPersistedSessionUser(INITIAL_MALI_STATE.supabaseConfig);
+        const savedTheme = await AsyncStorage.getItem(THEME_KEY);
+        if (!mounted || !scope.current.isCurrent(boot)) return;
+        if (savedTheme === 'dark') setIsDarkMode(true);
+        if (savedUser) loginUser(savedUser);
+      } catch {
+        if (mounted && scope.current.isCurrent(boot)) setLastSyncMessage('تعذر قراءة البيانات المحفوظة.');
       } finally {
-        setIsLoading(false);
+        if (mounted && scope.current.isCurrent(boot)) setIsLoading(false);
       }
     })();
+    return () => { mounted = false; scope.current.begin(null); };
   }, []);
 
   const toggleTheme = () => {
@@ -332,26 +288,46 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const persistState = (updater: (prev: MaliState) => MaliState) => {
-    setState((prev) => {
-      const next = touchState(updater(prev));
-      const storageKey = getStorageKeyForUser(currentUser?.id);
-      AsyncStorage.setItem(storageKey, JSON.stringify(next)).catch((err) =>
-        console.warn('Failed saving state:', err)
-      );
-      if (
-        currentUser &&
-        !currentUser.isLocalOnly &&
-        next.supabaseConfig.autoSync &&
-        next.supabaseConfig.url.trim() &&
-        next.supabaseConfig.anonKey.trim()
-      ) {
-        pushStateToSupabase(next, next.supabaseConfig, currentUser).catch(() => {});
-      }
-      return next;
+    if (!scope.current.isCurrent(mutationSession) || hydrating.current || recoveryRequired.current) return false;
+    const prev = stateRef.current;
+    const mutation = updater(prev);
+    if (mutation === prev) {
+      setLastSyncMessage('لم يتم تسجيل العملية. راجع الحساب والعملة والرصيد والمبلغ ثم حاول مجدداً.');
+      return false;
+    }
+    const token = scope.current.capture();
+    const user = userRef.current;
+    const revision = ++localRevision.current;
+    const next = { ...touchState(mutation), localRevision: revision, pendingCloudSync: !!user && !user.isLocalOnly };
+    applyState(next);
+    // Side effects run once, outside React's replayable state updater.
+    setLastSyncMessage(null);
+    void storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(next))).then(() => {
+      if (scope.current.isCurrent(token) && user?.isLocalOnly && stateRef.current === next) setLastSyncMessage('تم الحفظ على هذا الجهاز.');
+    }).catch(() => {
+      if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر حفظ التعديل على هذا الجهاز. يرجى تصدير نسخة احتياطية.');
     });
+    if (user && !user.isLocalOnly && next.supabaseConfig.autoSync) {
+      void syncQueue.current.run(async () => {
+        if (!scope.current.isCurrent(token)) return;
+        const cfg = { ...next.supabaseConfig, lastSyncedAt: stateRef.current.supabaseConfig.lastSyncedAt };
+        const res = await pushStateToSupabase(next, cfg, user);
+        if (!scope.current.isCurrent(token)) return;
+        setLastSyncMessage(res.message);
+        if (res.ok && res.updatedAt) {
+          const current = stateRef.current;
+          const acknowledged = { ...current, pendingCloudSync: localRevision.current !== revision, supabaseConfig: { ...current.supabaseConfig, lastSyncedAt: res.updatedAt } };
+          applyState(acknowledged);
+          await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user.id), JSON.stringify(acknowledged)));
+        }
+      }).catch(() => {
+        if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر رفع التعديل. تم الاحتفاظ به محلياً.');
+      });
+    }
+    return true;
   };
 
-  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const todayStr = () => financialDate();
 
   const ensureContactInList = (
     contacts: ContactPerson[],
@@ -466,19 +442,19 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addAccount = (acc: Omit<Account, 'id' | 'updatedAt'>) => {
-    persistState((prev) => createAccountMutation(prev, acc));
+    return persistState((prev) => createAccountMutation(prev, acc));
   };
 
   const updateAccountBalance = (accountId: string, newBalance: number) => {
-    persistState((prev) => updateAccountBalanceMutation(prev, accountId, newBalance));
+    return persistState((prev) => updateAccountBalanceMutation(prev, accountId, newBalance));
   };
 
   const deleteAccount = (accountId: string) => {
-    persistState((prev) => deleteAccountMutation(prev, accountId));
+    return persistState((prev) => deleteAccountMutation(prev, accountId));
   };
 
   const liquidateChequeToCash = (input: ChequeLiquidationInput) => {
-    persistState((prev) =>
+    return persistState((prev) =>
       liquidateChequeToCashMutation(prev, {
         idempotencyKey: input.idempotencyKey,
         title: `تسييل صك إلى كاش (خصم ${input.discountPercent}%)`,
@@ -493,7 +469,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const createUsdDeal = (input: CreateDealInput) => {
-    persistState((prev) => {
+    return persistState((prev) => {
       const sellerRes = ensureContactInList(
         prev.contacts,
         input.contactId,
@@ -516,7 +492,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         counterpartyPhone: sellerRes.resolvedPhone,
         totalUsdBought: input.totalUsdBought,
         buyRate: input.buyRate,
-        buyCommissionLyd: input.buyCommissionLyd || 0,
+        buyCommissionLyd: input.buyCommissionLyd ?? 0,
         buyPaymentMethod: input.buyPaymentMethod,
         sourceLydAccountId: input.sourceLydAccountId,
         usdHoldingAccountId: input.usdHoldingAccountId,
@@ -525,11 +501,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         buyDate: todayStr(),
       });
 
-      if (
-        input.immediateSale &&
-        input.immediateSale.usdAmount > 0 &&
-        input.immediateSale.sellRate > 0
-      ) {
+      if (nextState === stateWithContact) return prev;
+      if (input.immediateSale) {
         const saleInput = input.immediateSale;
         const buyerRes = ensureContactInList(
           nextState.contacts,
@@ -538,16 +511,17 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
           saleInput.buyerPhone,
           'تاجر عملة'
         );
+        const saleBase = { ...nextState, contacts: buyerRes.updatedContacts };
         nextState = sellFromUsdDealMutation(
-          { ...nextState, contacts: buyerRes.updatedContacts },
+          saleBase,
           {
             dealId,
             idempotencyKey: input.idempotencyKey
               ? `${input.idempotencyKey}:imm_sale`
               : undefined,
-            usdAmount: Math.min(saleInput.usdAmount, input.totalUsdBought),
+            usdAmount: saleInput.usdAmount,
             sellRate: saleInput.sellRate,
-            commissionLyd: saleInput.commissionLyd || 0,
+            commissionLyd: saleInput.commissionLyd ?? 0,
             paymentMethod: saleInput.paymentMethod,
             targetLydAccountId: saleInput.targetLydAccountId,
             sourceUsdAccountId: input.usdHoldingAccountId,
@@ -559,6 +533,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
             notes: `بيع مباشر عند فتح الصفقة بسعر ${saleInput.sellRate}`,
           }
         );
+        if (nextState === saleBase) return prev;
       }
 
       return nextState;
@@ -566,7 +541,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const recordDealSale = (input: RecordDealSaleInput) => {
-    persistState((prev) => {
+    return persistState((prev) => {
       if (input.isPersonalTake) {
         return takePersonalFromUsdDealMutation(prev, {
           idempotencyKey: input.idempotencyKey,
@@ -587,14 +562,15 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'تاجر عملة'
       );
 
-      return sellFromUsdDealMutation(
-        { ...prev, contacts: buyerRes.updatedContacts },
+      const prepared = { ...prev, contacts: buyerRes.updatedContacts };
+      const candidate = sellFromUsdDealMutation(
+        prepared,
         {
           idempotencyKey: input.idempotencyKey,
           dealId: input.dealId,
           usdAmount: input.usdAmount,
           sellRate: input.sellRate,
-          commissionLyd: input.commissionLyd || 0,
+          commissionLyd: input.commissionLyd ?? 0,
           paymentMethod: input.paymentMethod,
           targetLydAccountId: input.targetLydAccountId,
           sourceUsdAccountId: input.sourceUsdAccountId,
@@ -606,6 +582,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
           date: todayStr(),
         }
       );
+      return candidate === prepared ? prev : candidate;
     });
   };
 
@@ -645,21 +622,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
   };
 
-  const deleteUsdDeal = (dealId: string, reverseBalances: boolean = true) => {
-    persistState((prev) => {
-      if (!reverseBalances) {
-        return {
-          ...prev,
-          deals: prev.deals.filter((d) => d.id !== dealId),
-          transactions: prev.transactions.filter((t) => t.dealId !== dealId),
-        };
-      }
-      return deleteUsdDealMutation(prev, dealId);
-    });
+  const deleteUsdDeal = (dealId: string) => {
+    return persistState((prev) => deleteUsdDealMutation(prev, dealId));
   };
 
   const addTransaction = (input: AddTransactionInput) => {
-    persistState((prev) => {
+    return persistState((prev) => {
       if (input.type === 'transfer') {
         if (!input.targetAccountId) return prev;
         return recordTransferMutation(prev, {
@@ -675,13 +643,13 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      const fee = roundMoney(Math.max(0, input.feeAmount || 0));
-      const effectiveAmount =
-        fee > 0
-          ? input.type === 'expense'
-            ? roundMoney(input.amount + fee)
-            : roundMoney(input.amount - fee)
-          : roundMoney(input.amount);
+      const rawFee = input.feeAmount ?? 0;
+      if (!Number.isFinite(rawFee) || rawFee < 0 || rawFee > MAX_MONEY_AMOUNT ||
+          !Number.isFinite(input.amount) || input.amount <= 0 || input.amount > MAX_MONEY_AMOUNT) return prev;
+      const principalCents = BigInt(Math.round(roundMoney(input.amount) * 100));
+      const feeCents = BigInt(Math.round(roundMoney(rawFee) * 100));
+      const totalCents = input.type === 'expense' ? principalCents + feeCents : principalCents - feeCents;
+      const effectiveAmount = Number(totalCents) / 100;
 
       return recordExpenseOrIncomeMutation(prev, {
         idempotencyKey: input.idempotencyKey,
@@ -701,87 +669,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const deleteTransaction = (txId: string) => {
-    persistState((prev) => {
-      const tx = prev.transactions.find((t) => t.id === txId);
-      if (!tx) return prev;
-
-      if (tx.type === 'deal_buy' && tx.dealId) {
-        return deleteUsdDealMutation(prev, tx.dealId);
-      }
-
-      if (
-        (tx.type === 'deal_sell' || tx.type === 'deal_personal_take') &&
-        tx.dealId
-      ) {
-        const deal = prev.deals.find((d) => d.id === tx.dealId);
-        if (!deal) return prev;
-        const targetSale =
-          deal.sales.find((s) => tx.saleId && s.id === tx.saleId) ||
-          deal.sales.find(
-            (s) =>
-              Boolean(s.isPersonalTake) === (tx.type === 'deal_personal_take') &&
-              (tx.type === 'deal_personal_take'
-                ? roundMoney(s.usdAmount) === roundMoney(tx.amount)
-                : roundMoney(s.netLydReceived) === roundMoney(tx.amount))
-          );
-
-        if (!targetSale) return prev;
-
-        const remainingSales = deal.sales.filter((s) => s.id !== targetSale.id);
-        const newSoldUsd = remainingSales
-          .filter((s) => !s.isPersonalTake)
-          .reduce((sum, s) => roundMoney(sum + s.usdAmount), 0);
-        const newPersonalUsd = remainingSales
-          .filter((s) => s.isPersonalTake)
-          .reduce((sum, s) => roundMoney(sum + s.usdAmount), 0);
-        const newRemainingUsd = roundMoney(
-          Math.max(0, deal.totalUsdBought - newSoldUsd - newPersonalUsd)
-        );
-        const newTotalLydReceived = remainingSales
-          .filter((s) => !s.isPersonalTake)
-          .reduce((sum, s) => roundMoney(sum + s.netLydReceived), 0);
-        const newRealizedProfit = remainingSales
-          .filter((s) => !s.isPersonalTake)
-          .reduce((sum, s) => roundMoney(sum + s.profitLyd), 0);
-
-        const updatedDeal: UsdDeal = {
-          ...deal,
-          soldUsd: newSoldUsd,
-          personalTakenUsd: newPersonalUsd,
-          remainingUsd: newRemainingUsd,
-          totalLydReceived: newTotalLydReceived,
-          realizedProfitLyd: newRealizedProfit,
-          status:
-            remainingSales.length === 0
-              ? 'open'
-              : newRemainingUsd <= 0.005
-              ? 'closed'
-              : 'partial',
-          sales: remainingSales,
-          updatedAt: new Date().toISOString(),
-        };
-
-        const updatedAccounts = prev.accounts.map((a) => {
-          let bal = a.balance;
-          if (a.id === targetSale.sourceUsdAccountId) {
-            bal = roundMoney(bal + targetSale.usdAmount);
-          }
-          if (!targetSale.isPersonalTake && a.id === targetSale.targetLydAccountId) {
-            bal = roundMoney(bal - targetSale.netLydReceived);
-          }
-          return bal !== a.balance ? { ...a, balance: bal } : a;
-        });
-
-        return {
-          ...prev,
-          accounts: updatedAccounts,
-          deals: prev.deals.map((d) => (d.id === deal.id ? updatedDeal : d)),
-          transactions: prev.transactions.filter((t) => t.id !== txId),
-        };
-      }
-
-      return deleteTransactionMutation(prev, txId);
-    });
+    return persistState((prev) => deleteTransactionMutation(prev, txId));
   };
 
   const updateCategoryBudget = (category: string, monthlyLimitLyd: number) => {
@@ -812,7 +700,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addDebt = (input: AddDebtInput) => {
-    persistState((prev) => {
+    return persistState((prev) => {
       const personRes = ensureContactInList(
         prev.contacts,
         input.contactId,
@@ -821,8 +709,9 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'شريك تجاري'
       );
 
-      return addDebtRecordMutation(
-        { ...prev, contacts: personRes.updatedContacts },
+      const prepared = { ...prev, contacts: personRes.updatedContacts };
+      const candidate = addDebtRecordMutation(
+        prepared,
         {
           idempotencyKey: input.idempotencyKey,
           contactId: personRes.resolvedId,
@@ -838,45 +727,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
           createdAt: todayStr(),
         }
       );
+      return candidate === prepared ? prev : candidate;
     });
   };
 
   const addDebtInstallment = (input: AddDebtInstallmentInput) => {
-    persistState((prev) => {
-      if (!input.accountId) {
-        const target = prev.debts.find((d) => d.id === input.debtId);
-        if (!target) return prev;
-        const amount = roundMoney(Math.min(input.amount, target.remainingAmount));
-        if (amount <= 0) return prev;
-        const newPaid = roundMoney(target.paidAmount + amount);
-        const newRem = roundMoney(Math.max(0, target.totalAmount - newPaid));
-        return {
-          ...prev,
-          debts: prev.debts.map((d) =>
-            d.id === target.id
-              ? {
-                  ...target,
-                  paidAmount: newPaid,
-                  remainingAmount: newRem,
-                  status: newRem <= 0.005 ? 'completed' : 'active',
-                  installments: [
-                    {
-                      id: `inst-${Date.now()}`,
-                      idempotencyKey: input.idempotencyKey,
-                      amount,
-                      date: todayStr(),
-                      paymentMethod: input.paymentMethod,
-                      notes: input.notes,
-                    },
-                    ...target.installments,
-                  ],
-                  updatedAt: new Date().toISOString(),
-                }
-              : d
-          ),
-        };
-      }
-
+    return persistState((prev) => {
       return settleDebtInstallmentMutation(prev, {
         idempotencyKey: input.idempotencyKey,
         debtId: input.debtId,
@@ -890,7 +746,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const deleteDebt = (debtId: string) => {
-    persistState((prev) => deleteDebtMutation(prev, debtId));
+    return persistState((prev) => deleteDebtMutation(prev, debtId));
   };
 
   const addProcedure = (input: AddProcedureInput) => {
@@ -1001,138 +857,179 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const syncToCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
+    const token = scope.current.capture();
+    const user = userRef.current;
     setIsSyncing(true);
+    return syncQueue.current.run(async () => {
     try {
-      const cfg = overrideCfg || state.supabaseConfig;
-      const res = await pushStateToSupabase(state, cfg, currentUser, { forceOverwrite: true });
+      if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
+      if (recoveryRequired.current) return { ok: false, success: false, message: 'استرجع نسخة صحيحة قبل الرفع.' };
+      const current = stateRef.current;
+      const revision = localRevision.current;
+      const cfg = overrideCfg || current.supabaseConfig;
+      const res = await pushStateToSupabase(current, cfg, user);
+      if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
       setLastSyncMessage(res.message);
       if (res.ok && res.updatedAt) {
-        updateSupabaseConfig({
-          ...(overrideCfg || {}),
-          lastSyncedAt: res.updatedAt,
-        });
+        const next = { ...stateRef.current, pendingCloudSync: localRevision.current !== revision, supabaseConfig: { ...cfg, lastSyncedAt: res.updatedAt } };
+        applyState(next);
+        await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(next)));
       }
       return res;
     } finally {
-      setIsSyncing(false);
+      if (scope.current.isCurrent(token)) setIsSyncing(false);
     }
+    });
   };
 
   const pullFromCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
+    const token = scope.current.capture();
+    const user = userRef.current;
     setIsSyncing(true);
+    return syncQueue.current.run(async () => {
+    const before = stateRef.current;
     try {
-      const cfg = overrideCfg || state.supabaseConfig;
-      const res = await pullStateFromSupabase(cfg, currentUser);
+      if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
+      const res = await pullStateFromSupabase(overrideCfg || before.supabaseConfig, user);
+      if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
+      // A concurrent local edit must never be discarded by a delayed pull.
+      if (stateRef.current !== before) {
+        return { ok: false, success: false, conflictDetected: true, message: 'توجد تعديلات محلية جديدة. لم يتم استبدالها بالنسخة السحابية.' };
+      }
       setLastSyncMessage(res.message);
+      if (res.ok && res.state && before.pendingCloudSync) {
+        const message = 'توجد تعديلات محلية غير مرفوعة. صدّر نسخة احتياطية قبل استبدالها بالنسخة السحابية.';
+        setLastSyncMessage(message);
+        return { ...res, ok: false, success: false, conflictDetected: true, message };
+      }
+      if (res.isEmpty) {
+        const cleared = { ...before, supabaseConfig: { ...before.supabaseConfig, lastSyncedAt: undefined } };
+        applyState(cleared);
+        await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(cleared)));
+      }
       if (res.ok && res.state) {
-        const merged = mergePartialCloudState(state, res.state, res.updatedAt);
-        setState(merged);
-        const storageKey = getStorageKeyForUser(currentUser?.id);
-        await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
+        recoveryRequired.current = false;
+        const merged = mergePartialCloudState(before, res.state, res.updatedAt, res.snapshotUpdatedAt);
+        applyState(merged);
+        await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(merged)));
       }
       return res;
     } finally {
-      setIsSyncing(false);
+      if (scope.current.isCurrent(token)) setIsSyncing(false);
     }
+    });
   };
 
   const importStateJson = (jsonStr: string): boolean => {
-    const validation = validateAndSanitizeBackupPayload(jsonStr, state);
-    if (!validation.valid || !validation.state) {
-      return false;
-    }
-    persistState(() => validation.state!);
-    return true;
+    if (!scope.current.isCurrent(mutationSession) || hydrating.current) return false;
+    const validation = validateAndSanitizeBackupPayload(jsonStr, stateRef.current);
+    if (!validation.valid || !validation.state) return false;
+    recoveryRequired.current = false;
+    return persistState(() => validation.state!);
   };
 
-  const resetDemoData = () => {
-    persistState(() => INITIAL_MALI_STATE);
-  };
-
-  const loginUser = (user: AuthUser) => {
+  function loginUser(user: AuthUser) {
+    const token = scope.current.begin(user.id);
+    setMutationSession(token);
+    localRevision.current = 0;
+    recoveryRequired.current = false;
+    userRef.current = user;
     setCurrentUser(user);
-    savePersistedSessionUser(user, state.supabaseConfig).catch(() => {});
-
+    setIsLoading(true);
+    hydrating.current = true;
+    const nextWorkspaceKey = user.isLocalOnly ? 'mali-local-offline' : `mali-vault-${user.id}`;
+    let userState: MaliState = {
+      ...emptyFinancialState(INITIAL_MALI_STATE),
+      supabaseConfig: { ...INITIAL_MALI_STATE.supabaseConfig, workspaceKey: nextWorkspaceKey, lastSyncedAt: undefined },
+    };
+    applyState(userState);
     (async () => {
-      const userStorageKey = getStorageKeyForUser(user.id);
-      const nextWorkspaceKey = user.isLocalOnly
-        ? 'mali-local-offline'
-        : `mali-vault-${user.id}`;
-
-      let userState: MaliState = {
-        ...INITIAL_MALI_STATE,
-        supabaseConfig: {
-          ...state.supabaseConfig,
-          workspaceKey: nextWorkspaceKey,
-        },
-      };
-
+      const key = getStorageKeyForUser(user.id);
+      let cacheLoaded = false;
       try {
-        const cachedRaw = await AsyncStorage.getItem(userStorageKey);
+        const cachedRaw = await storageQueue.current.run(() => AsyncStorage.getItem(key));
+        if (!scope.current.isCurrent(token)) return;
         if (cachedRaw) {
-          const parsed = JSON.parse(cachedRaw);
-          userState = {
-            ...userState,
-            ...parsed,
-            supabaseConfig: {
-              ...userState.supabaseConfig,
-              ...(parsed.supabaseConfig || {}),
-              workspaceKey: nextWorkspaceKey,
-            },
-          };
-        }
-      } catch {
-        // ignore cache parse error
-      }
-
-      setState(userState);
-
-      if (user.isLocalOnly) {
-        setLastSyncMessage('تم تفعيل الوضع المحلي المعزول (بدون مزامنة سحابية).');
-        return;
-      }
-
-      // السحب أولاً من السحابة لمنع استبدال بيانات المستخدم السحابية الأحدث ببيانات محلية افتراضية
-      setIsSyncing(true);
-      try {
-        const pullRes = await pullStateFromSupabase(userState.supabaseConfig, user);
-        if (pullRes.ok && pullRes.state) {
-          const cloudTime = pullRes.updatedAt ? new Date(pullRes.updatedAt).getTime() : 0;
-          const localTime = userState.lastModifiedAt
-            ? new Date(userState.lastModifiedAt).getTime()
-            : 0;
-
-          if (!userState.lastModifiedAt || cloudTime >= localTime) {
-            const merged = mergePartialCloudState(userState, pullRes.state, pullRes.updatedAt);
-            setState(merged);
-            await AsyncStorage.setItem(userStorageKey, JSON.stringify(merged));
-            setLastSyncMessage('تم استرجاع ومزامنة خزنتك السحابية بنجاح.');
+          const validation = validateAndSanitizeBackupPayload(cachedRaw, userState);
+          if (!validation.valid || !validation.state) {
+            recoveryRequired.current = true;
+            await storageQueue.current.run(() => AsyncStorage.setItem(key + '_recovery', cachedRaw));
+            setLastSyncMessage('النسخة المحلية تحتاج مراجعة. تم الاحتفاظ بها دون رفع أو استبدال.');
             return;
           }
+          const parsed = JSON.parse(cachedRaw);
+          const revision = parsed.localRevision;
+          localRevision.current = Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+          const pending = typeof parsed.pendingCloudSync === 'boolean' ? parsed.pendingCloudSync :
+            Boolean(parsed.lastModifiedAt && (!parsed.supabaseConfig?.lastSyncedAt || Date.parse(parsed.lastModifiedAt) > Date.parse(parsed.supabaseConfig.lastSyncedAt)));
+          userState = { ...validation.state, localRevision: localRevision.current, pendingCloudSync: pending, supabaseConfig: {
+            ...userState.supabaseConfig,
+            autoSync: typeof parsed.supabaseConfig?.autoSync === 'boolean' ? parsed.supabaseConfig.autoSync : userState.supabaseConfig.autoSync,
+            lastSyncedAt: parsed.supabaseConfig?.lastSyncedAt,
+          } };
         }
-
-        // إذا لم تكن هناك نسخة سحابية سابقة لهذا المستخدم، نرفع خزنته الأولية
-        if (pullRes.isEmpty) {
-          const pushRes = await pushStateToSupabase(userState, userState.supabaseConfig, user);
-          if (pushRes.ok) {
-            setLastSyncMessage(pushRes.message);
-          }
+        cacheLoaded = true;
+        applyState(userState);
+        await savePersistedSessionUser(user, userState.supabaseConfig);
+        if (!scope.current.isCurrent(token)) return;
+        if (user.isLocalOnly) {
+          setLastSyncMessage('تم تفعيل الوضع المحلي المعزول.');
+          return;
+        }
+        setIsSyncing(true);
+        const before = stateRef.current;
+        const res = await syncQueue.current.run(() => pullStateFromSupabase(userState.supabaseConfig, user));
+        if (!scope.current.isCurrent(token)) return;
+        setLastSyncMessage(res.message);
+        const hasPendingLocal = Boolean(userState.pendingCloudSync);
+        if (res.ok && res.state && !hasPendingLocal && stateRef.current === before) {
+          const merged = mergePartialCloudState(userState, res.state, res.updatedAt, res.snapshotUpdatedAt);
+          applyState(merged);
+          await storageQueue.current.run(() => AsyncStorage.setItem(key, JSON.stringify(merged)));
+        } else if (res.isEmpty) {
+          // New cloud users keep an empty vault; no demo data is uploaded on login.
+          const cleared = { ...stateRef.current, supabaseConfig: { ...stateRef.current.supabaseConfig, lastSyncedAt: undefined } };
+          applyState(cleared);
+          await storageQueue.current.run(() => AsyncStorage.setItem(key, JSON.stringify(cleared)));
+        } else if (hasPendingLocal) {
+          setLastSyncMessage('توجد تعديلات محلية غير مرفوعة. تم الاحتفاظ بها؛ ارفعها أو صدّر نسخة احتياطية قبل استرجاع السحابة.');
         }
       } catch {
-        // ignore network error on initial login sync
+        if (scope.current.isCurrent(token)) {
+          if (!cacheLoaded) recoveryRequired.current = true;
+          setLastSyncMessage(cacheLoaded ? 'تعذر تحميل السحابة. تم الاحتفاظ بالتعديلات المحلية.' : 'تعذر قراءة الخزنة المحلية. تم إيقاف التعديلات لحماية البيانات؛ استرجع نسخة صحيحة.');
+        }
       } finally {
-        setIsSyncing(false);
+        if (scope.current.isCurrent(token)) { hydrating.current = false; setIsLoading(false); setIsSyncing(false); }
       }
     })();
-  };
+  }
 
-  const logoutUser = () => {
-    const cfg = state.supabaseConfig;
+  function invalidateLocalSession() {
+    setMutationSession(scope.current.begin(null));
+    recoveryRequired.current = false;
+    hydrating.current = false;
+    userRef.current = null;
     setCurrentUser(null);
     setLastSyncMessage(null);
-    setState(INITIAL_MALI_STATE);
+    setIsSyncing(false);
+    setIsLoading(false);
+    applyState(emptyFinancialState(INITIAL_MALI_STATE));
+  }
+
+  const logoutUser = () => {
+    const cfg = stateRef.current.supabaseConfig;
+    invalidateLocalSession();
     clearAuthSession(cfg).catch(() => {});
   };
+
+  useEffect(() => subscribeToAuthIdentity((user) => {
+    if (!user) {
+      if (userRef.current && !userRef.current.isLocalOnly) invalidateLocalSession();
+    } else if (userRef.current?.id !== user.id) {
+      loginUser(user);
+    }
+  }, INITIAL_MALI_STATE.supabaseConfig), []);
 
   return (
     <MaliContext.Provider
@@ -1174,7 +1071,6 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         syncToCloud,
         pullFromCloud,
         importStateJson,
-        resetDemoData,
       }}
     >
       {children}

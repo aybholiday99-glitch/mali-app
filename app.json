@@ -26,6 +26,9 @@
       "themeColor": "#0F172A",
       "backgroundColor": "#0B1120",
       "display": "standalone"
+    },
+    "experiments": {
+      "baseUrl": "/mali-app"
     }
   }
 }

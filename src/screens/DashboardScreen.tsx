@@ -931,7 +931,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                       (p) => p.key === qExpPurposeKey
                     ) || QUICK_EXPENSE_PURPOSES[0];
                   const detail = qExpCustomDetail.trim();
-                  addTransaction({
+                  if (!addTransaction({
                     title: detail
                       ? `${purposeObj.shortLabel}: ${detail}`
                       : `سحب مصروف (${purposeObj.shortLabel})`,
@@ -944,7 +944,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                     notes: detail
                       ? `الغرض: ${detail} — سحب من ${acc.name}`
                       : undefined,
-                  });
+                  })) return;
                   setQExpAmount('');
                   setQExpCustomDetail('');
                   setQuickExpModalOpen(false);

@@ -1,3 +1,4 @@
+import { financialDate } from './financialDate.ts';
 import type {
   Account,
   ContactPerson,
@@ -1230,7 +1231,7 @@ export function reconcileDashboardSummary(
     }
   }
 
-  const currentMonthPrefix = referenceDate.toISOString().slice(0, 7);
+  const currentMonthPrefix = financialDate(referenceDate).slice(0, 7);
   let currentMonthExpensesLyd = 0;
   let currentMonthChequeFeesLyd = 0;
 

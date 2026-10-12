@@ -37,7 +37,6 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
     syncToCloud,
     pullFromCloud,
     importStateJson,
-    resetDemoData,
   } = useMali();
 
   const [urlInput, setUrlInput] = useState(state.supabaseConfig.url);
@@ -511,27 +510,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[
-                    styles.saveCfgBtn,
-                    {
-                      backgroundColor: theme.warningSoft,
-                      borderColor: theme.warning,
-                    },
-                  ]}
-                  onPress={() => {
-                    resetDemoData();
-                    setStatusBanner(
-                      'تمت إعادة ضبط البيانات الافتراضية للتطبيق.'
-                    );
-                  }}
-                >
-                  <Text
-                    style={[styles.saveCfgBtnText, { color: theme.warning }]}
-                  >
-                    إعادة ضبط البيانات التجريبية
-                  </Text>
-                </TouchableOpacity>
+
               </View>
 
               {showImportBox && (

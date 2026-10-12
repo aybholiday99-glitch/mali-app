@@ -223,6 +223,9 @@ export interface SupabaseConfig {
 }
 
 export interface MaliState {
+  /** Device-only metadata; never included in the cloud snapshot or exported backups. */
+  pendingCloudSync?: boolean;
+  localRevision?: number;
   accounts: Account[];
   contacts: ContactPerson[];
   transactions: Transaction[];

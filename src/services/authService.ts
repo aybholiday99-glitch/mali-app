@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
+import { SerialQueue } from './serialQueue';
 import { INITIAL_MALI_STATE } from '../data/initialData';
 import { AuthProviderType, AuthUser, SupabaseConfig } from '../types/mali';
 
@@ -37,6 +38,12 @@ export interface AuthResponse {
 
 let sharedClient: SupabaseClient | null = null;
 let sharedClientKey = '';
+const authOperations = new SerialQueue();
+let oauthCallbackInFlight: Promise<AuthUser | null> | null = null;
+
+function authStorageKey(url: string) {
+  return 'mali_supabase_auth_' + new URL(url).hostname.replace(/[^a-zA-Z0-9.-]/g, '_');
+}
 
 function sanitizeConfig(config?: Partial<SupabaseConfig>): { url: string; anonKey: string } {
   const url = (config?.url || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
@@ -55,10 +62,10 @@ export function getSharedSupabaseClient(config?: Partial<SupabaseConfig>): Supab
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: Platform.OS === 'web',
+        detectSessionInUrl: false,
         flowType: 'pkce',
         storage: AsyncStorage,
-        storageKey: 'mali_supabase_auth_token',
+        storageKey: authStorageKey(url),
       },
     });
     sharedClientKey = key;
@@ -173,7 +180,7 @@ export async function getStoredAuthSession(config?: Partial<SupabaseConfig>): Pr
         await saveLocalSessionSummary(verifiedUser);
         return verifiedUser;
       }
-      return mapSupabaseUserToAuthUser(sessionData.session.user);
+      return null;
     }
 
     const rawLocal = await AsyncStorage.getItem(MALI_AUTH_SESSION_KEY);
@@ -194,16 +201,17 @@ export async function getPersistedSessionUser(config?: Partial<SupabaseConfig>):
   return getStoredAuthSession(config);
 }
 
-export async function clearAuthSession(config?: Partial<SupabaseConfig>): Promise<void> {
+async function clearAuthSessionImpl(config?: Partial<SupabaseConfig>): Promise<void> {
   await purgeLegacyInsecureStorage();
   try {
     const supabase = getSharedSupabaseClient(config);
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
   } catch {
     // ignore network errors on signOut
   }
   try {
-    await AsyncStorage.removeItem(MALI_AUTH_SESSION_KEY);
+    const { url } = sanitizeConfig(config);
+    await AsyncStorage.multiRemove([MALI_AUTH_SESSION_KEY, authStorageKey(url), authStorageKey(url) + '-code-verifier', 'mali_supabase_auth_token']);
   } catch {
     // ignore
   }
@@ -244,7 +252,7 @@ export async function savePersistedSessionUser(
  * الدخول في وضع الضيف المحلي فقط (Offline Guest Mode)
  * معزول تماماً ولا يمنح أي صلاحيات وصول إلى قاعدة البيانات السحابية
  */
-export async function startOfflineGuestSession(): Promise<AuthUser> {
+async function startOfflineGuestSessionImpl(): Promise<AuthUser> {
   await purgeLegacyInsecureStorage();
   const guestUser: AuthUser = {
     id: 'local-offline-guest',
@@ -261,7 +269,7 @@ export async function startOfflineGuestSession(): Promise<AuthUser> {
 /**
  * إنشاء حساب جديد حصرياً عبر Supabase Auth الرسمي
  */
-export async function registerWithEmail(
+async function registerWithEmailImpl(
   name: string,
   email: string,
   password: string,
@@ -343,7 +351,7 @@ export async function registerWithEmail(
         success: true,
         ok: true,
         user: verifiedUser,
-        message: 'تم إنشاء حسابك وتفعيل الخزنة السحابية المشفرة بنجاح.',
+        message: 'تم إنشاء حسابك السحابي بنجاح.',
       };
     }
 
@@ -353,7 +361,7 @@ export async function registerWithEmail(
       success: true,
       ok: true,
       user: verifiedUser,
-      message: 'تم إنشاء حسابك وتفعيل الخزنة السحابية المشفرة بنجاح.',
+      message: 'تم إنشاء حسابك السحابي بنجاح.',
     };
   } catch (e: any) {
     return {
@@ -379,7 +387,7 @@ export async function signUpWithEmail(
 /**
  * تسجيل الدخول بالبريد الإلكتروني وكلمة المرور حصرياً عبر Supabase Auth الرسمي
  */
-export async function loginWithEmail(
+async function loginWithEmailImpl(
   email: string,
   password: string,
   config?: Partial<SupabaseConfig>
@@ -530,7 +538,7 @@ export async function resetUserPasswordLocal(
 /**
  * معالجة عودة نافذة OAuth (PKCE Code أو Session) والتحقق الصارم من المصدر (Origin)
  */
-export async function consumeOAuthRedirectIfPresent(
+async function consumeOAuthRedirectImpl(
   supabaseConfig?: Partial<SupabaseConfig>
 ): Promise<AuthUser | null> {
   await purgeLegacyInsecureStorage();
@@ -553,7 +561,8 @@ export async function consumeOAuthRedirectIfPresent(
 
   try {
     if (code) {
-      await supabase.auth.exchangeCodeForSession(code);
+      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      if (exchangeError) throw new Error('تعذر إكمال التحقق من رابط الدخول.');
     }
 
     if (window.history?.replaceState) {
@@ -806,4 +815,53 @@ export function getSupabaseOAuthRedirectUrl(
   return `${baseUrl}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(
     redirectTo
   )}`;
+}
+
+export function clearAuthSession(config?: Partial<SupabaseConfig>): Promise<void> {
+  return authOperations.run(() => clearAuthSessionImpl(config));
+}
+
+export function loginWithEmail(email: string, password: string, config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  return authOperations.run(() => loginWithEmailImpl(email, password, config));
+}
+
+export function registerWithEmail(name: string, email: string, password: string, phone: string | undefined, config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  return authOperations.run(() => registerWithEmailImpl(name, email, password, phone, config));
+}
+
+export function startOfflineGuestSession(): Promise<AuthUser> {
+  return authOperations.run(() => startOfflineGuestSessionImpl());
+}
+
+export function consumeOAuthRedirectIfPresent(config?: Partial<SupabaseConfig>): Promise<AuthUser | null> {
+  if (!oauthCallbackInFlight) {
+    oauthCallbackInFlight = authOperations.run(() => consumeOAuthRedirectImpl(config))
+      .finally(() => { oauthCallbackInFlight = null; });
+  }
+  return oauthCallbackInFlight;
+}
+
+/** Auth events never await Supabase calls inside the library callback. */
+export function subscribeToAuthIdentity(
+  callback: (user: AuthUser | null) => void,
+  config?: Partial<SupabaseConfig>
+): () => void {
+  const client = getSharedSupabaseClient(config);
+  let active = true;
+  let generation = 0;
+  const { data } = client.auth.onAuthStateChange((event, session) => {
+    const token = ++generation;
+    if (event === 'SIGNED_OUT') { callback(null); return; }
+    if (event !== 'SIGNED_IN' || !session?.user) return;
+    const expectedId = session.user.id;
+    setTimeout(() => {
+      if (!active || token !== generation) return;
+      void client.auth.getUser().then(({ data: verified, error }) => {
+        if (active && token === generation && !error && verified.user?.id === expectedId) {
+          callback(mapSupabaseUserToAuthUser(verified.user));
+        }
+      });
+    }, 0);
+  });
+  return () => { active = false; generation++; data.subscription.unsubscribe(); };
 }

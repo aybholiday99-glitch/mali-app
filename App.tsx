@@ -8,6 +8,7 @@ import {
   StatusBar,
   Platform,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MaliProvider, useMali } from './src/context/MaliContext';
@@ -36,6 +37,9 @@ const MainAppShell: React.FC = () => {
     isDarkMode,
     toggleTheme,
     currentUser,
+    isLoading,
+    isSyncing,
+    lastSyncMessage,
     loginUser,
     logoutUser,
   } = useMali();
@@ -43,9 +47,16 @@ const MainAppShell: React.FC = () => {
   const [cloudModalVisible, setCloudModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
 
-  const isCloudConfigured = Boolean(
+  const isCloudConfigured = !currentUser?.isLocalOnly && Boolean(
     state.supabaseConfig.url.trim() && state.supabaseConfig.anonKey.trim()
   );
+
+  if (isLoading) {
+    return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.headerBg }}>
+      <ActivityIndicator size="large" color={theme.primary} />
+      <Text style={{ color: theme.text, marginTop: 12 }}>جارٍ تحميل خزنتك…</Text>
+    </View>;
+  }
 
   if (!currentUser) {
     return (
@@ -179,7 +190,7 @@ const MainAppShell: React.FC = () => {
               onPress={() => setCloudModalVisible(true)}
             >
               <Ionicons
-                name={isCloudConfigured ? 'cloud-done' : 'cloud-outline'}
+                name="cloud-outline"
                 size={15}
                 color={isCloudConfigured ? theme.primary : theme.blue}
               />
@@ -193,7 +204,7 @@ const MainAppShell: React.FC = () => {
                   },
                 ]}
               >
-                {isCloudConfigured ? 'متصل' : 'مزامنة / Excel'}
+                {currentUser?.isLocalOnly ? 'محلي / تصدير' : isSyncing ? 'المزامنة…' : isCloudConfigured ? 'السحابة / تصدير' : 'إعدادات السحابة'}
               </Text>
             </TouchableOpacity>
 
@@ -222,6 +233,8 @@ const MainAppShell: React.FC = () => {
           </View>
         </View>
       </View>
+
+      {lastSyncMessage && <Text accessibilityRole="alert" style={{ color: theme.text, backgroundColor: theme.surfaceSoft, padding: 10, textAlign: 'right' }}>{lastSyncMessage}</Text>}
 
       {/* Contextual Sub-Bar ONLY when inside unified tabs (Wallet or Relations) */}
       {(activeTab === 'expenses' || activeTab === 'accounts') && (

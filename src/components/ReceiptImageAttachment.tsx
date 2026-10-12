@@ -355,7 +355,11 @@ interface ReceiptViewerModalProps {
   onDeleteImage?: (index: number) => void;
 }
 
-export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
+export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = (props) => (
+  props.visible ? <ReceiptViewerContent key={props.initialIndex ?? 0} {...props} /> : null
+);
+
+const ReceiptViewerContent: React.FC<ReceiptViewerModalProps> = ({
   visible,
   images,
   initialIndex = 0,
@@ -367,18 +371,11 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
   const { theme } = useMali();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
 
-  React.useEffect(() => {
-    if (visible) {
-      setCurrentIndex(
-        Math.min(initialIndex, Math.max(0, images.length - 1))
-      );
-    }
-  }, [visible, initialIndex, images.length]);
-
   if (!visible || images.length === 0) return null;
+  const boundedIndex = Math.max(0, Math.min(currentIndex, images.length - 1));
 
   const activeUri =
-    images[Math.min(currentIndex, images.length - 1)] || images[0];
+    images[boundedIndex] || images[0];
 
   return (
     <Modal
@@ -405,7 +402,7 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
               <Text
                 style={[styles.viewerSub, { color: theme.textSecondary }]}
               >
-                صورة {Math.min(currentIndex + 1, images.length)} من{' '}
+                صورة {boundedIndex + 1} من{' '}
                 {images.length}
               </Text>
             </View>
@@ -448,7 +445,7 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
                       borderColor: theme.danger,
                     },
                   ]}
-                  onPress={() => onDeleteImage(currentIndex)}
+                  onPress={() => onDeleteImage(boundedIndex)}
                 >
                   <Ionicons
                     name="trash-outline"
@@ -492,7 +489,7 @@ export const ReceiptViewerModal: React.FC<ReceiptViewerModalProps> = ({
               contentContainerStyle={styles.viewerThumbBar}
             >
               {images.map((imgUri, idx) => {
-                const isSelected = idx === currentIndex;
+                const isSelected = idx === boundedIndex;
                 return (
                   <TouchableOpacity
                     key={idx}

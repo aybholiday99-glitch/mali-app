@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import './financialEngine.regression.test.mjs';
+import { test } from 'node:test';
 import {
   addDebtRecordMutation,
   createAccountMutation,
@@ -377,4 +377,4 @@ function runFinancialEngineTests() {
   console.log('=== ALL FINANCIAL ENGINE TESTS PASSED ===');
 }
 
-runFinancialEngineTests();
+test('financial lifecycle and backup baseline', runFinancialEngineTests);

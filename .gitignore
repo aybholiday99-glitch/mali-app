@@ -23,5 +23,6 @@ supabase/.temp/
 Thumbs.db
 *.log
 npm-debug.log*
+.audit/
 yarn-debug.log*
 yarn-error.log*

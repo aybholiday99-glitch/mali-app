@@ -296,7 +296,7 @@ export const UsdDealsScreen: React.FC = () => {
     }
 
     const srcAcc = accountMap.get(sourceLydId);
-    createUsdDeal({
+    if (!createUsdDeal({
       title:
         dealTitle.trim() ||
         `شراء ${parsedBuyUsd.toLocaleString()}$ (${
@@ -331,7 +331,7 @@ export const UsdDealsScreen: React.FC = () => {
                   : undefined,
             }
           : undefined,
-    });
+    })) return;
 
     setDealTitle('');
     setCounterparty('');
@@ -378,7 +378,7 @@ export const UsdDealsScreen: React.FC = () => {
     const targetId = isPersonalTakeMode ? personalUsdAccountId : saleTargetLydId;
     const target = accountMap.get(targetId);
     if (!target || target.currency !== (isPersonalTakeMode ? 'USD' : 'LYD')) return;
-    recordDealSale({
+    if (!recordDealSale({
       dealId: activeDealForSale.id,
       usdAmount: parsedSaleUsd,
       sellRate: parsedSaleRate,
@@ -393,7 +393,7 @@ export const UsdDealsScreen: React.FC = () => {
       receiptImages:
         saleReceiptImages.length > 0 ? saleReceiptImages : undefined,
       notes: saleNotes.trim() || undefined,
-    });
+    })) return;
     setSaleReceiptImages([]);
     setActiveDealForSale(null);
   };
@@ -1055,7 +1055,7 @@ export const UsdDealsScreen: React.FC = () => {
                 style={[styles.saveBtn, { backgroundColor: theme.danger }]}
                 onPress={() => {
                   if (dealToDelete) {
-                    deleteUsdDeal(dealToDelete.id, true);
+                    if (!deleteUsdDeal(dealToDelete.id, true)) return;
                     setDealToDelete(null);
                   }
                 }}
