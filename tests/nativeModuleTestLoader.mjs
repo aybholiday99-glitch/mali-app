@@ -4,12 +4,14 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
-export function installNativeTestLoader({ provider = false } = {}) {
+export function installNativeTestLoader({ provider = false, ui = false } = {}) {
   return registerHooks({
     resolve(specifier, context, nextResolve) {
       let source;
       if (specifier === '@react-native-async-storage/async-storage') source = 'export default globalThis.maliTestStorage;';
       if (specifier === 'react-native') source = 'export const Platform = globalThis.maliTestPlatform;';
+      if (ui && specifier === 'react-native') source += "export const View='View',Text='Text',ScrollView='ScrollView',TouchableOpacity='TouchableOpacity',TextInput='TextInput',Modal='Modal'; export const StyleSheet={create:s=>s}; export const Share={share:async()=>({})};";
+      if (ui && specifier === '@expo/vector-icons') source = "export const Ionicons='Ionicons';";
       if (specifier === '@supabase/supabase-js') source = 'export const createClient = (...args) => globalThis.maliTestCreateClient(...args);';
       if (provider && specifier.endsWith('/services/authService')) {
         source = "export const clearAuthSession=(...a)=>globalThis.maliProviderAuth.clearAuthSession(...a); export const consumeOAuthRedirectIfPresent=(...a)=>globalThis.maliProviderAuth.consumeOAuthRedirectIfPresent(...a); export const getPersistedSessionUser=(...a)=>globalThis.maliProviderAuth.getPersistedSessionUser(...a); export const savePersistedSessionUser=(...a)=>globalThis.maliProviderAuth.savePersistedSessionUser(...a); export const subscribeToAuthIdentity=(...a)=>globalThis.maliProviderAuth.subscribeToAuthIdentity(...a);";

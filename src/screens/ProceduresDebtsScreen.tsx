@@ -1,3 +1,4 @@
+import { nextSubmissionKey } from '../services/submissionKey';
 import React, { useState } from 'react';
 import {
   View,
@@ -29,6 +30,7 @@ const PROCEDURE_TYPES: FinancialProcedure['procedureType'][] = [
 ];
 
 export const ProceduresDebtsScreen: React.FC = () => {
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
     theme,
@@ -143,6 +145,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     const chosenWallet = validWallet;
 
     if (!addDebt({
+      idempotencyKey: submissionKey + ":addDebt",
       personName: personName.trim(),
       phone: phone.trim() || undefined,
       direction,
@@ -154,6 +157,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
         affectWallet && chosenWallet ? chosenWallet.id : undefined,
       paymentMethod: chosenWallet?.isCash === false ? 'transfer' : 'cash',
     })) return;
+    setSubmissionKey(nextSubmissionKey());
     setPersonName('');
     setPhone('');
     setDebtAmount('');
@@ -167,12 +171,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
     if (amt <= 0) return;
 
     if (!addDebtInstallment({
+      idempotencyKey: submissionKey + ":addDebtInstallment",
       debtId: activeDebtForPay.id,
       amount: amt,
       accountId: installmentAccId || undefined,
       paymentMethod: installmentMethod,
       notes: installmentNotes.trim() || undefined,
     })) return;
+    setSubmissionKey(nextSubmissionKey());
     setActiveDebtForPay(null);
     setInstallmentAmt('');
     setInstallmentNotes('');

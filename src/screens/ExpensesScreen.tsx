@@ -1,3 +1,4 @@
+import { nextSubmissionKey } from '../services/submissionKey';
 import { financialDate } from '../services/financialDate';
 import React, { useState } from 'react';
 import {
@@ -25,6 +26,7 @@ import {
 } from '../utils/exportHelper';
 
 export const ExpensesScreen: React.FC = () => {
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
     theme,
@@ -175,6 +177,7 @@ export const ExpensesScreen: React.FC = () => {
     const method: PaymentMethodType = acc.isCash ? 'cash' : 'card';
 
     if (!addTransaction({
+      idempotencyKey: submissionKey + ":addTransaction",
       title: finalTitle,
       type: 'expense',
       amount: amt,
@@ -184,6 +187,7 @@ export const ExpensesScreen: React.FC = () => {
       paymentMethod: method,
       notes: detail ? `الغرض: ${detail} — سحب من ${acc.name}` : undefined,
     })) return;
+    setSubmissionKey(nextSubmissionKey());
 
     setQuickAmount('');
     setQuickCustomDetail('');
@@ -215,6 +219,7 @@ export const ExpensesScreen: React.FC = () => {
     }
 
     if (!addTransaction({
+      idempotencyKey: submissionKey + ":addTransaction",
       title:
         txTitle.trim() ||
         (txType === 'income'
@@ -228,6 +233,7 @@ export const ExpensesScreen: React.FC = () => {
       targetAccountId: txType === 'transfer' ? txTargetAccountId : undefined,
       paymentMethod: selectedAcc?.isCash ? 'cash' : 'transfer',
     })) return;
+    setSubmissionKey(nextSubmissionKey());
 
     setTxTitle('');
     setTxAmount('');

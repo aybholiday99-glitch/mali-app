@@ -8,6 +8,7 @@ Ownership remains unknown. Neither set was modified by this audit.
 The missing security_rls_hardening history entry was recorded without re-executing its SQL.
 remove_unsafe_email_confirmation was applied and its history aligned to the local ordered filename.
 Auth email confirmations were separately enabled through a one-property CLI config diff/push.
+Minimum password length was aligned to8 with another minimal diff and verified after propagation.
 Existing user records and credentials were not changed.
 
 ## Atomic sync migration

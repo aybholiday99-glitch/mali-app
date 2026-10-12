@@ -1,3 +1,4 @@
+import { nextSubmissionKey } from '../services/submissionKey';
 import React, { useState } from 'react';
 import {
   View,
@@ -26,6 +27,7 @@ import {
 } from '../utils/exportHelper';
 
 export const UsdDealsScreen: React.FC = () => {
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
     theme,
@@ -297,6 +299,7 @@ export const UsdDealsScreen: React.FC = () => {
 
     const srcAcc = accountMap.get(sourceLydId);
     if (!createUsdDeal({
+      idempotencyKey: submissionKey + ":createUsdDeal",
       title:
         dealTitle.trim() ||
         `شراء ${parsedBuyUsd.toLocaleString()}$ (${
@@ -332,6 +335,7 @@ export const UsdDealsScreen: React.FC = () => {
             }
           : undefined,
     })) return;
+    setSubmissionKey(nextSubmissionKey());
 
     setDealTitle('');
     setCounterparty('');
@@ -379,6 +383,7 @@ export const UsdDealsScreen: React.FC = () => {
     const target = accountMap.get(targetId);
     if (!target || target.currency !== (isPersonalTakeMode ? 'USD' : 'LYD')) return;
     if (!recordDealSale({
+      idempotencyKey: submissionKey + ":recordDealSale",
       dealId: activeDealForSale.id,
       usdAmount: parsedSaleUsd,
       sellRate: parsedSaleRate,
@@ -394,6 +399,7 @@ export const UsdDealsScreen: React.FC = () => {
         saleReceiptImages.length > 0 ? saleReceiptImages : undefined,
       notes: saleNotes.trim() || undefined,
     })) return;
+    setSubmissionKey(nextSubmissionKey());
     setSaleReceiptImages([]);
     setActiveDealForSale(null);
   };
@@ -1157,6 +1163,24 @@ export const UsdDealsScreen: React.FC = () => {
                 }))}
                 onSelect={setSourceLydId}
               />
+
+              <CalmDropdown
+                label="خزينة الدولار التي تستلم المبلغ:"
+                value={targetUsdId}
+                options={usdAccounts.map((acc) => ({
+                  value: acc.id,
+                  label: acc.name,
+                  subLabel: formatMoney(acc.balance, 'USD'),
+                  icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                  badgeColor: acc.color,
+                }))}
+                onSelect={setTargetUsdId}
+              />
+              {usdAccounts.length === 0 && (
+                <Text accessibilityRole="alert" style={{ color: theme.warning, textAlign: 'right' }}>
+                  أنشئ حساب دولار من شاشة الحسابات قبل فتح الصفقة.
+                </Text>
+              )}
 
               {/* Amount and Exact Buy Rate at Purchase Moment */}
               <View style={styles.twoColRow}>

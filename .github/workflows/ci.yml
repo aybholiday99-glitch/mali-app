@@ -50,6 +50,9 @@ jobs:
       - run: node --test tests/database.test.mjs
         env:
           MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+      - run: node --test tests/financialSqlValidation.test.mjs
+        env:
+          MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
   supply-chain:
     name: Dependency security gate
     runs-on: ubuntu-latest

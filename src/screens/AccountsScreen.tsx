@@ -1,3 +1,4 @@
+import { nextSubmissionKey } from '../services/submissionKey';
 import React, { useState } from 'react';
 import {
   View,
@@ -20,6 +21,7 @@ import {
 } from '../utils/exportHelper';
 
 export const AccountsScreen: React.FC = () => {
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
     theme,
@@ -140,12 +142,14 @@ export const AccountsScreen: React.FC = () => {
   const handleLiquidateCheque = () => {
     if (!sourceBankId || !targetCashId || parsedChequeAmt <= 0) return;
     if (!liquidateChequeToCash({
+      idempotencyKey: submissionKey + ":liquidateChequeToCash",
       sourceBankAccountId: sourceBankId,
       targetCashAccountId: targetCashId,
       chequeAmountLyd: parsedChequeAmt,
       discountPercent: parsedDiscount,
       notes: liqNotes.trim() || undefined,
     })) return;
+    setSubmissionKey(nextSubmissionKey());
     setLiqModalVisible(false);
     setLiqNotes('');
   };
@@ -158,6 +162,7 @@ export const AccountsScreen: React.FC = () => {
     if (!fromAcc || !toAcc) return;
 
     if (!addTransaction({
+      idempotencyKey: submissionKey + ":addTransaction",
       title: `تحويل من ${fromAcc.name} إلى ${toAcc.name}`,
       category: 'transfer',
       type: 'transfer',
@@ -168,6 +173,7 @@ export const AccountsScreen: React.FC = () => {
       targetAccountId: trToId,
       notes: trNotes.trim() || undefined,
     })) return;
+    setSubmissionKey(nextSubmissionKey());
     setTransferModalVisible(false);
     setTrNotes('');
   };

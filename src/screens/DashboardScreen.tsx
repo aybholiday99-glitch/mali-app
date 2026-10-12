@@ -1,3 +1,4 @@
+import { nextSubmissionKey } from '../services/submissionKey';
 import React, { useState } from 'react';
 import {
   View,
@@ -32,6 +33,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
   onNavigate,
   onOpenExportModal,
 }) => {
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const { state, theme, updateMarketRates, addTransaction } = useMali();
   const [valuationCurrency, setValuationCurrency] = useState<'LYD' | 'USD'>('LYD');
 
@@ -932,6 +934,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                     ) || QUICK_EXPENSE_PURPOSES[0];
                   const detail = qExpCustomDetail.trim();
                   if (!addTransaction({
+                    idempotencyKey: submissionKey + ":addTransaction",
                     title: detail
                       ? `${purposeObj.shortLabel}: ${detail}`
                       : `سحب مصروف (${purposeObj.shortLabel})`,
@@ -945,6 +948,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                       ? `الغرض: ${detail} — سحب من ${acc.name}`
                       : undefined,
                   })) return;
+                  setSubmissionKey(nextSubmissionKey());
                   setQExpAmount('');
                   setQExpCustomDetail('');
                   setQuickExpModalOpen(false);
