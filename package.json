@@ -21,7 +21,9 @@
     "eslint-config-expo": "57.0.2",
     "pg": "8.16.3",
     "react-test-renderer": "19.2.3",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "node-forge": "file:vendor/node-forge-1.4.0.tgz",
+    "micromatch": "file:vendor/mali-metro-glob-matcher-1.0.0.tgz"
   },
   "scripts": {
     "start": "expo start",
@@ -35,13 +37,16 @@
     "test": "node --test tests/*.test.mjs",
     "lint": "eslint .",
     "build:web": "expo export --platform web",
-    "test:security": "node --test tests/testEnvironment.test.mjs tests/sessionScope.test.mjs tests/database.test.mjs tests/exports.test.mjs",
-    "test:integration": "node --test tests/database.test.mjs tests/authIntegration.test.mjs tests/providerIntegration.test.mjs"
+    "test:security": "node --test tests/testEnvironment.test.mjs tests/sessionScope.test.mjs tests/database.test.mjs tests/exports.test.mjs tests/dependencyOverrides.test.mjs",
+    "test:integration": "node --test tests/database.test.mjs tests/authIntegration.test.mjs tests/providerIntegration.test.mjs",
+    "test:dependencies": "node --test tests/dependencyOverrides.test.mjs"
   },
   "overrides": {
     "xcode": {
       "uuid": "11.1.1"
-    }
+    },
+    "node-forge": "$node-forge",
+    "micromatch": "$micromatch"
   },
   "private": true
 }

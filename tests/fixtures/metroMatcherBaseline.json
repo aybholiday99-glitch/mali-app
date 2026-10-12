@@ -1,0 +1,2362 @@
+{
+  "origin": {
+    "micromatch": "4.0.8",
+    "picomatch": "2.3.2",
+    "consumer": "metro-file-map/src/watchers/common.js",
+    "sourceSha256": "6a56366fcf3ae8e678e574900a0acb2ea6f118ea030d09bcc1b1053ccab916bb"
+  },
+  "paths": [
+    "index.js",
+    "index.ts",
+    "src/index.tsx",
+    "src/a.js",
+    "src/a.test.js",
+    "src/.hidden.js",
+    ".git/config",
+    ".env",
+    "a/b/c.css",
+    "a/b/c.js",
+    "a/.nested/x.ts",
+    "assets/logo.png",
+    "node_modules/pkg/index.js",
+    "src/file1.js",
+    "src/file2.js",
+    "src/file10.js",
+    "src/file01.js",
+    "src/foo.jsx",
+    "src/BAR.JS",
+    "foo",
+    "foo/bar",
+    "foobar",
+    "a.js",
+    "a.ts",
+    "bar.ts",
+    "baz.json",
+    "foo.test.ts",
+    "docs/readme.md",
+    "C:\\project\\src\\foo.ts",
+    "src\\foo.ts",
+    "src/a+b.js",
+    "src/file[1].js",
+    "src/{a,b}.js",
+    "src/file a.js",
+    "foo/.bar",
+    "src/a/../b.js",
+    "a",
+    "b",
+    "1",
+    "2",
+    "10",
+    "README",
+    ""
+  ],
+  "cases": [
+    {
+      "globs": [
+        "**/*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "*.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "*.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,ts,tsx}"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,ts,tsx}"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,ts,tsx}"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,ts,tsx}"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,ts,tsx}"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,ts,tsx}"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/**/*.tsx"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/**/*.tsx"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/**/*.tsx"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/**/*.tsx"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/**/*.tsx"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/**/*.tsx"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/.*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/.*/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/.*/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        ".*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        ".*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        ".*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        ".*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        ".*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        ".*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "!*.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "!**/*.test.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "!**/*.test.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "!**/*.test.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "!**/*.test.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "!**/*.test.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "!**/*.test.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/!(*.test).js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/!(*.test).js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/!(*.test).js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/!(*.test).js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/!(*.test).js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/!(*.test).js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/@(foo|bar).*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/@(foo|bar).*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/@(foo|bar).*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/@(foo|bar).*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/@(foo|bar).*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/@(foo|bar).*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/+(foo|bar).*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/+(foo|bar).*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/+(foo|bar).*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/+(foo|bar).*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/+(foo|bar).*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/+(foo|bar).*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{1..10}.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/file{1..10}.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{1..10}.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{1..10}.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{1..10}.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{1..10}.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{01..10}.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/file{01..10}.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{01..10}.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{01..10}.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{01..10}.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/file{01..10}.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "{a,b}/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "{a,b}/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "{a,b}/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "{a,b}/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "{a,b}/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "{a,b}/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/{a,b}.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/{a,b}.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/{a,b}.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/{a,b}.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/{a,b}.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/{a,b}.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "{src,assets}/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "{src,assets}/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "{src,assets}/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "{src,assets}/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "{src,assets}/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "{src,assets}/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/[a-z].js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/[a-z].js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/[a-z].js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/[a-z].js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/[a-z].js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/[a-z].js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/[!a-z].js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/[!a-z].js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/[!a-z].js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/[!a-z].js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/[!a-z].js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/[!a-z].js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/[[:alpha:]]*.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/[[:alpha:]]*.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/[[:alpha:]]*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/[[:alpha:]]*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/[[:alpha:]]*.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/[[:alpha:]]*.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.?s"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.?s"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.?s"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.?s"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.?s"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.?s"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.??"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.??"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.??"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.??"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.??"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.??"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/file[0-9].js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/file[0-9].js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/file[0-9].js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/file[0-9].js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/file[0-9].js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/file[0-9].js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/a\\+b.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/a\\+b.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/a\\+b.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/a\\+b.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/a\\+b.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/a\\+b.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/file\\[1\\].js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/file\\[1\\].js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/file\\[1\\].js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/file\\[1\\].js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/file\\[1\\].js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/file\\[1\\].js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src\\foo.ts"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src\\foo.ts"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src\\foo.ts"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src\\foo.ts"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src\\foo.ts"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src\\foo.ts"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "foo*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "foo*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "foo*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "foo*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "foo*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "foo*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "foo/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "foo/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "foo/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "foo/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "foo/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "foo/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.JS"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.JS"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.JS"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.JS"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.JS"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.JS"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.png"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.png"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.png"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.png"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.png"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.png"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.css"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.css"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.css"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.css"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.css"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.css"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/index.*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/index.*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/index.*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/index.*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/index.*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/index.*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/node_modules/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/node_modules/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/node_modules/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/node_modules/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/node_modules/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/node_modules/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*test*"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*test*"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*test*"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*test*"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*test*"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*test*"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,{ts,tsx}}"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,{ts,tsx}}"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,{ts,tsx}}"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,{ts,tsx}}"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,{ts,tsx}}"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.{js,{ts,tsx}}"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "*.js",
+        "!foo.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "*.js",
+        "!foo.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "*.js",
+        "!foo.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "*.js",
+        "!foo.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "*.js",
+        "!foo.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "*.js",
+        "!foo.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js",
+        "*.ts"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "!*.js",
+        "*.ts"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js",
+        "*.ts"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js",
+        "*.ts"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js",
+        "*.ts"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "!*.js",
+        "*.ts"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js",
+        "**/*.ts"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*.js",
+        "**/*.ts"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js",
+        "**/*.ts"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js",
+        "**/*.ts"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js",
+        "**/*.ts"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*.js",
+        "**/*.ts"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "src/**",
+        "!src/a.js"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "src/**",
+        "!src/a.js"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "src/**",
+        "!src/a.js"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/**",
+        "!src/a.js"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "src/**",
+        "!src/a.js"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "src/**",
+        "!src/a.js"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    },
+    {
+      "globs": [
+        "**/*",
+        "!**/.*/**"
+      ],
+      "options": {
+        "dot": false
+      }
+    },
+    {
+      "globs": [
+        "**/*",
+        "!**/.*/**"
+      ],
+      "options": {
+        "dot": true
+      }
+    },
+    {
+      "globs": [
+        "**/*",
+        "!**/.*/**"
+      ],
+      "options": {
+        "dot": false,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*",
+        "!**/.*/**"
+      ],
+      "options": {
+        "dot": true,
+        "nocase": true
+      }
+    },
+    {
+      "globs": [
+        "**/*",
+        "!**/.*/**"
+      ],
+      "options": {
+        "dot": false,
+        "nonegate": true
+      }
+    },
+    {
+      "globs": [
+        "**/*",
+        "!**/.*/**"
+      ],
+      "options": {
+        "dot": true,
+        "nobrace": true
+      }
+    }
+  ],
+  "answers": "111110001101111111111111111111111100111111011111111111111111111111111111111111011111101111100011011111111111111111111111001111110111111111111111111111111111111111110111111011111000110111111111111111111111110011111101111111111111111111111111111111111101111110100000000000000000000010000000000000000000010000000000000000000001000000000000000000001000000000000000000000100000000000000000000100000000000000000000010000000000000000000010000000000000000000001000000000000000000001000000000000000000000100000000000000000000100110000100111110000010000000111100000000010011100010011111000001000000011110000000001001100001001111101000100000001111000000000100111000100111110100010000000111100000000010011000010011111000001000000011110000000001001110001001111100000100000001111000000000111110000100111110000011101011111100000000011111100011011111000001110101111110000000001111100001001111101000111010111111000000000111111000110111110100011101011111100000000011111000010011111000001110101111110000000000000000000000000000000000000000000000000000001110000000011111100000000001111100000000000111100000001111110000000000111110000000000011100000000111111000000000011111000000000001111000000011111100000000001111100000000000111000000001111110000000000111110000000000011110000000111111000000000011111000000000001110000000011111100000000001111100000000000111100000001111110000000000111110000000000011100000000111111000000000011111000000000001111000000011111100000000001111100000000000111000000001111110000000000111110000000000011110000000111111000000000011111000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000000001010000000000000000000000000010000000000000101000000000000000000000000001000000000000010100000000000000000000000000100000000000001010000000000000000000000000010000000000000101000000000000000000000000001000000000000010100000000000000000000000000100000000000000100010000000000000000000000000000000000000010001000000000000000000000000000000000000001000100000000000000000000000000000000000000100010000000000000000000000000000000000000010001000000000000000000000000000000000000001000100000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000011111111111111111111101111111111111111111001111111111111111111110111111111111111111100111111111111111111111011111111111111111110011111111111111111111101111111111111111111000000000000000000000000000000000000000000000111111111111111111111011111111111111111110111101111111111111111111111111111111111111011110111111111111111111111111111111111111101111011111111111111111111111111111111111110111101111111111111111111111111111111111111000000000000000000000000000000000000000000001111011111111111111111111111111111111111110100101000100111110000010000000111100000000010010100010011111000001000000011110000000001001010001001111101000100000001111000000000100101000100111110100010000000111100000000010010100010011111000001000000011110000000001001010001001111100000100000001111000000000000000000000000001000000101011000000000000000000000000000000100000010101100000000000000000000000000000011000001010110000000000000000000000000000001100000101011000000000000000000000000000000100000010101100000000000000000000000000000010000001010110000000000000000000000000000001000000101011000000000000000000000000000000100000010101100000000000000000000000000000011000001010110000000000000000000000000000001100000101011000000000000000000000000000000100000010101100000000000000000000000000000010000001010110000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000001100000000000000000000000000110000000000000111000000000000000000000000011000000000000011000000000000000000000000001100000000000001110000000000000000000000000110000000000000110000000000000000000000000011000000000000000000000000000000000000000000000000000100000000000000000000000000001000000000000010000000000000000000000000000100000000000001000000000000000000000000000010000000000000100000000000000000000000000001000000000000010000000000000000000000000000100000000000000000000000000000000000000000010000000000001110000001011111100000000001111100000000000111100000101111110000000000111110000000000011100000010111111000000000011111000000000001111000001011111100000000001111100000000000111000000101111110000000000111110000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000100110000100111110000010000000110100000000010011000010011111000001000000011010000000001001100001001111101000100000001101000000000100110000100111110100010000000110100000000010011000010011111000001000000011010000000001001100001001111100000100000001101000000000110110000100111110000011101011111100000000011011100011011111000001110101111110000000001101100001001111101000111010111111000000000110111000110111110100011101011111100000000011011000010011111000001110101111110000000001101110001101111100000111010111111000000000110110000100111110100011101111111100000000011011100011011111010001110111111110000000001101100001001111101000111011111111000000000110111000110111110100011101111111100000000011011000010011111010001110111111110000000001101110001101111101000111011111111000000000000000000000011000000000000000000000000000000000000000001100000000000000000000000000000000000000000110000000000000000000000000000000000000000011000000000000000000000000000000000000000001100000000000000000000000000000000000000000110000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000010100001000000000000000000000000000000000001010000100000000000000000000000000000000000101000010000000000000000000000000000000000010100001000000000000000000000000000000000001010000100000000000000000000000000000000000101000010000000000000000000000000000000000011000000000000000000000000000000000000000001100000000000001000000000000000000000000000110000000000000000000000000000000000000000011000000000000010000000000000000000000000001100000000000000000000000000000000000000000110000000000000100000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000001001100001001111101000100000001111000000000100111000100111110100010000000111100000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000111000000000100000000000000000000000000000011100000000010000000000000000000000000000001110000000001000000000000000000000000000000111000000000100000000000000000000000000000011100000000010000000000000000000000000000001110000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000000000000100000000000000000000000000000000000000000010000000000000000000000000000000000000000001000000000000000000000000000000000010000000000000000000001000000000000000000001000000000000000000000100000000000000000000100000000000000000000010000000000000000000010000000000000000000001000000000000000000001000000000000000000000100000000000000000000100000000000000000000010000000000000000111110000100111110000011101011111100000000011111100011011111000001110101111110000000001111100001001111101000111010111111000000000111111000110111110100011101011111100000000011111000010011111000001110101111110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111111011111111111111111111111111111111111111111101111111111111111111111111111111111111111110111111111111111111111111111111111111111111010000000000000000000001000000000000000000001111111111111111111111111111111111111111110011111111111111111111101111111111111111111001111111111111111111110111111111111111111100111111111111111111111011111111111111111110011111111111111111111101111111111111111111001000000000000000000000110100000000000000000111111111111111111111011111111111111111110110110000100111110000011101011111100000000011011100011011111000001110101111110000000001101100001001111101000111010111111000000000110111000110111110100011101011111100000000011011000010011111000001110101111110000000001101110001101111100000111010111111000000000111111111111111111111111111111111111111111011111111111111111111111111111111111111111101111111111111111111111111111111111111111110111111111111111111111111111111111111111111000111000000001111110000000000111110000000001111111111111111111111111111111111111111110111111011101111111111111111111111111111111011111111111111111111111111111111111111111101111110111011111111111111111111111111111110111111111111111111111111111111111111111111011111000110111111111111111111111110011111101111111111111111111111111111111111111111110"
+}
