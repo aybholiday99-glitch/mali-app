@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import { SerialQueue } from './serialQueue';
+import { clearAuthTokenStorage, getAuthTokenStorage } from './authTokenStorage';
 import { INITIAL_MALI_STATE } from '../data/initialData';
 import { AuthProviderType, AuthUser, SupabaseConfig } from '../types/mali';
 
@@ -64,7 +65,7 @@ export function getSharedSupabaseClient(config?: Partial<SupabaseConfig>): Supab
         autoRefreshToken: true,
         detectSessionInUrl: false,
         flowType: 'pkce',
-        storage: AsyncStorage,
+        storage: getAuthTokenStorage(authStorageKey(url)),
         storageKey: authStorageKey(url),
       },
     });
@@ -209,12 +210,18 @@ async function clearAuthSessionImpl(config?: Partial<SupabaseConfig>): Promise<v
   } catch {
     // ignore network errors on signOut
   }
+  // Cleanup failures must reach the caller; successful local sign-out must not
+  // be reported while credentials remain usable in secure/legacy storage.
+  const { url } = sanitizeConfig(config);
+  let cleanupFailed = false;
+  try { await clearAuthTokenStorage(authStorageKey(url)); } catch { cleanupFailed = true; }
   try {
-    const { url } = sanitizeConfig(config);
-    await AsyncStorage.multiRemove([MALI_AUTH_SESSION_KEY, authStorageKey(url), authStorageKey(url) + '-code-verifier', 'mali_supabase_auth_token']);
-  } catch {
-    // ignore
-  }
+    const legacyKeys = [MALI_AUTH_SESSION_KEY, 'mali_supabase_auth_token', 'mali_supabase_auth_token-code-verifier', 'mali_supabase_auth_token-flows-code-verifier'];
+    for (const key of await AsyncStorage.getAllKeys()) {
+      if (key.startsWith('mali_supabase_auth_token-flow-') || key === 'mali_supabase_auth_token-user') legacyKeys.push(key);
+    }
+    await AsyncStorage.multiRemove(legacyKeys);
+  } catch { cleanupFailed = true; }
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(MALI_AUTH_SESSION_KEY);
@@ -222,6 +229,7 @@ async function clearAuthSessionImpl(config?: Partial<SupabaseConfig>): Promise<v
       // ignore
     }
   }
+  if (cleanupFailed) throw new Error('تعذر تأكيد إزالة بيانات الدخول من الجهاز. يرجى إعادة محاولة تسجيل الخروج.');
 }
 
 export async function savePersistedSessionUser(
