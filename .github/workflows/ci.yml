@@ -53,6 +53,11 @@ jobs:
       - run: node --test tests/financialSqlValidation.test.mjs
         env:
           MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+      - name: Independent PostgreSQL 17 dump and restore rehearsal
+        run: node scripts/rehearseDatabaseRestore.mjs
+        env:
+          MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+          MALI_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
   supply-chain:
     name: Dependency security gate
     runs-on: ubuntu-latest
@@ -64,6 +69,11 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=high
+      - name: Verify local backports and actual dependency consumers
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/verifyDependencyOverrides.mjs
+          npm run test:dependencies
   sast:
     name: Source and secret scan
     runs-on: ubuntu-latest

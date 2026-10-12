@@ -46,3 +46,39 @@ GitHub run38318773035 at3386818:273app tests and83PG17SQL tests PASS; build/SAST
 dependency gateFAIL15high. No merge, atomic production migration or new Pages publish.
 Release remains NOT READY. Full restore, immutable audit, reconnect/conflict workflow, native device builds,
 all-control accessibility/RTL/performance acceptance, old credential evidence and remaining dependencies are open.
+
+## Resumed execution, 2026-10-13
+
+- Reconciled c829fa40f6d1910153041fd8e094838b44d3a053 on codex/mali-production-audit; tracked tree clean.
+- SYNC-107 implementation owns the new mali-durable-retry worktree from that SHA: durable pending vault,
+  bounded backoff, lifecycle/session cancellation and persisted CAS stop. Independent review follows tests.
+- DEP-101 research owns mali-dependency-remediation with a private dependency installation. No npm audit
+  filter, forced SDK downgrade or advisory suppression is allowed. Integration follows the worker test gate.
+- FIN-110 design/review owns mali-immutable-audit. No edits to accepted financial history or production.
+- Root owns continuity, independent integration review, conflict UX and isolated backup/restore rehearsal.
+- No adb/EAS executable or attached native test device was found. Existing release ZIPs are older web/source
+  artifacts, not Android/iOS build evidence. Native device acceptance remains pending.
+
+### Resumed phase evidence
+
+- Integrated durable worker8e4f6c7 (source8ca9a75):55 focused checks PASS. Independent review found a P2
+  false success when configuration changed before sending. Targeted repair4e40385 (source964267f)
+  passes17 worker checks; independent repair review pending. No payload was lost by that defect.
+- Integrated dependency88baa1a (source2daf1c5): braces chain removed; original forge1.4.0 identity retained
+  with reviewable pinned RSA backport. Clean npm ci, integrity gate and6 actual-consumer checks PASS.
+  Raw audit remains FAIL4high/0moderate, one primary forge advisory; no filters/version inflation.
+- Integrated immutable-history candidate408958b (source0db2fe3): owner-only immutable server journal,
+  dedicated restricted writer and exact client evidence validation. Client Context/sync/export enrollment
+  is not yet integrated. Agent verified84 SQL checks on actual isolated PostgreSQL17.11 and39 client checks.
+- Root installed official portable PostgreSQL17.11 and ran actual pg_dump/pg_restore independently:
+ 10 tables,21 synthetic null-owner originals+21 exact archive rows, data/history/functions/ownership/
+  grants/policies/triggers/constraints equality and post-restore owner isolation/CAS/source preservation PASS.
+  This is a candidate synthetic rehearsal, not evidence of a restored production backup.
+- Root chunked cache candidate11 tests PASS; independent review found and root repaired shared-adapter
+  concurrency and stale legacy fallback after a missing head. Re-review pending; Context still uses its
+  safe1.8MB native entry guard until integration. Plugin config raises native SQLite capacity through CNG.
+- Android Studio2026.2.1.8 portable and command-line tools downloaded from Google with official SHA256
+  verification. Emulator37.2.12 reports WHPX installed and usable. SDK/system-image installation ongoing;
+  no Android application build/test has been claimed. PRODUCT-101 native picker/export candidate in progress.
+- Current integration HEAD4e403852bc1d61a2b2ad1ae680e034c094b37289; root-owned storage/CI/rehearsal/continuity
+  changes remain uncommitted until scoped validation. Production/main/Pages remain untouched.

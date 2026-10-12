@@ -24,3 +24,8 @@ Current source d4bf8be:273tests,83PG17SQL checks, build/type/lint/SASTPASS; CI d
 Register:52findings,37verified locally +4verified live,8open +3externally blocked.
 Next implementation phase: durable reconnect retry/backoff, session cancellation and CAS-conflict stop.
 Then explicit conflict resolution, immutable history and full backup/device/UI/performance acceptance.
+
+Resume checkpoint: worker/dependency/history candidates integrated through4e40385, with scoped tests and
+independent targeted review/repair. Raw audit improved15->4high but remains a mandatory failure. Portable
+PG17 enables actual synthetic full restore; Android Studio/SDK installation and WHPX verification progressed.
+Continue journal/cache/conflict/native product integration and review; do not redelegate completed fixes.

@@ -37,5 +37,24 @@ Docker Linux daemon/independent restore, real iOS/Android builds/devices, paid-p
 Routine code/PR/testing work already authorized. Protected production operations need verified backup
 and explicit approval; none is being requested now.
 
-Next safe action: implement and test a durable reconnect retry worker over the existing pendingCloudSync
-revision marker, with backoff/session cancellation and an explicit stop on CAS conflict; no production calls.
+Current resumed work: SYNC-107 in mali-durable-retry, DEP-101 research in mali-dependency-remediation,
+FIN-110 design in mali-immutable-audit, all based on c829fa40f6d1910153041fd8e094838b44d3a053.
+Root owns integration review/continuity, conflict UX and backup rehearsal. These worktrees have distinct
+owners; do not overwrite primary source from older completed branches. No source gate has changed yet.
+
+Resumed integration HEAD4e403852bc1d61a2b2ad1ae680e034c094b37289 includes8e4f6c7 worker,88baa1a dependency
+candidate and408958b history candidate. Worker P2 false success was repaired4e40385; review pending.
+Raw audit4high unchanged mandatory failure; actual6dependency consumer tests/integrity/clean install PASS.
+Root uncommitted files: chunkedFinancialStorage.ts/financialStorage.ts +11tests, storage plugin/app config,
+PG17 full restore rehearsal +2safety tests, CI gates, vendor lint scope and these continuity docs.
+No Context chunk/journal/conflict integration yet. Native product agent owns new mali-native-product88baa1a.
+
+Local tools: portable PostgreSQL17.11 under LOCALAPPDATA/MaliPostgres17Tools/pgsql/bin. Isolated running
+cluster at127.0.0.1:54329/mali_test (.audit/postgres17-data, process20948; synthetic test password only).
+Rehearsal supports literal-loopback mali_test exclusively and only drops its exact fresh UUID child DBs.
+Latest full dump/restore10tables including restricted-writer ownership/data/security equality PASS.
+Android tools at LOCALAPPDATA/MaliAndroidTools: Studio2026.2.1.8 SHA verified, emulator37.2.12 WHPX usable.
+SDK install exec session39017 remains pending. No native build/UI tests yet. Preview60291 may still run.
+
+Next safe action: accept independent worker/chunk repair reviews, checkpoint scoped validated code, then
+integrate chunked cache, financial journal transport/enrollment and guarded conflict UI. No production calls.
