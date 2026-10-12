@@ -99,8 +99,12 @@ export function createDurableSyncWorker<T>(deps: Dependencies<T>) {
       // A crash during the request resumes with this already persisted delay.
       await save({ ...record, attempts, nextAttemptAt: clock.now() + retryDelay(attempts, clock.random()) });
     });
-    if (!captured || disposed || record?.stop || epoch !== configEpoch) return record?.stop?.result || (record?.syncedAt && !disposed
-      ? { ok: true, success: true, updatedAt: record.syncedAt, message: 'تم تأكيد الحفظ المحلي لإقرار الرفع.' } : failed('لا توجد نسخة معلقة للرفع.'));
+    if (disposed) return { ...failed('تغيرت جلسة المستخدم.'), failureKind: 'session' };
+    if (epoch !== configEpoch) return { ...failed('تغير مشروع المزامنة. تم إلغاء طلب الرفع السابق.'), failureKind: 'configuration' };
+    if (record?.stop) return record.stop.result;
+    if (!captured) return record?.pending === null && Number.isSafeInteger(record.acknowledgedRevision)
+      && Number(record.acknowledgedRevision) >= 0 && record.syncedAt && Number.isFinite(Date.parse(record.syncedAt))
+      ? { ok: true, success: true, updatedAt: record.syncedAt, message: 'تم تأكيد الحفظ المحلي لإقرار الرفع.' } : failed('لا توجد نسخة معلقة للرفع.');
     const sent = captured as { revision: number; payload: T };
     const controller = new AbortController(); request = controller; status();
     let timeout: unknown;
@@ -120,7 +124,8 @@ export function createDurableSyncWorker<T>(deps: Dependencies<T>) {
     } catch { result = { ...failed('تعذر الاتصال بالسحابة. تم الاحتفاظ بالنسخة المحلية.'), failureKind: 'transient' }; }
     finally { if (timeout !== undefined) clock.clearTimeout(timeout); controller.signal.removeEventListener('abort', onAbort); request = null; }
     if (result.ok && !result.updatedAt) result = { ...failed('استجابة الرفع لا تحتوي على تاريخ حفظ موثق.'), failureKind: 'permanent' };
-    if (disposed) return failed('تغيرت جلسة المستخدم.');
+    if (disposed) return { ...failed('تغيرت جلسة المستخدم.'), failureKind: 'session' };
+    if (epoch !== configEpoch) return { ...failed('تغير مشروع المزامنة. تم إلغاء طلب الرفع السابق.'), failureKind: 'configuration' };
     await serialize(async () => {
       if (!record || record.configId !== configId || disposed) return;
       // A stop created by a configuration change must survive a late response.
@@ -140,7 +145,7 @@ export function createDurableSyncWorker<T>(deps: Dependencies<T>) {
     return result;
   }
   function flush(force = true): Promise<SyncResult> {
-    if (disposed) return Promise.resolve(failed('تغيرت جلسة المستخدم.'));
+    if (disposed) return Promise.resolve({ ...failed('تغيرت جلسة المستخدم.'), failureKind: 'session' });
     if (running) return running;
     if (record?.stop) return Promise.resolve(record.stop.result);
     if (!force && (!active || !record?.pending || record.nextAttemptAt > clock.now())) { schedule(); return Promise.resolve(failed('الرفع مؤجل.')); }

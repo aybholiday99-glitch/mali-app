@@ -80,7 +80,7 @@ test('session failures require fresh login; permission/validation/configuration 
 });
 test('logout disposal aborts pending work and ignores every late result',async()=>{
   const f=fixture();let release;f.result(()=>new Promise(r=>{release=r;}));await f.enqueue();const pending=f.worker.flush();await settle();const before=f.history.length;
-  f.worker.dispose();await pending;assert.equal(f.calls[0].signal.aborted,true);assert.equal(f.clock.size(),0);release(saved);await settle();
+  f.worker.dispose();const result=await pending;assert.equal(result.ok,false);assert.equal(result.failureKind,'session');assert.equal(f.calls[0].signal.aborted,true);assert.equal(f.clock.size(),0);release(saved);await settle();
   assert.equal(f.history.length,before);assert.equal(f.disk().pending.revision,1);
 });
 test('foreground suspension cancels scheduling and reconnect wake recovers immediately',async()=>{
@@ -98,13 +98,20 @@ test('a slow failure waits its backoff after the response instead of immediately
   release(offline);await pending;assert.equal(f.disk().nextAttemptAt,f.clock.now()+1000);f.worker.dispose();
 });
 test('config changes cancel in-flight request and persist a stop without replacing its project',async()=>{
-  const f=fixture();let release;f.result(()=>new Promise(r=>{release=r;}));await f.enqueue();const pending=f.worker.flush();await settle();await f.worker.changeConfiguration('other');await pending;
+  const f=fixture();let release;f.result(()=>new Promise(r=>{release=r;}));await f.enqueue();const pending=f.worker.flush();await settle();await f.worker.changeConfiguration('other');const result=await pending;
+  assert.equal(result.ok,false);assert.equal(result.failureKind,'configuration');
   release(saved);await settle();assert.equal(f.disk().stop.reason,'configuration');assert.equal(f.disk().configId,'config');assert.equal(f.disk().syncedAt,'baseline');f.worker.dispose();
 });
 test('configuration cancellation fences a request still waiting for durable attempt metadata',async()=>{
-  const f=fixture();await f.enqueue();const original=f.deps.persist;let release,entered;
+  const f=fixture();await f.worker.enqueue({revision:1},1,'config',stamp);const original=f.deps.persist;let release,entered;
   const held=new Promise(r=>{release=r;}),started=new Promise(r=>{entered=r;});
   f.deps.persist=async record=>{if(record.attempts===1&&!record.stop){entered();await held;}await original(record);};
-  const pending=f.worker.flush();await started;const change=f.worker.changeConfiguration('other');release();await pending;await change;
-  assert.equal(f.calls.length,0);assert.equal(f.disk().stop.reason,'configuration');f.worker.dispose();
+  const pending=f.worker.flush();await started;const change=f.worker.changeConfiguration('other');release();const result=await pending;await change;
+  assert.equal(result.ok,false);assert.equal(result.success,false);assert.equal(result.failureKind,'configuration');
+  assert.equal(f.calls.length,0);assert.equal(f.disk().pending.revision,1);assert.equal(f.disk().stop.reason,'configuration');f.worker.dispose();
+});
+test('observed baseline alone cannot report an accepted-upload acknowledgement retry',async()=>{
+  const initial={version:1,ownerId:'A',configId:'config',pending:null,attempts:0,nextAttemptAt:0,syncedAt:stamp};
+  const f=fixture(initial);assert.equal((await f.worker.flush()).ok,false);assert.equal(f.calls.length,0);f.worker.dispose();
+  const proven=fixture({...initial,acknowledgedRevision:4});assert.equal((await proven.worker.flush()).ok,true);assert.equal(proven.calls.length,0);proven.worker.dispose();
 });
