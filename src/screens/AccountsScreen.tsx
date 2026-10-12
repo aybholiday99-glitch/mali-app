@@ -1,5 +1,6 @@
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
+import { proportionalMoney, addMoney } from '../services/financialEngine';
 import React, { useState } from 'react';
 import {
   View,
@@ -96,9 +97,9 @@ export const AccountsScreen: React.FC = () => {
   const chequeValue = parseFinancialInput(chequeAmount);
   const discountValue = parseFinancialInput(discountPct);
   const parsedChequeAmt = financialPreview(chequeValue);
-  const parsedDiscount = financialPreview(discountValue, 4);
-  const calculatedFee = financialPreview((parsedChequeAmt * parsedDiscount) / 100);
-  const calculatedNetCash = financialPreview(parsedChequeAmt - calculatedFee);
+  const parsedDiscount = discountValue ?? 0;
+  const calculatedFee = financialPreview(proportionalMoney(parsedChequeAmt, discountValue ?? 0, 100));
+  const calculatedNetCash = financialPreview(addMoney(parsedChequeAmt, -calculatedFee));
 
   const handleCreateAccount = () => {
     if (!accName.trim()) return;

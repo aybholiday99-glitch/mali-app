@@ -29,6 +29,9 @@
     },
     "experiments": {
       "baseUrl": "/mali-app"
-    }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }

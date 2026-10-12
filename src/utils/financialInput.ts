@@ -1,3 +1,5 @@
+import { roundFinancialPreview } from '../services/financialEngine.ts';
+
 interface FinancialInputOptions {
   /** Only explicitly optional fields, such as a commission, may default to zero. */
   optional?: boolean;
@@ -31,5 +33,5 @@ export function parseFinancialInput(input: string, options: FinancialInputOption
 export function financialPreview(value: number | null, decimalPlaces = 2): number {
   if (value === null || !Number.isFinite(value) || !Number.isInteger(decimalPlaces) ||
     decimalPlaces < 0 || decimalPlaces > 10 || Math.abs(value) * 10 ** decimalPlaces > Number.MAX_SAFE_INTEGER) return 0;
-  return Number(value.toFixed(decimalPlaces));
+  return roundFinancialPreview(value, decimalPlaces);
 }

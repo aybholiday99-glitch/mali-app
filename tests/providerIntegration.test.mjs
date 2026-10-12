@@ -49,7 +49,7 @@ test('real provider preserves local mutation during a delayed pull, including sa
   const tree=await mount();
   await act(async()=>{api.loginUser(cloud);});
   assert.equal(api.state.accounts.length,0);
-  await act(async()=>{api.updateSupabaseConfig({autoSync:false});});
+  await act(async()=>{await api.updateSupabaseConfig({autoSync:false});});
   let release;
   const pending=new Promise(resolve=>{release=resolve;});
   pull=()=>pending;
@@ -126,8 +126,33 @@ test('corrupt owner cache remains recoverable and cannot be overwritten by new b
   await act(async()=>{assert.equal(api.addAccount(account),false);});
   assert.equal(stored.get(key),corrupt);
   assert.equal(stored.get(key+'_recovery'),corrupt);
+  await act(async()=>{assert.equal(await api.updateSupabaseConfig({autoSync:false}),false);});
+  await act(async()=>{assert.equal((await api.pullFromCloud()).ok,false);});
+  assert.equal(stored.get(key),corrupt);
   assert.equal(api.state.accounts.length,0);
   await act(async()=>{tree.unmount();});
+});
+
+test('failed logout cleanup is visible, blocks late identity adoption and permits retry using the original project',async()=>{
+  stored.clear();
+  const originalClear=globalThis.maliProviderAuth.clearAuthSession;
+  const calls=[];
+  globalThis.maliProviderAuth.clearAuthSession=async cfg=>{calls.push(cfg.url);throw new Error('native credential removal denied');};
+  const tree=await mount();
+  await act(async()=>{api.loginUser(guest);});
+  await act(async()=>{assert.equal(await api.updateSupabaseConfig({url:'https://logout.example.invalid'}),true);});
+  await act(async()=>{assert.equal(await api.logoutUser(),false);});
+  assert.equal(api.currentUser,null);
+  assert.equal(api.authCleanupPending,true);
+  assert.match(api.lastSyncMessage,/إزالة بيانات الدخول/);
+  await act(async()=>{identityChanged(cloud);});
+  assert.equal(api.currentUser,null);
+  globalThis.maliProviderAuth.clearAuthSession=async cfg=>{calls.push(cfg.url);};
+  await act(async()=>{assert.equal(await api.logoutUser(),true);});
+  assert.equal(api.authCleanupPending,false);
+  assert.deepEqual(calls,['https://logout.example.invalid','https://logout.example.invalid']);
+  await act(async()=>{tree.unmount();});
+  globalThis.maliProviderAuth.clearAuthSession=originalClear;
 });
 
 test('malformed JSON and unreadable owner caches cannot be silently replaced',async()=>{

@@ -200,21 +200,21 @@ export const ContactsScreen: React.FC = () => {
   const handleSaveContact = () => {
     if (!nameInput.trim()) return;
     if (editingContact) {
-      updateContact(editingContact.id, {
+      if (!updateContact(editingContact.id, {
         name: nameInput.trim(),
         phone: phoneInput.trim(),
         role: roleInput,
         bankDetails: bankInput.trim() || undefined,
         notes: notesInput.trim() || undefined,
-      });
+      })) return;
     } else {
-      addContact({
+      if (!addContact({
         name: nameInput.trim(),
         phone: phoneInput.trim(),
         role: roleInput,
         bankDetails: bankInput.trim() || undefined,
         notes: notesInput.trim() || undefined,
-      });
+      })) return;
     }
     setModalVisible(false);
   };
@@ -1142,7 +1142,7 @@ export const ContactsScreen: React.FC = () => {
                       },
                     ]}
                     onPress={() => {
-                      deleteContact(editingContact.id);
+                      if (!deleteContact(editingContact.id)) return;
                       setModalVisible(false);
                     }}
                   >

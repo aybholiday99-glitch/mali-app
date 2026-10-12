@@ -7,13 +7,25 @@ const tables = ['mali_vault_snapshots','mali_accounts','mali_contacts','mali_usd
 const userA = '11111111-1111-4111-8111-111111111111';
 const userB = '22222222-2222-4222-8222-222222222222';
 
+function checkedDatabaseUrl(raw) {
+  const url = new URL(raw);
+  if (!['postgres:','postgresql:'].includes(url.protocol) ||
+      !['127.0.0.1','localhost','[::1]'].includes(url.hostname) || url.pathname !== '/mali_test' ||
+      !url.username || url.search || url.hash) throw new Error('SQL tests require a disposable loopback mali_test URL without overrides.');
+  if (url.hostname === 'localhost') url.hostname = '127.0.0.1';
+  return url;
+}
+
+test('RLS harness rejects connection overrides before connecting',()=>{
+  for(const raw of ['postgres://test@127.0.0.1/mali_test?host=db.example','postgres://test@127.0.0.1/mali_test?dbname=postgres',
+    'postgres://test@127.0.0.1/mali_test#override','https://127.0.0.1/mali_test','postgres://test@db.example/mali_test']) assert.throws(()=>checkedDatabaseUrl(raw));
+  assert.equal(checkedDatabaseUrl('postgres://test@localhost/mali_test').hostname,'127.0.0.1');
+});
+
 export async function disposableDatabase() {
   let db;
   if (process.env.MALI_TEST_DB_URL) {
-    const url = new URL(process.env.MALI_TEST_DB_URL);
-    if (!['127.0.0.1','localhost','[::1]'].includes(url.hostname) || url.pathname !== '/mali_test') {
-      throw new Error('SQL integration tests require a disposable loopback database named mali_test.');
-    }
+    const url = checkedDatabaseUrl(process.env.MALI_TEST_DB_URL);
     const { Client } = await import('pg');
     const client = new Client({ connectionString: url.href });
     await client.connect();

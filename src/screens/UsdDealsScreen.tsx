@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { PaymentMethodType, UsdDeal } from '../types/mali';
 import { CalmDropdown } from '../components/CalmDropdown';
-import { calculateUsdDealCostBasis } from '../services/financialEngine';
+import { addMoney, multiplyMoney, proportionalMoney, calculateEffectiveRate, subtractRates, calculateUsdDealCostBasis } from '../services/financialEngine';
 import {
   ReceiptAttachmentField,
   ReceiptInlineStrip,
@@ -172,11 +172,11 @@ export const UsdDealsScreen: React.FC = () => {
   const parsedBuyUsd = financialPreview(buyUsdValue);
   const parsedBuyRate = financialPreview(buyRateValue, 4);
   const parsedBuyComm = financialPreview(buyCommValue);
-  const previewBuyGrossLyd = financialPreview(parsedBuyUsd * parsedBuyRate);
-  const previewBuyTotalLyd = financialPreview(previewBuyGrossLyd + parsedBuyComm);
+  const previewBuyGrossLyd = financialPreview(multiplyMoney(parsedBuyUsd, parsedBuyRate));
+  const previewBuyTotalLyd = financialPreview(addMoney(previewBuyGrossLyd, parsedBuyComm));
   const previewEffectiveRate =
     parsedBuyUsd > 0
-      ? financialPreview(previewBuyTotalLyd / parsedBuyUsd, 4)
+      ? calculateEffectiveRate(previewBuyTotalLyd, parsedBuyUsd)
       : 0;
 
   // Immediate Sell Preview
@@ -186,9 +186,9 @@ export const UsdDealsScreen: React.FC = () => {
   const parsedImmSellUsd = financialPreview(immSellUsdValue);
   const parsedImmSellRate = financialPreview(immSellRateValue, 4);
   const parsedImmSellComm = financialPreview(immSellCommValue);
-  const previewImmSellNetLyd = financialPreview(parsedImmSellUsd * parsedImmSellRate - parsedImmSellComm);
-  const previewImmSellCost = financialPreview(parsedImmSellUsd * previewEffectiveRate);
-  const previewImmSellProfit = financialPreview(previewImmSellNetLyd - previewImmSellCost);
+  const previewImmSellNetLyd = financialPreview(addMoney(multiplyMoney(parsedImmSellUsd, parsedImmSellRate), -parsedImmSellComm));
+  const previewImmSellCost = financialPreview(proportionalMoney(previewBuyTotalLyd, parsedImmSellUsd, parsedBuyUsd));
+  const previewImmSellProfit = financialPreview(addMoney(previewImmSellNetLyd, -previewImmSellCost));
 
   // Live calculations for Sale Modal (on existing deal)
   const saleUsdValue = parseFinancialInput(saleUsdStr);
@@ -199,15 +199,15 @@ export const UsdDealsScreen: React.FC = () => {
   const parsedSaleUsd = financialPreview(saleUsdValue);
   const parsedSaleRate = financialPreview(saleRateValue, 4);
   const parsedSaleComm = financialPreview(saleCommValue);
-  const previewSaleGrossLyd = financialPreview(parsedSaleUsd * parsedSaleRate);
-  const previewSaleNetLyd = financialPreview(previewSaleGrossLyd - parsedSaleComm);
+  const previewSaleGrossLyd = financialPreview(multiplyMoney(parsedSaleUsd, parsedSaleRate));
+  const previewSaleNetLyd = financialPreview(addMoney(previewSaleGrossLyd, -parsedSaleComm));
   const previewSaleCostBasis = activeDealForSale && parsedSaleUsd > 0 &&
     parsedSaleUsd <= activeDealForSale.remainingUsd
     ? financialPreview(calculateUsdDealCostBasis(activeDealForSale, parsedSaleUsd)) : 0;
   const previewSaleProfit = isPersonalTakeMode
     ? 0
-    : financialPreview(previewSaleNetLyd - previewSaleCostBasis);
-  const previewRateSpread = financialPreview(parsedSaleRate - (activeDealForSale?.buyRate || 0), 3);
+    : financialPreview(addMoney(previewSaleNetLyd, -previewSaleCostBasis));
+  const previewRateSpread = financialPreview(subtractRates(parsedSaleRate, activeDealForSale?.buyRate || 0), 3);
 
   // Handlers for switching Cash vs Bank Transfer in Buy Modal
   const handleSelectBuyMode = (mode: 'cash' | 'bank') => {

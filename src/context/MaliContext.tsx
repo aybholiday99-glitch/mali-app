@@ -33,6 +33,7 @@ import {
   createAccountMutation,
   createUsdDealMutation,
   deleteAccountMutation,
+  deleteContactMutation,
   deleteDebtMutation,
   deleteTransactionMutation,
   deleteUsdDealMutation,
@@ -46,6 +47,9 @@ import {
   takePersonalFromUsdDealMutation,
   touchState,
   updateAccountBalanceMutation,
+  updateContactMutation,
+  generateId,
+  updateMarketRatesMutation,
   validateAndSanitizeBackupPayload,
 } from '../services/financialEngine';
 import {
@@ -182,14 +186,15 @@ interface MaliContextValue {
   toggleTheme: () => void;
   currentUser: AuthUser | null;
   loginUser: (user: AuthUser) => void;
-  logoutUser: () => void;
+  logoutUser: () => Promise<boolean>;
+  authCleanupPending: boolean;
   isLoading: boolean;
   isSyncing: boolean;
   lastSyncMessage: string | null;
-  updateMarketRates: (rates: Partial<MarketRates>) => void;
-  addContact: (input: AddContactInput) => ContactPerson;
-  updateContact: (contactId: string, partial: Partial<ContactPerson>) => void;
-  deleteContact: (contactId: string) => void;
+  updateMarketRates: (rates: Partial<MarketRates>) => boolean;
+  addContact: (input: AddContactInput) => ContactPerson | null;
+  updateContact: (contactId: string, partial: Partial<ContactPerson>) => boolean;
+  deleteContact: (contactId: string) => boolean;
   addAccount: (acc: Omit<Account, 'id' | 'updatedAt'>) => boolean;
   updateAccountBalance: (accountId: string, newBalance: number) => boolean;
   deleteAccount: (accountId: string) => boolean;
@@ -209,7 +214,7 @@ interface MaliContextValue {
   toggleProcedureStage: (procedureId: string, stageId: string) => void;
   addProcedureStage: (procedureId: string, stageTitle: string) => void;
   deleteProcedure: (procedureId: string) => void;
-  updateSupabaseConfig: (cfg: Partial<SupabaseConfig>) => void;
+  updateSupabaseConfig: (cfg: Partial<SupabaseConfig>) => Promise<boolean>;
   syncToCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   pullFromCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   importStateJson: (jsonStr: string) => boolean;
@@ -244,6 +249,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null);
+  const [authCleanupPending, setAuthCleanupPending] = useState(false);
+  const pendingLogoutConfig = useRef<SupabaseConfig | null>(null);
 
   const theme = isDarkMode ? CALM_DARK_THEME : CALM_LIGHT_THEME;
 
@@ -383,7 +390,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const newContact: ContactPerson = {
-      id: `cnt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: generateId('cnt'),
       name: cleanName,
       phone: phone?.trim() || '',
       role: defaultRole,
@@ -398,19 +405,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateMarketRates = (rates: Partial<MarketRates>) => {
-    persistState((prev) => ({
-      ...prev,
-      marketRates: {
-        ...prev.marketRates,
-        ...rates,
-        updatedAt: new Date().toISOString(),
-      },
-    }));
+    return persistState((prev) => updateMarketRatesMutation(prev, rates));
   };
 
-  const addContact = (input: AddContactInput): ContactPerson => {
+  const addContact = (input: AddContactInput): ContactPerson | null => {
     const newContact: ContactPerson = {
-      id: `cnt-${Date.now()}`,
+      id: generateId('cnt'),
       name: input.name.trim(),
       phone: input.phone.trim(),
       role: input.role,
@@ -418,27 +418,19 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
       notes: input.notes?.trim() || undefined,
       createdAt: todayStr(),
     };
-    persistState((prev) => ({
+    const saved = persistState((prev) => !newContact.name || prev.contacts.some(contact => contact.id === newContact.id) ? prev : ({
       ...prev,
       contacts: [newContact, ...prev.contacts],
     }));
-    return newContact;
+    return saved ? newContact : null;
   };
 
   const updateContact = (contactId: string, partial: Partial<ContactPerson>) => {
-    persistState((prev) => ({
-      ...prev,
-      contacts: prev.contacts.map((c) =>
-        c.id === contactId ? { ...c, ...partial } : c
-      ),
-    }));
+    return persistState(prev => updateContactMutation(prev, contactId, partial));
   };
 
   const deleteContact = (contactId: string) => {
-    persistState((prev) => ({
-      ...prev,
-      contacts: prev.contacts.filter((c) => c.id !== contactId),
-    }));
+    return persistState(prev => deleteContactMutation(prev, contactId));
   };
 
   const addAccount = (acc: Omit<Account, 'id' | 'updatedAt'>) => {
@@ -846,14 +838,23 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
   };
 
-  const updateSupabaseConfig = (cfg: Partial<SupabaseConfig>) => {
-    persistState((prev) => ({
-      ...prev,
-      supabaseConfig: {
-        ...prev.supabaseConfig,
-        ...cfg,
-      },
-    }));
+  const updateSupabaseConfig = async (cfg: Partial<SupabaseConfig>) => {
+    if (!scope.current.isCurrent(mutationSession) || hydrating.current || recoveryRequired.current) return false;
+    const before = stateRef.current;
+    const config = { ...before.supabaseConfig, ...cfg };
+    if (config.url !== before.supabaseConfig.url || config.anonKey !== before.supabaseConfig.anonKey) config.lastSyncedAt = undefined;
+    const next = { ...before, supabaseConfig: config };
+    const token = scope.current.capture();
+    const user = userRef.current;
+    // Configuration is device metadata, not an unsynced financial mutation.
+    applyState(next);
+    try {
+      await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(next)));
+      return scope.current.isCurrent(token);
+    } catch {
+      if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر حفظ إعدادات المزامنة على هذا الجهاز.');
+      return false;
+    }
   };
 
   const syncToCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
@@ -903,13 +904,18 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { ...res, ok: false, success: false, conflictDetected: true, message };
       }
       if (res.isEmpty) {
-        const cleared = { ...before, supabaseConfig: { ...before.supabaseConfig, lastSyncedAt: undefined } };
+        if (recoveryRequired.current) {
+          const message = 'الخزنة السحابية فارغة. تم الاحتفاظ بالنسخة المحلية التي تحتاج استعادة دون استبدالها.';
+          setLastSyncMessage(message);
+          return { ...res, ok: false, success: false, message };
+        }
+        const cleared = { ...before, supabaseConfig: { ...(overrideCfg || before.supabaseConfig), lastSyncedAt: undefined } };
         applyState(cleared);
         await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(cleared)));
       }
       if (res.ok && res.state) {
         recoveryRequired.current = false;
-        const merged = mergePartialCloudState(before, res.state, res.updatedAt, res.snapshotUpdatedAt);
+        const merged = mergePartialCloudState({ ...before, supabaseConfig: overrideCfg || before.supabaseConfig }, res.state, res.updatedAt, res.snapshotUpdatedAt);
         applyState(merged);
         await storageQueue.current.run(() => AsyncStorage.setItem(getStorageKeyForUser(user?.id), JSON.stringify(merged)));
       }
@@ -929,6 +935,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   function loginUser(user: AuthUser) {
+    pendingLogoutConfig.current = null;
+    setAuthCleanupPending(false);
     const token = scope.current.begin(user.id);
     setMutationSession(token);
     localRevision.current = 0;
@@ -1017,16 +1025,30 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
     applyState(emptyFinancialState(INITIAL_MALI_STATE));
   }
 
-  const logoutUser = () => {
-    const cfg = stateRef.current.supabaseConfig;
+  const logoutUser = async () => {
+    const cfg = pendingLogoutConfig.current || stateRef.current.supabaseConfig;
+    pendingLogoutConfig.current = cfg;
     invalidateLocalSession();
-    clearAuthSession(cfg).catch(() => {});
+    setAuthCleanupPending(true);
+    const token = scope.current.capture();
+    try {
+      await clearAuthSession(cfg);
+      if (scope.current.isCurrent(token)) {
+        pendingLogoutConfig.current = null;
+        setAuthCleanupPending(false);
+        setLastSyncMessage(null);
+      }
+      return true;
+    } catch {
+      if (scope.current.isCurrent(token)) setLastSyncMessage('تعذر تأكيد إزالة بيانات الدخول من الجهاز. أعد محاولة تسجيل الخروج.');
+      return false;
+    }
   };
 
   useEffect(() => subscribeToAuthIdentity((user) => {
     if (!user) {
       if (userRef.current && !userRef.current.isLocalOnly) invalidateLocalSession();
-    } else if (userRef.current?.id !== user.id) {
+    } else if (!pendingLogoutConfig.current && userRef.current?.id !== user.id) {
       loginUser(user);
     }
   }, INITIAL_MALI_STATE.supabaseConfig), []);
@@ -1044,6 +1066,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isSyncing,
         lastSyncMessage,
+        authCleanupPending,
         updateMarketRates,
         addContact,
         updateContact,

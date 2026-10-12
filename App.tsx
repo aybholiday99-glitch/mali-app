@@ -40,6 +40,7 @@ const MainAppShell: React.FC = () => {
     isLoading,
     isSyncing,
     lastSyncMessage,
+    authCleanupPending,
     loginUser,
     logoutUser,
   } = useMali();
@@ -67,6 +68,12 @@ const MainAppShell: React.FC = () => {
           barStyle={isDarkMode ? 'light-content' : 'dark-content'}
           backgroundColor={theme.headerBg}
         />
+        {authCleanupPending && <View style={{ padding: 12, backgroundColor: theme.surfaceSoft }}>
+          <Text accessibilityRole="alert" style={{ color: theme.text, textAlign: 'right' }}>{lastSyncMessage || 'جارٍ إزالة بيانات الدخول من الجهاز…'}</Text>
+          {!!lastSyncMessage && <TouchableOpacity accessibilityRole="button" onPress={() => { void logoutUser(); }} style={{ padding: 12 }}>
+            <Text style={{ color: theme.primary, textAlign: 'right' }}>إعادة محاولة تسجيل الخروج</Text>
+          </TouchableOpacity>}
+        </View>}
         <AuthScreen
           supabaseConfig={state.supabaseConfig}
           onAuthenticated={(user) => loginUser(user)}

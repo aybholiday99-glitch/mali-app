@@ -3,6 +3,67 @@ import { test } from 'node:test';
 import * as engine from '../src/services/financialEngine.ts';
 
 const DATE = '2026-10-12T00:00:00.000Z';
+test('operand-based UI quotes match persisted purchases, commissions and effective rates at decimal ties',()=>{
+  assert.equal(engine.multiplyMoney(2.3,1.15),2.65);
+  assert.equal(engine.proportionalMoney(100,2.65,100),2.65);
+  assert.equal(engine.proportionalMoney(100000,0.12345,100),123.45);
+  const chequeState=state();
+  chequeState.accounts.find(account=>account.id==='bank').isCash=false;
+  chequeState.accounts.find(account=>account.id==='bank').balance=100000;
+  const liquidated=engine.liquidateChequeToCashMutation(chequeState,{title:'Precise fee',fromBankAccountId:'bank',toCashAccountId:'lyd',grossChequeAmountLyd:100000,discountPercent:0.12345});
+  assert.equal(liquidated.transactions[0].feeAmount,engine.proportionalMoney(100000,0.12345,100));
+  assert.equal(engine.subtractRates(1.1525,1.15),0.0025);
+  for(const quantity of [2.3,10.075,0.03]) for(const rate of [1.15,6.2345]) for(const fee of [0,0.075]) {
+    const qty=engine.roundMoney(quantity),commission=engine.roundMoney(fee);
+    const persisted=buy(state(),{totalUsdBought:quantity,buyRate:rate,buyCommissionLyd:fee}).deals[0];
+    const gross=engine.multiplyMoney(qty,engine.roundRate(rate));
+    const total=engine.addMoney(gross,commission);
+    assert.equal(gross,persisted.grossLydCost);
+    assert.equal(total,persisted.totalLydCost);
+    assert.equal(engine.calculateEffectiveRate(total,qty),persisted.effectiveBuyRate);
+    assert.equal(engine.proportionalMoney(total,qty,qty),total);
+  }
+});
+test('generated identities remain unique during same-clock same-random events',()=>{
+  const clock=Date.now,random=Math.random;
+  try {
+    Date.now=()=>1;
+    Math.random=()=>0;
+    const ids=Array.from({length:20},()=>engine.generateId('cnt'));
+    assert.equal(new Set(ids).size,20);
+  } finally {Date.now=clock;Math.random=random;}
+});
+test('contact identities stay immutable and referenced financial history prevents deletion or orphan imports',()=>{
+  const original=state();
+  original.contacts=[{id:'contact',name:'Customer',phone:'',role:'تاجر عملة',createdAt:DATE}];
+  for(const snapshot of [
+    {...original,transactions:[{id:'t',title:'Income',type:'income',amount:1,currency:'LYD',category:'test',accountId:'lyd',paymentMethod:'cash',date:DATE,contactId:'contact'}]},
+    engine.createUsdDealMutation(original,{id:'d',title:'Deal',totalUsdBought:1,buyRate:6,buyCommissionLyd:0,buyPaymentMethod:'cash',sourceLydAccountId:'lyd',usdHoldingAccountId:'usd',contactId:'contact'}),
+    engine.addDebtRecordMutation(original,{id:'debt',personName:'Customer',contactId:'contact',direction:'receivable',currency:'LYD',totalAmount:1}),
+  ]) {
+    assert.equal(engine.deleteContactMutation(snapshot,'contact'),snapshot);
+    assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify({...snapshot,contacts:[]}),original).valid,false);
+  }
+  const updated=engine.updateContactMutation(original,'contact',{id:'replacement',createdAt:'invalid',name:'Updated'});
+  assert.equal(updated.contacts[0].id,'contact');
+  assert.equal(updated.contacts[0].createdAt,DATE);
+  assert.equal(updated.contacts[0].name,'Updated');
+  assert.equal(engine.deleteContactMutation(original,'contact').contacts.length,0);
+  assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify({...original,contacts:[...original.contacts,...original.contacts]}),original).valid,false);
+});
+test('market settings reject corrupt rates/discounts atomically and normalize supported decimal rates',()=>{
+  const before=state();
+  for(const value of [NaN,Infinity,-1,0,1e6+1,0.00001]) {
+    assert.equal(engine.updateMarketRatesMutation(before,{cashUsdToLyd:value,chequeUsdToLyd:7}),before);
+  }
+  for(const value of [NaN,Infinity,-1,100,101]) assert.equal(engine.updateMarketRatesMutation(before,{defaultChequeDiscountPercent:value}),before);
+  const updated=engine.updateMarketRatesMutation(before,{cashUsdToLyd:6.23456,chequeUsdToLyd:6.34567,defaultChequeDiscountPercent:0});
+  assert.equal(updated.marketRates.cashUsdToLyd,6.2346);
+  assert.equal(updated.marketRates.chequeUsdToLyd,6.3457);
+  assert.equal(updated.marketRates.defaultChequeDiscountPercent,0);
+  assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify(updated),before).valid,true);
+  assert.deepEqual(updated.accounts,before.accounts);
+});
 function state() {
   return {
     accounts: [

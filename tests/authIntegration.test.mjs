@@ -6,6 +6,7 @@ const stored = new Map();
 globalThis.maliTestStorage = {
   setItem: async (key,value) => { stored.set(key,value); },
   getItem: async key => stored.get(key) ?? null,
+  getAllKeys: async () => [...stored.keys()],
   removeItem: async key => { stored.delete(key); },
   multiRemove: async keys => { keys.forEach(key => stored.delete(key)); },
 };

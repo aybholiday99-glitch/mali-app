@@ -60,22 +60,23 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
     lastSyncedAt: state.supabaseConfig.lastSyncedAt,
   });
 
-  const handleSaveConfig = () => {
+  const handleSaveConfig = async () => {
     const cfg = buildCurrentConfig();
-    updateSupabaseConfig(cfg);
-    setStatusBanner('تم حفظ إعدادات المزامنة السحابية محلياً بنجاح.');
+    setStatusBanner(await updateSupabaseConfig(cfg) ? 'تم حفظ إعدادات المزامنة على هذا الجهاز.' : 'تعذر حفظ الإعدادات. راجع التخزين وانتظر تحميل الخزنة أو استرجع نسخة صحيحة.');
   };
 
   const handlePush = async () => {
     const cfg = buildCurrentConfig();
-    updateSupabaseConfig(cfg);
-    const res = await syncToCloud(cfg);
+    if (!await updateSupabaseConfig(cfg)) {
+      setStatusBanner('تعذر اعتماد الإعدادات. انتظر تحميل الخزنة أو استرجع نسخة صحيحة.');
+      return;
+    }
+    const res = await syncToCloud();
     setStatusBanner(res.message);
   };
 
   const handlePull = async () => {
     const cfg = buildCurrentConfig();
-    updateSupabaseConfig(cfg);
     const res = await pullFromCloud(cfg);
     setStatusBanner(res.message);
   };

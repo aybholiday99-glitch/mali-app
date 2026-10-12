@@ -50,4 +50,6 @@ test('display-only previews stay finite for incomplete inputs and overflowing ca
   assert.equal(financialPreview(12.345,2),12.35);
   assert.equal(financialPreview(6.23456,4),6.2346);
   assert.equal(financialPreview(-5.5),-5.5);
+  assert.equal(financialPreview(10.075),10.08);
+  assert.equal(financialPreview(-10.075),-10.08);
 });

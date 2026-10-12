@@ -1,5 +1,6 @@
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
+import { proportionalMoney, addMoney, multiplyMoney, subtractRates } from '../services/financialEngine';
 import React, { useState } from 'react';
 import {
   View,
@@ -125,8 +126,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
   // Calculator values
   const parsedCalcUsd = financialPreview(parseFinancialInput(calcUsdInput));
   const parsedCalcChequeLyd = financialPreview(parseFinancialInput(calcChequeLydInput));
-  const calcFeeLyd = financialPreview((parsedCalcChequeLyd * discPct) / 100);
-  const calcNetCashLyd = financialPreview(parsedCalcChequeLyd - calcFeeLyd);
+  const calcFeeLyd = financialPreview(proportionalMoney(parsedCalcChequeLyd, discPct, 100));
+  const calcNetCashLyd = financialPreview(addMoney(parsedCalcChequeLyd, -calcFeeLyd));
 
   const handleSaveRates = () => {
     const cRate = parseFinancialInput(cashRateInput);
@@ -704,7 +705,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   القيمة نقداً (كاش بسعر {cashRate}):
                 </Text>
                 <Text style={[styles.calcVal, { color: theme.success }]}>
-                  {formatMoney(financialPreview(parsedCalcUsd * cashRate), 'LYD')}
+                  {formatMoney(financialPreview(multiplyMoney(parsedCalcUsd, cashRate)), 'LYD')}
                 </Text>
               </View>
               <View style={styles.calcRow}>
@@ -712,7 +713,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   القيمة بتحويل مصرفي/صك (بسعر {chequeRate}):
                 </Text>
                 <Text style={[styles.calcVal, { color: theme.blue }]}>
-                  {formatMoney(financialPreview(parsedCalcUsd * chequeRate), 'LYD')}
+                  {formatMoney(financialPreview(multiplyMoney(parsedCalcUsd, chequeRate)), 'LYD')}
                 </Text>
               </View>
               <View style={styles.calcRow}>
@@ -720,7 +721,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   فرق القيمة بين التحويل والكاش:
                 </Text>
                 <Text style={[styles.calcVal, { color: theme.amber }]}>
-                  +{formatMoney(financialPreview(parsedCalcUsd * (chequeRate - cashRate)), 'LYD')}
+                  +{formatMoney(financialPreview(multiplyMoney(parsedCalcUsd, subtractRates(chequeRate, cashRate))), 'LYD')}
                 </Text>
               </View>
             </View>

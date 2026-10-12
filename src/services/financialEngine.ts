@@ -7,6 +7,7 @@ import type {
   DebtInstallment,
   DebtRecord,
   MaliState,
+  MarketRates,
   PaymentMethodType,
   Transaction,
   UsdDeal,
@@ -16,6 +17,26 @@ import type {
 // and decimal rational intermediates; the cap preserves cent precision on conversion.
 export const MAX_MONEY_AMOUNT = 1_000_000_000_000;
 export const MAX_EXCHANGE_RATE = 1_000_000;
+
+/** Display arithmetic shares the same decimal rounding as persisted money. */
+export function roundFinancialPreview(value: number, decimalPlaces = 2): number {
+  if (!Number.isFinite(value) || !Number.isInteger(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 10) return 0;
+  const scale = 10 ** decimalPlaces;
+  if (Math.abs(value) > MAX_MONEY_AMOUNT || Math.abs(value) * scale > Number.MAX_SAFE_INTEGER) return 0;
+  return Number(scaledInteger(value, scale, MAX_MONEY_AMOUNT)) / scale;
+}
+
+export function updateMarketRatesMutation(state: MaliState, input: Partial<MarketRates>): MaliState {
+  const cash = input.cashUsdToLyd ?? state.marketRates.cashUsdToLyd;
+  const cheque = input.chequeUsdToLyd ?? state.marketRates.chequeUsdToLyd;
+  const discount = input.defaultChequeDiscountPercent ?? state.marketRates.defaultChequeDiscountPercent;
+  if (![cash, cheque].every(value => Number.isFinite(value) && value > 0 && value <= MAX_EXCHANGE_RATE) ||
+      !Number.isFinite(discount) || discount < 0 || discount >= 100) return state;
+  const cashRate = roundRate(cash), chequeRate = roundRate(cheque);
+  if (cashRate <= 0 || chequeRate <= 0) return state;
+  return { ...state, marketRates: { cashUsdToLyd: cashRate, chequeUsdToLyd: chequeRate,
+    defaultChequeDiscountPercent: discount, updatedAt: new Date().toISOString() } };
+}
 const MAX_MONEY_CENTS = BigInt(MAX_MONEY_AMOUNT) * 100n;
 const MAX_SUMMARY_AMOUNT = 10_000_000_000_000;
 const MAX_SUMMARY_CENTS = BigInt(MAX_SUMMARY_AMOUNT) * 100n;
@@ -97,6 +118,22 @@ function moneyRatio(amount: number, numerator: number, denominator = 1, maximum 
   return moneyFromCents(divideRounded(cents * top * bottomScale, topScale * bottom), BigInt(maximum) * 100n);
 }
 
+// Quote with separate operands so binary products cannot lose decimal ties.
+export const multiplyMoney = (amount: number, multiplier: number) => moneyRatio(amount, multiplier);
+export const proportionalMoney = (amount: number, numerator: number, denominator: number) => moneyRatio(amount, numerator, denominator);
+export const addMoney = (...values: number[]) => moneySum(...values);
+export function calculateEffectiveRate(cost: number, quantity: number): number {
+  const costCents = scaledInteger(cost, 100, MAX_MONEY_AMOUNT);
+  const quantityCents = scaledInteger(quantity, 100, MAX_MONEY_AMOUNT);
+  if (costCents === null || quantityCents === null || costCents <= 0n || quantityCents <= 0n) return 0;
+  const rate = divideRounded(costCents * 10000n, quantityCents);
+  return rate > BigInt(MAX_EXCHANGE_RATE) * 10000n ? 0 : Number(rate) / 10000;
+}
+export function subtractRates(left: number, right: number): number {
+  const a = scaledInteger(left, 10000, MAX_EXCHANGE_RATE), b = scaledInteger(right, 10000, MAX_EXCHANGE_RATE);
+  return a === null || b === null ? NaN : Number(a - b) / 10000;
+}
+
 function applyAccountDeltas(
   state: MaliState,
   changes: [string, number][],
@@ -130,8 +167,24 @@ export function calculateUsdDealCostBasis(deal: UsdDeal, usdAmount: number): num
   return moneyRatio(remainingCost, usdAmount, deal.remainingUsd);
 }
 
+let identitySequence = 0;
 export function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  return `${prefix}-${Date.now()}-${++identitySequence}-${Math.random().toString(36).substring(2, 8)}`;
+}
+
+export function deleteContactMutation(state: MaliState, contactId: string): MaliState {
+  if (!state.contacts.some(contact => contact.id === contactId) ||
+      state.transactions.some(tx => tx.contactId === contactId) ||
+      state.debts.some(debt => debt.contactId === contactId) ||
+      state.deals.some(deal => deal.contactId === contactId || deal.sales.some(sale => sale.contactId === contactId))) return state;
+  return { ...state, contacts: state.contacts.filter(contact => contact.id !== contactId) };
+}
+
+export function updateContactMutation(state: MaliState, contactId: string, input: Partial<ContactPerson>): MaliState {
+  const current = state.contacts.find(contact => contact.id === contactId);
+  if (!current || (input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim()))) return state;
+  const next = { ...current, ...input, id: current.id, createdAt: current.createdAt };
+  return { ...state, contacts: state.contacts.map(contact => contact.id === contactId ? next : contact) };
 }
 
 export function touchState(state: MaliState): MaliState {
@@ -462,7 +515,7 @@ export function createUsdDealMutation(
   const grossLydCost = moneyRatio(usdBought, rate);
   const totalLydCost = moneySum(grossLydCost, commission);
   if (!validMoney(totalLydCost)) return state;
-  const effectiveBuyRate = roundRate(totalLydCost / usdBought);
+  const effectiveBuyRate = calculateEffectiveRate(totalLydCost, usdBought);
   if (effectiveBuyRate <= 0) return state;
 
   const dealNumber = `DL-${String(state.deals.length + 101).padStart(3, '0')}`;
@@ -1303,6 +1356,12 @@ function validateFinancialBackup(parsed: BackupRecord): void {
     amount(account, 'balance', !account.isCash);
   }
   const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const contacts = requireRecords(parsed.contacts ?? [], 'المتعاملين');
+  if (contacts.some(contact => typeof contact.name !== 'string' || !contact.name.trim())) throw new Error('بيانات متعامل غير صالحة.');
+  const contactIds = new Set(contacts.map(contact => contact.id));
+  const contactRef = (id: unknown) => {
+    if (id !== undefined && (typeof id !== 'string' || !contactIds.has(id))) throw new Error('مرجع متعامل مفقود.');
+  };
   const accountRef = (id: unknown, expected?: Currency): BackupRecord => {
     const account = accountById.get(id);
     if (typeof id !== 'string' || !account || (expected && account.currency !== expected)) {
@@ -1322,6 +1381,7 @@ function validateFinancialBackup(parsed: BackupRecord): void {
   const transactionTypes = ['expense', 'income', 'transfer', 'cheque_liquidation',
     'deal_buy', 'deal_sell', 'deal_personal_take', 'debt_settlement'];
   for (const tx of transactions) {
+    contactRef(tx.contactId);
     if (!transactionTypes.includes(String(tx.type)) || !paymentMethods.includes(String(tx.paymentMethod)) ||
       typeof tx.title !== 'string' || typeof tx.category !== 'string' ||
       typeof tx.date !== 'string' || !Number.isFinite(Date.parse(tx.date))) {
@@ -1342,6 +1402,7 @@ function validateFinancialBackup(parsed: BackupRecord): void {
     if (tx.debtId && !debtById.has(tx.debtId)) throw new Error('مرجع دين مفقود.');
   }
   for (const deal of deals) {
+    contactRef(deal.contactId);
     accountRef(deal.sourceLydAccountId, 'LYD');
     accountRef(deal.usdHoldingAccountId, 'USD');
     const totalUsd = amount(deal, 'totalUsdBought');
@@ -1357,6 +1418,7 @@ function validateFinancialBackup(parsed: BackupRecord): void {
     }
     const sales = requireRecords(deal.sales, 'مبيعات الصفقة');
     for (const sale of sales) {
+      contactRef(sale.contactId);
       if (saleIds.has(sale.id) || sale.dealId !== deal.id ||
         (sale.isPersonalTake !== undefined && typeof sale.isPersonalTake !== 'boolean')) {
         throw new Error('مرجع بيع مكرر أو غير صالح.');
@@ -1397,6 +1459,7 @@ function validateFinancialBackup(parsed: BackupRecord): void {
     }
   }
   for (const debt of debts) {
+    contactRef(debt.contactId);
     const debtCurrency = currency(debt);
     if (!['receivable', 'payable'].includes(String(debt.direction))) throw new Error('اتجاه دين غير صالح.');
     if (debt.accountId) accountRef(debt.accountId, debtCurrency);
