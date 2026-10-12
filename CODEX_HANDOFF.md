@@ -14,10 +14,12 @@ applied live; atomic sync migration NOT APPLIED. Main/Pages unchanged.
 
 Validation at d4bf8be: npm test273/273 PASS; typecheck/build/Expo compatibility/introspection PASS;
 lint0errors/12warnings; SAST0findings/28sourcefiles. CI repeats273tests plus83PG17SQL tests.
-Previous bf326dd CI three jobsPASS, dependencyFAIL. Latest CI result: pending upload/run, update after inspection.
+GitHub run38318773035 at33868181db1e33884f74107ee42f871d136aeff5 completed:
+verification273PASS, PostgreSQL17 SQL16+67PASS, build/SASTPASS, dependencyFAIL15high.
+Source tree equals validated d4bf8be; later commits only maintain these continuity documents.
 Dependency audit15high/0moderate; braces and node-forge primary advisories remain. Do not suppress/downgrade.
 
-Source code stable; only these five continuity documents are being finalized. Preexisting untracked
+Source code stable and pushed. Preexisting untracked
 .claude/, AGENTS.md and releases/ are preserved and must not be staged indiscriminately.
 
 Worktree ownership/history:

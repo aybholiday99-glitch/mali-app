@@ -8,7 +8,7 @@ financial/account/credential changes require verified backup and explicit approv
 | Phase | Completed evidence | Remaining |
 |---|---|---|
 | Discovery | Correct Mali root/origin, live PG17.11 schema/history/settings checked | Complete all-path audit |
-| Security | Safe email fixes live; independent RLS CRUD; session/PKCE/export protection | Native secure tokens, old-secret evidence, full ASVS and dependency gate |
+| Security | Safe email fixes live; RLS CRUD/session/PKCE/export and secure native-token repairs verified | Native device proof, old-secret evidence, full ASVS and dependency gate |
 | Database |21 exact archive copies; history recorded without replay; tested invoker RPC | Owner-preserving recovery, verified restore, coordinated schema/client cutover |
 | Finance | Exact arithmetic/cost/reversal/compound/idempotent form tests | Immutable audit/corrections and complete business acceptance |
 | Sync/offline | Atomic CAS, fail-closed reads/cache/session/ack recovery | Reconnect outbox/backoff and conflict-resolution UI |
@@ -20,3 +20,7 @@ financial/account/credential changes require verified backup and explicit approv
 Root owns context/auth/UI/test infrastructure/continuity. Financial/sync/export worktrees have separate
 file ownership; independent reviewers check integrated source. Continue safe work during external blocks.
 Resume from CODEX_HANDOFF and Git, do not restart completed changes. Build/CI alone cannot prove readiness.
+Current source d4bf8be:273tests,83PG17SQL checks, build/type/lint/SASTPASS; CI dependencyFAIL15high.
+Register:52findings,37verified locally +4verified live,8open +3externally blocked.
+Next implementation phase: durable reconnect retry/backoff, session cancellation and CAS-conflict stop.
+Then explicit conflict resolution, immutable history and full backup/device/UI/performance acceptance.

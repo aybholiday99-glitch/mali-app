@@ -15,7 +15,7 @@ Earlier MALI_FINAL_AUDIT/MALI_RELEASE_READINESS completion claims are superseded
 | Proven backup/restore | FAIL: strict financial/reference validation, but independent DB/device restore unproved |
 | All UI/RTL/accessibility | FAIL: focused browser tests pass; native/routing/all controls/accessibility/performance remain |
 | Compatible secure dependencies | FAIL: 15 high affected packages from two primary advisories; seven moderate paths fixed |
-| Mandatory tests and CI | PARTIAL: 273 local tests/build pass; PG17 candidate CI repeats83SQL; dependency gate intentionally fails |
+| Mandatory tests and CI | FAIL: GitHub38318773035 app273 andPG17SQL83/build/SASTPASS, dependency gateFAIL15high; broader acceptance incomplete |
 | Latest approved production published/tested | FAIL: main/Pages unchanged; PR2 draft, no candidate deployment |
 | Critical/high debt closed | FAIL: register tracks outstanding work |
 

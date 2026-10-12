@@ -42,6 +42,7 @@ Validated source candidate: d4bf8bee57379d7bfce722570ec6b5a8a1d4c596.
   and 2,000 generated IDs passed. Audit now 15 high, 0 moderate, from two primary advisories.
 
 Draft PR2: https://github.com/aybholiday99-glitch/mali-app/pull/2.
-Final CI results are recorded in CODEX_HANDOFF. No merge, atomic production migration or new Pages publish.
+GitHub run38318773035 at3386818:273app tests and83PG17SQL tests PASS; build/SASTPASS;
+dependency gateFAIL15high. No merge, atomic production migration or new Pages publish.
 Release remains NOT READY. Full restore, immutable audit, reconnect/conflict workflow, native device builds,
 all-control accessibility/RTL/performance acceptance, old credential evidence and remaining dependencies are open.
