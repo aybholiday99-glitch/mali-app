@@ -1,4 +1,5 @@
 import { financialDate } from './financialDate.ts';
+import { validateFinancialAudit } from './financialAudit.ts';
 import type {
   Account,
   ContactPerson,
@@ -1615,6 +1616,7 @@ export function validateAndSanitizeBackupPayload(
       lastModifiedAt: parsed.lastModifiedAt || new Date().toISOString(),
     };
 
+    if (parsed.financialAudit !== undefined) restoredState.financialAudit = validateFinancialAudit(parsed.financialAudit, restoredState);
     return { valid: true, state: restoredState };
   } catch (e: any) {
     return {

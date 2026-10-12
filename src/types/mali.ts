@@ -1,3 +1,4 @@
+import type { FinancialAuditEvent } from './financialAudit';
 export type Currency = 'LYD' | 'USD';
 
 export type PaymentMethodType = 'cash' | 'cheque' | 'transfer' | 'card';
@@ -223,6 +224,8 @@ export interface SupabaseConfig {
 }
 
 export interface MaliState {
+  /** Append-only local evidence; server acceptance is recorded independently. */
+  financialAudit?: FinancialAuditEvent[];
   /** Device-only metadata; never included in the cloud snapshot or exported backups. */
   pendingCloudSync?: boolean;
   localRevision?: number;
