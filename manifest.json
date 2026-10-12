@@ -1,0 +1,27 @@
+{
+  "name": "مالي - الإدارة المالية وتداول العملات",
+  "short_name": "مالي",
+  "description": "منظومة الإدارة المالية الشخصية وتداول الدولار والصكوك والمصاريف",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1120",
+  "theme_color": "#0F172A",
+  "icons": [
+    {
+      "src": "./icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
