@@ -19,6 +19,7 @@ import {
   formatMoney,
   formatRate,
   generateContactStatementCsv,
+  matchesContact,
   getPaymentMethodLabel,
 } from '../utils/exportHelper';
 
@@ -64,14 +65,9 @@ export const ContactsScreen: React.FC = () => {
 
   // Helper to get all activity for a given contact
   const getPersonActivity = (person: ContactPerson) => {
-    const matchName = (n?: string) =>
-      Boolean(
-        n && n.trim().toLowerCase() === person.name.trim().toLowerCase()
-      );
-
     // 1. Deals bought from this person
     const boughtDeals = state.deals.filter(
-      (d) => d.contactId === person.id || matchName(d.counterparty)
+      (d) => matchesContact(person, d.contactId, d.counterparty)
     );
 
     // 2. Sales sold to this person (across all deals)
@@ -82,7 +78,7 @@ export const ContactsScreen: React.FC = () => {
 
     state.deals.forEach((deal) => {
       deal.sales.forEach((sale) => {
-        if (sale.contactId === person.id || matchName(sale.buyerName)) {
+        if (matchesContact(person, sale.contactId, sale.buyerName)) {
           soldEntries.push({ deal, sale });
         }
       });
@@ -90,7 +86,7 @@ export const ContactsScreen: React.FC = () => {
 
     // 3. Debts with this person
     const personDebts = state.debts.filter(
-      (db) => db.contactId === person.id || matchName(db.personName)
+      (db) => matchesContact(person, db.contactId, db.personName)
     );
 
     const totalBoughtUsd = boughtDeals.reduce(
