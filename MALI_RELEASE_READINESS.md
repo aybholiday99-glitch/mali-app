@@ -59,3 +59,5 @@ npm test
 # 6. تصدير نسخة الويب الإنتاجية (PWA / GitHub Pages)
 npx expo export --platform web
 ```
+
+- **GitHub Pages Production Deployment (gh-pages)**: a5fc8cf
