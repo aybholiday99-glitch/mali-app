@@ -1361,43 +1361,69 @@ export function deleteDebtMutation(state: MaliState, debtId: string): MaliState 
   const matches = state.debts.filter((d) => d.id === debtId);
   if (matches.length !== 1) return state;
   const debt = matches[0];
-  const installmentTxIds = new Set(debt.installments.map((i) => i.transactionId).filter(Boolean));
-  const linked = state.transactions.filter((tx) => tx.debtId === debtId ||
-    tx.id === debt.initialTransactionId || installmentTxIds.has(tx.id));
+  const declaredInstallmentTxIds = new Set(debt.installments.map((i) => i.transactionId).filter(Boolean));
+  const linked = state.transactions.filter((tx) =>
+    tx.debtId === debtId || tx.id === debt.initialTransactionId ||
+    declaredInstallmentTxIds.has(tx.id) ||
+    debt.installments.some((i) => tx.installmentId === i.id)
+  );
+  const verifiedIds = new Set<string>();
   const changes: [string, number][] = [];
-  for (const tx of linked) {
-    if (tx.type === 'debt_settlement') {
-      changes.push([tx.accountId, debt.direction === 'receivable' ? -tx.amount : tx.amount]);
-    } else if (tx.type === 'expense') {
-      changes.push([tx.accountId, tx.amount]);
-    } else if (tx.type === 'income') {
-      changes.push([tx.accountId, -tx.amount]);
-    } else {
-      return state;
-    }
+
+  if (debt.initialTransactionId) {
+    const originals = linked.filter((tx) => tx.id === debt.initialTransactionId);
+    if (originals.length !== 1) return state;
+    const initial = originals[0];
+    if (initial.debtId !== debtId || initial.accountId !== debt.accountId ||
+        initial.currency !== debt.currency || initial.amount !== debt.totalAmount ||
+        initial.type !== (debt.direction === 'receivable' ? 'expense' : 'income')) return state;
+    verifiedIds.add(initial.id);
+    changes.push([initial.accountId, debt.direction === 'receivable' ? initial.amount : -initial.amount]);
+  } else if (debt.accountId) {
+    // Legacy debt with a treasury effect but no provable original journal:
+    // block automatic balance reversal until the original flow is reconciled.
+    return state;
   }
-  // Legacy records without transaction IDs can still be reversed individually.
-  // A declared-but-missing transaction is ambiguous; never guess and refund twice.
-  if (debt.initialTransactionId && !linked.some((tx) => tx.id === debt.initialTransactionId)) return state;
-  if (debt.accountId && !debt.initialTransactionId &&
-    !linked.some((tx) => tx.type === 'expense' || tx.type === 'income')) {
-    changes.push([debt.accountId, debt.direction === 'receivable' ? debt.totalAmount : -debt.totalAmount]);
-  }
+
   for (const installment of debt.installments) {
-    if (installment.isNonCash || installment.settlementType === 'non_cash') continue;
-    if (installment.transactionId) {
-      if (!linked.some((tx) => tx.id === installment.transactionId)) return state;
-    } else if (installment.accountId && !linked.some((tx) => tx.installmentId === installment.id)) {
-      changes.push([installment.accountId,
-        debt.direction === 'receivable' ? -installment.amount : installment.amount]);
+    const entries = linked.filter((tx) =>
+      (installment.transactionId && tx.id === installment.transactionId) ||
+      tx.installmentId === installment.id
+    );
+    if (installment.isNonCash || installment.settlementType === 'non_cash') {
+      if (installment.accountId || installment.transactionId || entries.length !== 0) return state;
+      continue;
     }
+    if (entries.length > 1) return state;
+    const tx = entries[0];
+    if (!tx) {
+      // An off-ledger historical installment without account data may be removed,
+      // but never infer or reverse a missing cash movement.
+      if (installment.accountId || installment.transactionId) return state;
+      continue;
+    }
+    if (tx.type !== 'debt_settlement' || tx.debtId !== debtId ||
+        tx.installmentId !== installment.id ||
+        (installment.transactionId && tx.id !== installment.transactionId) ||
+        (installment.accountId && tx.accountId !== installment.accountId) ||
+        tx.currency !== debt.currency || tx.amount !== installment.amount) return state;
+    const account = state.accounts.find((a) => a.id === tx.accountId);
+    if (!account || account.currency !== debt.currency || verifiedIds.has(tx.id)) return state;
+    verifiedIds.add(tx.id);
+    changes.push([tx.accountId, debt.direction === 'receivable' ? -tx.amount : tx.amount]);
   }
+
+  // An extra linked transaction must never silently be deleted or reversed.
+  if (linked.some((tx) => !verifiedIds.has(tx.id))) return state;
   const now = new Date().toISOString();
   const accounts = applyAccountDeltas(state, changes, now);
   if (!accounts) return state;
-  const ids = new Set(linked.map((tx) => tx.id));
-  return touchState({ ...state, accounts, debts: state.debts.filter((d) => d.id !== debtId),
-    transactions: state.transactions.filter((tx) => !ids.has(tx.id)) });
+  return touchState({
+    ...state,
+    accounts,
+    debts: state.debts.filter((d) => d.id !== debtId),
+    transactions: state.transactions.filter((tx) => !verifiedIds.has(tx.id)),
+  });
 }
 
 function reverseDealSale(state: MaliState, transaction: Transaction): MaliState {
