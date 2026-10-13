@@ -60,6 +60,12 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
   const [pickedBackup,setPickedBackup]=useState<Extract<BackupFileResult,{status:'selected'}>|null>(null);
   const [readingBackup,setReadingBackup]=useState(false);
   const backupPickerPending=useRef(false);
+  const handleBackupFile = async () => {
+    if(backupPickerPending.current)return;backupPickerPending.current=true;setReadingBackup(true);
+    try{const result=await pickBackupFile();if(result.status==='selected'){setPickedBackup(result);setImportJsonText('');setShowImportBox(true);setStatusBanner('تمت قراءة الملف. راجع الاختيار ثم أكد الاسترجاع؛ لم تتغير الخزنة بعد.');}
+      else if(result.status==='error')setStatusBanner(result.message);
+    }finally{backupPickerPending.current=false;setReadingBackup(false);}
+  };
 
   const buildCurrentConfig = () => ({
     url: urlInput.trim(),
@@ -117,6 +123,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
               المزامنة السحابية (Supabase) وتصدير التقارير
             </Text>
             <TouchableOpacity
+              accessibilityRole="button" accessibilityLabel="إغلاق المزامنة والتصدير"
               style={[styles.closeBtn, { backgroundColor: theme.card }]}
               onPress={onClose}
             >
@@ -127,7 +134,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
           <ScrollView style={styles.scrollArea}>
             <FinancialHistoryPanel />
             <View style={[styles.sectionBox,{backgroundColor:theme.cardAlt,borderColor:theme.border}]}>
-              <Text accessibilityLiveRegion="polite" style={[styles.sectionTitle,{color:theme.text}]}>{cloudSyncStatus.phase==='blocked'?'توقفت المزامنة لحماية بياناتك':cloudSyncStatus.phase==='retrying'?'تعذر الاتصال؛ ستُعاد المحاولة عند فتح التطبيق':cloudSyncStatus.phase==='storage-error'?'تعذر الحفظ على الجهاز؛ يلزم إعادة المحاولة':cloudSyncStatus.phase==='uploading'?'جارٍ رفع النسخة المحفوظة':state.pendingCloudSync?'نسخة محفوظة على الجهاز تنتظر الرفع':'حالة الحفظ والمزامنة'}</Text>
+              <Text accessibilityLiveRegion="polite" style={[styles.sectionTitle,{color:theme.text}]}>{currentUser?.isLocalOnly?'الحفظ المحلي على هذا الجهاز':cloudSyncStatus.phase==='blocked'?'توقفت المزامنة لحماية بياناتك':cloudSyncStatus.phase==='retrying'?'تعذر الاتصال؛ ستُعاد المحاولة عند فتح التطبيق':cloudSyncStatus.phase==='storage-error'?'تعذر الحفظ على الجهاز؛ يلزم إعادة المحاولة':cloudSyncStatus.phase==='uploading'?'جارٍ رفع النسخة المحفوظة':state.pendingCloudSync?'نسخة محفوظة على الجهاز تنتظر الرفع':'حالة الحفظ والمزامنة'}</Text>
               <Text style={[styles.sectionSub,{color:theme.textSecondary}]}>تعمل إعادة المزامنة أثناء فتح التطبيق. عند التعارض تبقى النسختان محفوظتين ويتوقف الرفع حتى اختيار حلّ واضح.</Text>
               <TouchableOpacity accessibilityRole="button" style={styles.sqlToggleBtn} onPress={async()=>{
                 const report=createSafeDiagnostics(state,cloudSyncStatus,Platform.OS,!!currentUser?.isLocalOnly);
@@ -174,6 +181,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
 
               <View style={styles.exportButtonsGrid}>
                 <TouchableOpacity
+                  accessibilityRole="button"
                   style={[
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
@@ -203,6 +211,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  accessibilityRole="button"
                   style={[
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
@@ -232,6 +241,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  accessibilityRole="button"
                   style={[
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
@@ -260,6 +270,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  accessibilityRole="button"
                   style={[
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
@@ -329,6 +340,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 رابط مشروع Supabase (Project URL)
               </Text>
               <TextInput
+                accessibilityLabel="رابط مشروع المزامنة"
                 style={[
                   styles.input,
                   {
@@ -349,6 +361,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 مفتاح الوصول العام (Anon Public Key)
               </Text>
               <TextInput
+                accessibilityLabel="مفتاح الوصول العام للمزامنة"
                 style={[
                   styles.input,
                   {
@@ -369,6 +382,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 معرف الخزنة الخاصة بك (Workspace Key للمزامنة بين أجهزتك)
               </Text>
               <TextInput
+                accessibilityLabel="معرف الخزنة"
                 style={[
                   styles.input,
                   {
@@ -384,6 +398,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
               />
 
               <TouchableOpacity
+                accessibilityRole="switch" accessibilityLabel="المزامنة التلقائية" accessibilityState={{checked:autoSync}}
                 style={styles.checkboxRow}
                 onPress={() => setAutoSync(!autoSync)}
               >
@@ -403,13 +418,8 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
               </TouchableOpacity>
 
               <View style={styles.syncActionsRow}>
-                <TouchableOpacity accessibilityRole="button" disabled={readingBackup} accessibilityState={{disabled:readingBackup,busy:readingBackup}} style={[styles.pullBtn,{backgroundColor:theme.card,borderColor:theme.border}]} onPress={async()=>{
-                  if(backupPickerPending.current)return;backupPickerPending.current=true;setReadingBackup(true);
-                  try{const result=await pickBackupFile();if(result.status==='selected'){setPickedBackup(result);setImportJsonText('');setShowImportBox(true);setStatusBanner('تمت قراءة الملف. راجع الاختيار ثم أكد الاسترجاع؛ لم تتغير الخزنة بعد.');}
-                    else if(result.status==='error')setStatusBanner(result.message);
-                  }finally{backupPickerPending.current=false;setReadingBackup(false);}
-                }}><Text style={[styles.pullBtnText,{color:theme.primary}]}>{readingBackup?'جارٍ اختيار النسخة…':'اختيار ملف نسخة JSON'}</Text></TouchableOpacity>
                 <TouchableOpacity
+                  accessibilityRole="button" accessibilityState={{disabled:isSyncing,busy:isSyncing}}
                   style={[
                     styles.pushBtn,
                     { backgroundColor: theme.primary },
@@ -432,6 +442,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  accessibilityRole="button" accessibilityState={{disabled:isSyncing,busy:isSyncing}}
                   style={[
                     styles.pullBtn,
                     {
@@ -453,6 +464,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  accessibilityRole="button"
                   style={[
                     styles.saveCfgBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
@@ -471,6 +483,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
               </View>
 
               <TouchableOpacity
+                accessibilityRole="button" accessibilityState={{expanded:showSql}}
                 style={styles.sqlToggleBtn}
                 onPress={() => setShowSql(!showSql)}
               >
@@ -508,7 +521,11 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                 3. إدارة البيانات والنسخ الاحتياطي
               </Text>
               <View style={styles.syncActionsRow}>
+                <TouchableOpacity accessibilityRole="button" disabled={readingBackup} accessibilityState={{disabled:readingBackup,busy:readingBackup}} style={[styles.pullBtn,{backgroundColor:theme.card,borderColor:theme.border}]} onPress={handleBackupFile}>
+                  <Text style={[styles.pullBtnText,{color:theme.primary}]}>{readingBackup?'جارٍ اختيار النسخة…':'اختيار ملف نسخة JSON'}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
+                  accessibilityRole="button" accessibilityState={{expanded:showImportBox}}
                   style={[
                     styles.pullBtn,
                     {
@@ -542,6 +559,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     الصق محتوى ملف النسخة الاحتياطية (JSON) هنا:
                   </Text>
                   {pickedBackup ? <Text style={[styles.sectionSub,{color:theme.text}]}>{pickedBackup.name} · {Math.ceil(pickedBackup.bytes/1024)} KB. ستُحفظ نسخة الاسترجاع والدليل السابق قبل الاستبدال.</Text> : <TextInput
+                    accessibilityLabel="محتوى نسخة JSON للاسترجاع"
                     style={[
                       styles.input,
                       {
@@ -558,6 +576,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     placeholderTextColor={theme.textMuted}
                   />}
                   <TouchableOpacity
+                    accessibilityRole="button"
                     style={[
                       styles.pushBtn,
                       { marginTop: 8, backgroundColor: theme.primary },
@@ -611,6 +630,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   closeBtn: {
+    minHeight:44,
+    minWidth:44,
     padding: 6,
     borderRadius: 8,
   },

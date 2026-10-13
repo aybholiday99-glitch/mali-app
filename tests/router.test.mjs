@@ -25,6 +25,7 @@ registerHooks({resolve(specifier,context,next){
   if(specifier==='react-native')source="export const Platform=globalThis.maliTestPlatform;export const View='View',Text='Text',TouchableOpacity='TouchableOpacity',StatusBar='StatusBar',Modal='Modal',ActivityIndicator='ActivityIndicator';export const StyleSheet={create:s=>s};";
   if(specifier==='react-native-safe-area-context')source="export const SafeAreaView='SafeAreaView';";
   if(specifier==='expo-router')source="export const router={navigate:p=>{globalThis.maliRouterPath=p;}},usePathname=()=>globalThis.maliRouterPath,Link='Link',Slot='Slot',Redirect='Redirect';export function Stack({children}){globalThis.maliRouterProbe?.();return globalThis.maliRouterReact.createElement('Stack',null,children);}Stack.Screen='RouteEntry';Stack.Protected=({children,guard})=>guard?children:null;";
+  if(specifier==='expo-router/js-tabs')source="export function Tabs({children}){return globalThis.maliRouterReact.createElement('Tabs',null,children);}Tabs.Screen='TabRouteEntry';";
   if(specifier.endsWith('/services/authService')&&context.parentURL?.includes('/navigation/'))source='export const launchSocialOAuthWindow=async()=>({success:false,message:"isolated failure"});';
   const screen=specifier.match(/\/screens\/(\w+)$/)?.[1];
   if(screen)source=`export const ${screen}='${screen}';`;
@@ -46,6 +47,7 @@ const {getReactNavigationConfig}=require('expo-router/build/getReactNavigationCo
 const {getStateFromPath}=require('expo-router/build/fork/getStateFromPath');
 const {getPathFromState}=require('expo-router/build/fork/getPathFromState');
 const {StackRouter}=require('expo-router/build/react-navigation/routers/StackRouter');
+const {TabRouter}=require('expo-router/build/react-navigation/routers/TabRouter');
 const appDirectory=fileURLToPath(new URL('../src/app/',import.meta.url));
 function files(directory){return readdirSync(directory,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?files(path.join(directory,entry.name)):[path.join(directory,entry.name)]);}
 const modules=new Map();
@@ -78,6 +80,18 @@ test('SDK stack history supports back and removes unavailable financial routes a
   assert.equal(focused(state),'expenses');state=router.getStateForAction(state,{type:'GO_BACK'},options);assert.equal(focused(state),'accounts');
   state=router.getStateForRouteNamesChange(state,{...options,routeNames:['sign-in'],routeKeyChanges:[]});
   assert.deepEqual(state.routes.map(route=>route.name),['sign-in']);assert.equal(router.getStateForAction(state,{type:'GO_BACK'}, {...options,routeNames:['sign-in']}),null);
+});
+test('actual SDK tab navigation retains route identity and nested state across home and other sections',()=>{
+  const router=TabRouter({initialRouteName:'dashboard',backBehavior:'history'}),options={routeNames:Object.keys(VAULT_ROUTES),routeParamList:{},routeGetIdList:{}};
+  let state=router.getInitialState(options);
+  state=router.getStateForAction(state,{type:'NAVIGATE',payload:{name:'expenses'}},options);
+  const original=state.routes.find(route=>route.name==='expenses');
+  const nested={stale:false,type:'stack',key:'form-stack',index:0,routeNames:['form'],routes:[{key:'form',name:'form'}]};
+  state={...state,routes:state.routes.map(route=>route.name==='expenses'?{...route,state:nested}:route)};
+  for(const name of ['dashboard','contacts','expenses'])state=router.getStateForAction(state,{type:'NAVIGATE',payload:{name}},options);
+  const retained=state.routes.find(route=>route.name==='expenses');
+  assert.equal(retained.key,original.key);assert.deepEqual(retained.state,nested);assert.equal(state.routes.length,6);
+  state=router.getStateForAction(state,{type:'GO_BACK'},options);assert.equal(focused(state),'contacts');
 });
 test('route guard rejects bootstrap/logout cleanup and all navigation targets stay within the six-route allowlist',()=>{
   assert.equal(canEnterVault(null,false,false),false);assert.equal(canEnterVault({id:'owner'},true,false),false);assert.equal(canEnterVault({id:'owner'},false,true),false);

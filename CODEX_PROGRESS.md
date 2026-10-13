@@ -140,3 +140,10 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
 - Prepared local Pages SPA404 fallback from the exact built Router entry with no URL/query/hash redirect,
   preserving deep links/OAuth and protected route checks.7actual Router/fallback checks PASS; this only
   creates build artifacts and does not deploy. Local preview supports direct routed paths.
+
+- Actual IAB reproduced loss of expense draft7.77 on Expenses ->Home ->Expenses with the initial Stack.
+  Vault now uses official SDK57 JS Tabs with hidden SDK bar/history/lazy retention. Actual IAB repeat
+  retains7.77 without any financial submission; direct /mali-app/expenses loads, runtime error log empty.
+  Seven actual SDK route/identity/history/provider checks PASS; type/lint/web build PASS.
+- Cloud/backup controls now expose semantic roles, labels, switch state and44px close target; guest
+  status explicitly describes local saving. File selection is in the backup section.5focused checks PASS.
