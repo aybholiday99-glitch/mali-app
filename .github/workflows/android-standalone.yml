@@ -46,57 +46,9 @@ jobs:
           test -s "$APK"
           APK_CONTENTS="$(unzip -Z1 "$APK")"
           grep -Fxq 'assets/index.android.bundle' <<< "$APK_CONTENTS"
-          grep -Eq '^lib/arm64-v8a/[^/]+[.]so
-          SIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)
-          test -x "$SIGNER"
-          "$SIGNER" verify --verbose "$APK"
-      - name: Run standalone APK on isolated Android emulator WITHOUT Metro
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        timeout-minutes: 15
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
-          script: bash scripts/androidStandaloneSmoke.sh
-      - name: Upload candidate APK and logs (not store-ready)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: mali-android-standalone-test-key-acceptance
-          if-no-files-found: warn
-          path: |
-            android/app/build/outputs/apk/release/app-release.apk
-            android-standalone-evidence/
- <<< "$APK_CONTENTS"
-          grep -Eq '^lib/x86_64/[^/]+[.]so
-          SIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)
-          test -x "$SIGNER"
-          "$SIGNER" verify --verbose "$APK"
-      - name: Run standalone APK on isolated Android emulator WITHOUT Metro
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        timeout-minutes: 15
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
-          script: bash scripts/androidStandaloneSmoke.sh
-      - name: Upload candidate APK and logs (not store-ready)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: mali-android-standalone-test-key-acceptance
-          if-no-files-found: warn
-          path: |
-            android/app/build/outputs/apk/release/app-release.apk
-            android-standalone-evidence/
- <<< "$APK_CONTENTS"
-          echo "PASS: embedded JS and ARM64 device + x86_64 emulator native libraries. This APK is NOT signed with a production key."
+          grep -E -q '^lib/arm64-v8a/[^/]+[.]so$' <<< "$APK_CONTENTS"
+          grep -E -q '^lib/x86_64/[^/]+[.]so$' <<< "$APK_CONTENTS"
+          echo "PASS: JS included with ARM64 and x86_64 libraries. This APK is NOT signed with a production key."
           SIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)
           test -x "$SIGNER"
           "$SIGNER" verify --verbose "$APK"
