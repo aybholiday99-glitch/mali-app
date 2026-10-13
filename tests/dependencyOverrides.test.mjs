@@ -54,7 +54,14 @@ test('integrity gate rejects a modified installed file and an unexpected forge c
     writeFileSync(path.join(temporary,'node_modules/picomatch/package.json'),JSON.stringify({name:'picomatch',version:'4.0.7'}));
     cpSync(path.dirname(certRequire.resolve('node-forge/package.json')),path.join(temporary,'node_modules/node-forge'),{recursive:true});
     cpSync(path.dirname(createRequire(require.resolve('metro-file-map/package.json')).resolve('micromatch/package.json')),path.join(temporary,'node_modules/micromatch'),{recursive:true});
+    cpSync(path.dirname(require.resolve('query-string/package.json')),path.join(temporary,'node_modules/query-string'),{recursive:true});
+    cpSync(path.dirname(require.resolve('decode-uri-component/package.json')),path.join(temporary,'node_modules/decode-uri-component'),{recursive:true});
     assert.equal(verifyDependencyOverrides(temporary).forgeConsumers,2);
+    const decoder=path.join(temporary,'node_modules/decode-uri-component/index.js');
+    const decoderOriginal=readFileSync(decoder);
+    writeFileSync(decoder,Buffer.concat([decoderOriginal,Buffer.from('\n// unreviewed decoder edit\n')]));
+    assert.throws(()=>verifyDependencyOverrides(temporary),/integrity mismatch: index.js/);
+    writeFileSync(decoder,decoderOriginal);
     const rsa = path.join(temporary,'node_modules/node-forge/lib/rsa.js');
     const original = readFileSync(rsa);
     writeFileSync(rsa,Buffer.concat([original,Buffer.from('\n// modified installed bytes\n')]));

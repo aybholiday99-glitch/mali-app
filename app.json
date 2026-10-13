@@ -3,13 +3,16 @@
     "name": "مالي - Mali",
     "slug": "mali-app",
     "version": "1.0.0",
+    "scheme": "mali",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
+      "bundleIdentifier": "com.aybholiday.mali",
       "supportsTablet": true
     },
     "android": {
+      "package": "com.aybholiday.mali",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -32,7 +35,18 @@
     },
     "plugins": [
       "expo-secure-store",
-      "./plugins/withMaliFinancialStorage"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "يستخدم مالي الصورة التي تختارها لإرفاق إيصال بالعملية المالية.",
+          "cameraPermission": "يستخدم مالي الكاميرا عند طلبك تصوير إيصال للعملية المالية.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-sharing",
+      "expo-web-browser",
+      "./plugins/withMaliFinancialStorage",
+      "expo-router"
     ]
   }
 }

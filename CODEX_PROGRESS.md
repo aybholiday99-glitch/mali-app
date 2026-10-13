@@ -96,3 +96,14 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
 - GitHub2f61437 PG17 SQL/full real restore and SAST PASS. Linux Metro baseline correctedc5079a5;
   mandatory audit remains FAIL4high. New Router/native dependencies being qualified.
 - Further review exposed pre-durability success: async mutation/uncertain retry/form preservation OPEN.
+
+- Native OAuth6d64bc3 integrated: exact mali://auth/callback, secure S256 PKCE bridge, owned browser code
+  exchange, server user/session proof, cancellation and redacted failures;134agent-focused tests PASS.
+  Root source review and45new-native/consumer dependency checks PASS; real provider/deep-link proof pending.
+- Added matching Expo57 Router/native system UI dependencies and pinned reanimated4.5.1/worklets0.10.1
+  from bundled compatibility map. Official fixed decoder0.5.0 is ESM, incompatible with actual query-string7.
+  Module-format-only CJS conversion preserves the exact official fixed algorithm and archive/license;
+  mandatory provenance gate qualifies all copies/consumer source, actual Arabic/PKCE/array/malformed input
+  tests PASS. Clean npm ci --ignore-scripts PASS; raw audit still4high/0moderate, forge advisory unchanged.
+- Native CNG config defines candidate com.aybholiday.mali /scheme mali, image-picker purpose strings and
+  microphone removal; sharing/webbrowser/storage plugins. No native source manually edited or publication.

@@ -3,6 +3,8 @@ node_modules/
 
 # Expo & Build outputs
 .expo/
+android/
+ios/
 dist/
 web-build/
 

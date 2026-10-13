@@ -82,3 +82,16 @@ the exact origin/patch, rebuild the archives with `npm pack --ignore-scripts`,
 update provenance/consumer hashes, regenerate the lock through Expo install and
 rerun every mandatory gate. Changing the provenance requires independent review;
 it is not an automatic bless-new-bytes operation.
+# Expo Router 57 decoder compatibility
+
+Router57.0.26 uses query-string7.1.3, whose vulnerable decoder0.2.x is CommonJS.
+The official security-fixed decode-uri-component0.5.0 is ESM. A direct override
+breaks the actual parser with `decodeComponent is not a function`.
+The tracked0.5.0 compatibility package changes only its export/module format;
+the complete decoding algorithm remains byte-for-byte equivalent to the official
+fixed release. Original archive, MIT license and decoderProvenance.json are retained.
+The mandatory integrity gate reconstructs the conversion from that verified archive,
+checks every installed copy and the sole actual consumer. Arabic/query/PKCE/array
+compatibility and malformed-input performance are tested through Router's query-string.
+This fixes [GHSA-vcc3-ghjq-m6fr](https://github.com/advisories/GHSA-vcc3-ghjq-m6fr).
+

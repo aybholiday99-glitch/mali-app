@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, realpathSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 const defaultRoot = fileURLToPath(new URL('../', import.meta.url));
 const json = file => JSON.parse(readFileSync(file, 'utf8'));
@@ -40,6 +41,38 @@ function assertInstalledIntegrity(location, expected, root) {
   assert.deepEqual(packageFiles(actual).sort(), Object.keys(expected.files).sort(), 'unexpected/missing override source file');
   for (const [file, digest] of Object.entries(expected.files)) {
     assert.equal(sha256(path.join(actual, file)), digest, `override integrity mismatch: ${file}`);
+  }
+}
+
+function verifyDecoderCompatibility(root, packages, lock) {
+  const proof=json(path.join(root,'vendor/decoderProvenance.json'));
+  const upstream=readFileSync(path.join(root,proof.originalArchive));
+  assert.equal('sha512-'+createHash('sha512').update(upstream).digest('base64'),proof.originalIntegrity,'upstream decoder archive mismatch');
+  const tar=gunzipSync(upstream);let source;
+  for(let position=0;position+512<=tar.length;){
+    const name=tar.subarray(position,position+100).toString().replace(/\0.*$/s,'');
+    const size=parseInt(tar.subarray(position+124,position+136).toString().replace(/\0.*$/s,'').trim(),8)||0;
+    if(name==='package/index.js')source=tar.subarray(position+512,position+512+size).toString('utf8');
+    position+=512+Math.ceil(size/512)*512;
+  }
+  assert.equal(typeof source,'string','official decoder runtime missing');
+  assert.equal(createHash('sha256').update(source).digest('hex'),proof.originalIndexSha256);
+  assert.equal(readFileSync(path.join(root,proof.sourceDirectory,'index.js'),'utf8'),source.replace('export default function decodeUriComponent','module.exports = function decodeUriComponent'),'decoder logic differs from official fixed release');
+  assertInstalledIntegrity(path.join(root,proof.sourceDirectory),proof,root);
+  assert.equal('sha512-'+createHash('sha512').update(readFileSync(path.join(root,proof.archive.path))).digest('base64'),proof.archive.integrity,'decoder tarball integrity mismatch');
+  const consumers=packages.filter(p=>p.metadata.dependencies?.['decode-uri-component']);
+  assert.deepEqual(consumers.map(p=>p.metadata.name),['query-string'],'decoder consumer inventory changed');
+  const copies=packages.filter(p=>p.metadata.name==='decode-uri-component');
+  assert.ok(copies.length>0,'decoder compatibility package missing');
+  for(const pkg of copies){assert.equal(pkg.metadata.version,'0.5.0');assertInstalledIntegrity(pkg.location,proof,root);}
+  for(const consumer of consumers){
+    assert.equal(consumer.metadata.version,proof.consumer.version);
+    assert.equal(sha256(path.join(consumer.location,'index.js')),proof.consumer.indexSha256,'query parser changed without compatibility review');
+    const require=createRequire(path.join(consumer.location,'package.json'));
+    assertInstalledIntegrity(path.dirname(require.resolve('decode-uri-component/package.json')),proof,root);
+  }
+  for(const [location,metadata] of Object.entries(lock.packages))if(location.endsWith('/decode-uri-component')){
+    assert.equal(metadata.resolved,'file:'+proof.archive.path);assert.equal(metadata.integrity,proof.archive.integrity);
   }
 }
 
@@ -90,6 +123,7 @@ export function verifyDependencyOverrides(root = defaultRoot) {
     const matcherRequire = createRequire(path.join(resolved, 'package.json'));
     assert.equal(matcherRequire('picomatch/package.json').version, '4.0.7');
   }
+  verifyDecoderCompatibility(root,packages,lock);
   return { forgeConsumers: forgeConsumers.length, matcherConsumers: matcherConsumers.length, forgeCopies: installedForge.length };
 }
 
