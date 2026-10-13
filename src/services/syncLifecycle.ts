@@ -8,6 +8,8 @@ export function subscribeSyncLifecycle(setForeground: (active: boolean) => void,
     const active = state === 'active'; setForeground(active); if (active) reconnect();
   });
   const online = () => reconnect();
-  if (typeof window !== 'undefined') window.addEventListener('online', online);
-  return () => { subscription?.remove(); if (typeof window !== 'undefined') window.removeEventListener('online', online); };
+  const browserWindow = ReactNative.Platform.OS === 'web' && typeof window !== 'undefined'
+    && typeof window.addEventListener === 'function' && typeof window.removeEventListener === 'function' ? window : undefined;
+  browserWindow?.addEventListener('online', online);
+  return () => { subscription?.remove(); browserWindow?.removeEventListener('online', online); };
 }
