@@ -1,0 +1,74 @@
+name: Mali optional cloud iOS simulator acceptance
+# Manual-only because hosted macOS usage can consume billed GitHub Actions minutes.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios-simulator:
+    name: Build and launch unsigned iOS simulator app
+    runs-on: macos-26
+    timeout-minutes: 55
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify hosted Xcode requirement (SDK 57 requires Xcode 26.4+)
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+          if [ "$(xcodebuild -version | awk '/^Xcode / {print $2}' | cut -d. -f1)" -lt 26 ]; then
+            echo "Unsupported Xcode toolchain for Expo SDK 57"
+            exit 1
+          fi
+      - run: npm ci --ignore-scripts
+      - name: Generate unsigned native iOS project
+        run: npx expo prebuild --platform ios --no-install
+      - name: Install CocoaPods on hosted macOS
+        run: |
+          cd ios
+          pod install --repo-update
+      - name: Compile iOS Simulator release with embedded JS
+        timeout-minutes: 35
+        run: |
+          WORKSPACE=$(find ios -maxdepth 1 -name '*.xcworkspace' -type d -print -quit)
+          if [ -z "$WORKSPACE" ]; then echo "No iOS workspace generated"; exit 1; fi
+          SCHEME=$(xcodebuild -list -json -workspace "$WORKSPACE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const x=JSON.parse(s).workspace?.schemes || []; const n=x.find(a=>a.toLowerCase().includes('mali')) || x[0]; if(!n)process.exit(1); console.log(n)})")
+          echo "Using iOS workspace $WORKSPACE and scheme $SCHEME"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" \
+            -configuration Release -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/mali-ios-build" \
+            CODE_SIGNING_ALLOWED=NO build
+          APP=$(find "$RUNNER_TEMP/mali-ios-build/Build/Products/Release-iphonesimulator" \
+            -maxdepth 1 -name '*.app' -type d -print -quit)
+          if [ -z "$APP" ]; then echo "iOS simulator binary missing"; exit 1; fi
+          echo "MALI_IOS_APP=$APP" >> "$GITHUB_ENV"
+      - name: Boot actual Apple iOS simulator and smoke test
+        timeout-minutes: 12
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const x=JSON.parse(s);for(const [runtime,devices] of Object.entries(x.devices)){const d=devices.find(z=>z.isAvailable && z.name.includes('iPhone'));if(d){console.log(d.udid);return}}process.exit(1)})")
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" "$MALI_IOS_APP"
+          xcrun simctl launch --terminate-running-process "$DEVICE" com.aybholiday.mali
+          sleep 15
+          mkdir -p ios-acceptance-evidence
+          xcrun simctl io "$DEVICE" screenshot ios-acceptance-evidence/mali-ios.png
+          xcrun simctl spawn "$DEVICE" launchctl list > ios-acceptance-evidence/launchctl.txt
+          echo "PASS iOS Simulator app launch and screenshot"
+      - name: Upload iOS emulator evidence (not a signed store build)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mali-ios-simulator-acceptance
+          if-no-files-found: warn
+          path: |
+            ios-acceptance-evidence/
