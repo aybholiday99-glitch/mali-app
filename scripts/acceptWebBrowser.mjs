@@ -21,6 +21,11 @@ const server = createServer(async (req, res) => {
   try {
     const uri = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     if (uri === '/') { res.writeHead(302, { Location: '/mali-app/' }); res.end(); return; }
+    if (uri === '/mali-app/__storage_probe.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('<!doctype html><html><head><title>Mali browser storage acceptance</title></head><body>Isolated IndexedDB probe</body></html>');
+      return;
+    }
     if (uri === '/mali-app/__storage_probe.mjs') {
       res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' });
       res.end(probe); return;
@@ -158,11 +163,22 @@ try {
     "document.readyState === 'complete' && document.body && document.body.innerText.trim().length > 10"),
   'Mali actual web UI mount');
   console.log('PASS real Chromium renders Mali web app', await evaluate(call, 'document.title'));
+  // Keep the isolated storage acceptance on a stable same-origin page, without
+  // Expo Router redirecting the location during a full-page navigation.
+  await call('Page.navigate', { url: address + '__storage_probe.html' });
+  await until(async () => {
+    try { return await evaluate(call, "document.title === 'Mali browser storage acceptance' && document.readyState === 'complete'"); }
+    catch { return false; }
+  }, 'isolated Chromium storage probe');
   const result = await evaluate(call, '(' + storageProbe.toString() + ')()');
   assert.deepEqual(result.sizes.map(x => x.count), [1000, 10000, 50000]);
   console.log('PASS real Chrome IndexedDB migrated legacy and persisted 1k/10k/50k entries', result.sizes);
-  await call('Page.reload', { ignoreCache: true });
-  await until(() => evaluate(call, "document.readyState === 'complete'"), 'browser full reload');
+  await call('Page.navigate', { url: address + '__storage_probe.html?fullReload=1' });
+  await until(async () => {
+    try { return await evaluate(call,
+      "document.location.search === '?fullReload=1' && document.title === 'Mali browser storage acceptance' && document.readyState === 'complete'"); }
+    catch { return false; }
+  }, 'browser full navigation/reload');
   assert.deepEqual(await evaluate(call, '(' + reloadProbe.toString() + ')()'),
     { count: 50000, legacyPresent: false });
   console.log('PASS all 50000 financial records survive browser reload');
