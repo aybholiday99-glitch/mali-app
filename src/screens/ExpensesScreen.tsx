@@ -3,6 +3,7 @@ import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinanci
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import { financialDate } from '../services/financialDate';
+import { isDebtTransaction } from '../services/financialEngine';
 import React, { useState } from 'react';
 import {
   View,
@@ -124,8 +125,7 @@ export const ExpensesScreen: React.FC = () => {
       (t) =>
         (t.type === 'expense' || t.type === 'cheque_liquidation') &&
         t.currency === 'LYD' &&
-        !t.debtId &&
-        t.category !== 'ديون وأمانات'
+        !isDebtTransaction(t)
     )
     .reduce(
       (s, t) =>
@@ -141,8 +141,7 @@ export const ExpensesScreen: React.FC = () => {
       (t) =>
         (t.type === 'income' || t.type === 'deal_sell') &&
         t.currency === 'LYD' &&
-        !t.debtId &&
-        t.category !== 'ديون وأمانات'
+        !isDebtTransaction(t)
     )
     .reduce((s, t) => s + t.amount, 0);
 

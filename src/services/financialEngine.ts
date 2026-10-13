@@ -7,6 +7,7 @@ import type {
   DealSale,
   DebtInstallment,
   DebtRecord,
+  DebtSettlementType,
   MaliState,
   MarketRates,
   PaymentMethodType,
@@ -157,6 +158,92 @@ function applyAccountDeltas(
     return { ...account, balance, updatedAt: now };
   });
   return valid ? accounts : null;
+}
+
+export interface DisbursementCheck {
+  allowed: boolean;
+  available: number;
+  deficit: number;
+}
+
+/**
+ * فحص إمكانية الصرف من الحساب ومنع السحب على المكشوف غير المصرح به (إصلاح DEBT-ACC-02)
+ * الكاش النقدي يستحيل سحبه على المكشوف في جميع الأحوال.
+ * الحسابات المصرفية يمكن سحبها على المكشوف فقط إذا كانت allowOverdraft = true مع مراعاة overdraftLimit.
+ */
+export function canDisburseFromAccount(
+  account: Account | null | undefined,
+  amount: number
+): DisbursementCheck {
+  if (!account || !validMoney(amount) || amount <= 0) {
+    return { allowed: false, available: 0, deficit: roundMoney(amount || 0) };
+  }
+  const cleanAmount = roundMoney(amount);
+  const currentBalance = roundMoney(account.balance);
+
+  // الكاش النقدي الفعلي لا يمكن أن يكون سالباً أبداً
+  if (account.isCash) {
+    const available = Math.max(0, currentBalance);
+    const deficit = cleanAmount > currentBalance ? roundMoney(cleanAmount - currentBalance) : 0;
+    return {
+      allowed: currentBalance >= cleanAmount,
+      available,
+      deficit,
+    };
+  }
+
+  // حساب غير نقدي مصرح له بالسحب على المكشوف
+  if (account.allowOverdraft) {
+    const limit =
+      account.overdraftLimit !== undefined && account.overdraftLimit > 0
+        ? roundMoney(account.overdraftLimit)
+        : undefined;
+    if (limit !== undefined) {
+      const maxAvailable = roundMoney(currentBalance + limit);
+      const deficit = cleanAmount > maxAvailable ? roundMoney(cleanAmount - maxAvailable) : 0;
+      return {
+        allowed: maxAvailable >= cleanAmount,
+        available: Math.max(0, maxAvailable),
+        deficit,
+      };
+    }
+    // سحب على المكشوف مفتوح ومصرح به
+    return {
+      allowed: true,
+      available: Math.max(0, currentBalance),
+      deficit: 0,
+    };
+  }
+
+  // حساب غير نقدي بدون تصريح سحب على المكشوف
+  const available = Math.max(0, currentBalance);
+  const deficit = cleanAmount > currentBalance ? roundMoney(cleanAmount - currentBalance) : 0;
+  return {
+    allowed: currentBalance >= cleanAmount,
+    available,
+    deficit,
+  };
+}
+
+/**
+ * الفصل الهيكلي لحركات رأس المال والديون عن الإيرادات والمصروفات التشغيلية (إصلاح DEBT-ACC-03)
+ */
+export function isDebtTransaction(tx: Partial<Transaction> | null | undefined): boolean {
+  if (!tx) return false;
+  if (tx.debtId || tx.installmentId) return true;
+  if (tx.type === 'debt_settlement') return true;
+  const cat = tx.category?.trim();
+  if (
+    cat === 'ديون وأمانات' ||
+    cat === 'تحصيل ديون' ||
+    cat === 'سداد التزامات' ||
+    cat === 'ديون' ||
+    cat === 'سداد دين' ||
+    cat === 'تحصيل دين'
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function calculateUsdDealCostBasis(deal: UsdDeal, usdAmount: number): number {
@@ -917,6 +1004,10 @@ export function addDebtRecordMutation(
   if (params.id && state.debts.some((d) => d.id === params.id)) return state;
   const account = params.accountId ? state.accounts.find((a) => a.id === params.accountId) : undefined;
   if (params.accountId && (!account || account.currency !== params.currency)) return state;
+  if (params.accountId && account && params.direction === 'receivable') {
+    const disburse = canDisburseFromAccount(account, cleanAmount);
+    if (!disburse.allowed) return state;
+  }
 
   const debtId = params.id || generateId('debt');
   const now = new Date().toISOString();
@@ -992,7 +1083,10 @@ export function settleDebtInstallmentMutation(
     debtId: string;
     amount: number;
     accountId?: string;
-    paymentMethod: PaymentMethodType;
+    paymentMethod?: PaymentMethodType;
+    settlementType?: DebtSettlementType;
+    isNonCash?: boolean;
+    nonCashReason?: string;
     notes?: string;
     date?: string;
   }
@@ -1014,24 +1108,45 @@ export function settleDebtInstallmentMutation(
   if (params.installmentId && state.debts.some((d) =>
     d.installments.some((i) => i.id === params.installmentId))) return state;
 
-  const targetAcc = params.accountId ? state.accounts.find((a) => a.id === params.accountId) : undefined;
-  if (params.accountId && (!targetAcc || targetAcc.currency !== debt.currency)) return state;
-
   if (reqAmount > debt.remainingAmount) return state;
   const effectiveAmount = reqAmount;
   if (effectiveAmount <= 0) return state;
 
+  const isNonCash = params.settlementType === 'non_cash' || params.isNonCash === true;
+  let nonCashReason: string | undefined = undefined;
+  let targetAcc: Account | undefined = undefined;
+
+  if (isNonCash) {
+    // التسوية غير النقدية تتطلب سبباً صريحاً، ولا تؤثر على أي خزينة (إصلاح DEBT-ACC-01)
+    nonCashReason = (params.nonCashReason || params.notes || '').trim();
+    if (!nonCashReason) return state;
+  } else {
+    // القسط النقدي يتطلب إلزامياً تحديد خزينة بنفس العملة ولا يصح افتراض التسوية تلقائياً
+    if (!params.accountId) return state;
+    targetAcc = state.accounts.find((a) => a.id === params.accountId);
+    if (!targetAcc || targetAcc.currency !== debt.currency) return state;
+
+    // عند سداد التزام (payable) يخرج مال من الخزينة، فيجب التحقق من كفاية الرصيد أو السحب على المكشوف المصرح به
+    if (debt.direction === 'payable') {
+      const disburse = canDisburseFromAccount(targetAcc, effectiveAmount);
+      if (!disburse.allowed) return state;
+    }
+  }
+
   const now = new Date().toISOString();
   const instId = params.installmentId || generateId('inst');
-  const txId = params.accountId ? generateId('tx-dsettle') : undefined;
+  const txId = (!isNonCash && params.accountId) ? generateId('tx-dsettle') : undefined;
 
   const installment: DebtInstallment = {
     id: instId,
     idempotencyKey: params.idempotencyKey,
     amount: effectiveAmount,
     date: params.date || now,
-    accountId: params.accountId,
-    paymentMethod: params.paymentMethod,
+    accountId: isNonCash ? undefined : params.accountId,
+    paymentMethod: isNonCash ? 'cash' : (params.paymentMethod || (targetAcc?.isCash ? 'cash' : 'transfer')),
+    settlementType: isNonCash ? 'non_cash' : 'cash',
+    isNonCash: isNonCash || false,
+    nonCashReason,
     transactionId: txId,
     notes: params.notes,
   };
@@ -1050,6 +1165,13 @@ export function settleDebtInstallmentMutation(
     updatedAt: now,
   };
 
+  if (isNonCash) {
+    return touchState({
+      ...state,
+      debts: state.debts.map((d) => (d.id === debt.id ? updatedDebt : d)),
+    });
+  }
+
   const isMoneyIn = debt.direction === 'receivable';
   const tx: Transaction = {
     id: txId || '',
@@ -1061,8 +1183,8 @@ export function settleDebtInstallmentMutation(
     amount: effectiveAmount,
     currency: debt.currency,
     category: isMoneyIn ? 'تحصيل ديون' : 'سداد التزامات',
-    accountId: params.accountId || '',
-    paymentMethod: params.paymentMethod,
+    accountId: params.accountId!,
+    paymentMethod: params.paymentMethod || (targetAcc?.isCash ? 'cash' : 'transfer'),
     debtId: debt.id,
     installmentId: instId,
     contactId: debt.contactId,
@@ -1071,16 +1193,88 @@ export function settleDebtInstallmentMutation(
     notes: params.notes,
   };
 
-  const updatedAccounts = params.accountId ? applyAccountDeltas(state, [
-    [params.accountId, isMoneyIn ? effectiveAmount : -effectiveAmount],
-  ], now) : state.accounts;
+  const updatedAccounts = applyAccountDeltas(state, [
+    [params.accountId!, isMoneyIn ? effectiveAmount : -effectiveAmount],
+  ], now);
   if (!updatedAccounts) return state;
 
   return touchState({
     ...state,
     accounts: updatedAccounts,
     debts: state.debts.map((d) => (d.id === debt.id ? updatedDebt : d)),
-    transactions: params.accountId ? [tx, ...state.transactions] : state.transactions,
+    transactions: [tx, ...state.transactions],
+  });
+}
+
+/**
+ * حذف قسط دين ذرياً وعكس الأثر المالي على الخزينة المرتبطة إن وجد (إصلاح DEBT-ACC-01)
+ */
+export function deleteDebtInstallmentMutation(
+  state: MaliState,
+  debtId: string,
+  installmentId: string
+): MaliState {
+  const debt = state.debts.find((d) => d.id === debtId);
+  if (!debt) return state;
+
+  const installment = debt.installments.find((i) => i.id === installmentId);
+  if (!installment) return state;
+
+  const instAmount = installment.amount;
+  if (!validMoney(instAmount) || instAmount <= 0) return state;
+
+  const remainingInstallments = debt.installments.filter((i) => i.id !== installmentId);
+  const newPaid = moneySum(...remainingInstallments.map((i) => i.amount));
+  const newRemaining = moneySum(debt.totalAmount, -newPaid);
+  if (!validMoney(newPaid) || !validMoney(newRemaining) || newRemaining < 0) return state;
+
+  const now = new Date().toISOString();
+  const newStatus: DebtRecord['status'] = newRemaining <= 0.005 ? 'completed' : 'active';
+
+  const updatedDebt: DebtRecord = {
+    ...debt,
+    paidAmount: Math.max(0, newPaid),
+    remainingAmount: Math.min(debt.totalAmount, newRemaining),
+    status: newStatus,
+    installments: remainingInstallments,
+    updatedAt: now,
+  };
+
+  // إذا كان قسط تسوية غير نقدية، لا توجد خزينة أو معاملة لعكسها
+  if (installment.isNonCash || installment.settlementType === 'non_cash') {
+    return touchState({
+      ...state,
+      debts: state.debts.map((d) => (d.id === debt.id ? updatedDebt : d)),
+    });
+  }
+
+  // قسط نقدي: البحث عن المعاملة وعكس حركة الرصيد
+  const isMoneyIn = debt.direction === 'receivable';
+  const delta = isMoneyIn ? -instAmount : instAmount;
+
+  const linkedTx = state.transactions.find((tx) =>
+    (installment.transactionId && tx.id === installment.transactionId) ||
+    tx.installmentId === installmentId
+  );
+
+  const targetAccountId = installment.accountId || linkedTx?.accountId;
+  let updatedAccounts = state.accounts;
+
+  if (targetAccountId) {
+    const accounts = applyAccountDeltas(state, [[targetAccountId, delta]], now);
+    if (!accounts) return state;
+    updatedAccounts = accounts;
+  }
+
+  const updatedTransactions = linkedTx
+    ? state.transactions.filter((tx) => tx.id !== linkedTx.id)
+    : state.transactions;
+
+  return touchState({
+    ...state,
+    accounts: updatedAccounts,
+    debts: state.debts.map((d) => (d.id === debt.id ? updatedDebt : d)),
+    transactions: updatedTransactions,
   });
 }
 
@@ -1114,6 +1308,7 @@ export function deleteDebtMutation(state: MaliState, debtId: string): MaliState 
     changes.push([debt.accountId, debt.direction === 'receivable' ? debt.totalAmount : -debt.totalAmount]);
   }
   for (const installment of debt.installments) {
+    if (installment.isNonCash || installment.settlementType === 'non_cash') continue;
     if (installment.transactionId) {
       if (!linked.some((tx) => tx.id === installment.transactionId)) return state;
     } else if (installment.accountId && !linked.some((tx) => tx.installmentId === installment.id)) {
@@ -1292,7 +1487,7 @@ export function reconcileDashboardSummary(
 
   for (const tx of state.transactions) {
     if (!tx.date || !tx.date.startsWith(currentMonthPrefix)) continue;
-    if (tx.type === 'expense' && tx.currency === 'LYD' && !tx.debtId && tx.category !== 'ديون وأمانات') {
+    if (tx.type === 'expense' && tx.currency === 'LYD' && !isDebtTransaction(tx)) {
       currentMonthExpensesLyd = summarySum(currentMonthExpensesLyd, tx.amount);
     }
     if (tx.type === 'cheque_liquidation' && tx.feeAmount) {

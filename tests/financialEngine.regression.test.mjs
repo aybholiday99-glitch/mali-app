@@ -225,14 +225,28 @@ test('independent cent oracle validates 80 quantity/rate/commission combinations
   }
 });
 
-test('no-account settlement uses the same idempotency contract without cash movement', () => {
+test('no-account non-cash settlement uses the same idempotency contract without cash movement', () => {
   const before = debt();
-  const input = { debtId: 'debt', amount: 100, paymentMethod: 'cash', idempotencyKey: 'same-submit' };
+  const input = {
+    debtId: 'debt',
+    amount: 100,
+    settlementType: 'non_cash',
+    isNonCash: true,
+    nonCashReason: 'مقاصة ديون',
+    idempotencyKey: 'same-submit',
+  };
   const paid = engine.settleDebtInstallmentMutation(before, input);
   assert.equal(paid.debts[0].paidAmount, 100);
   assert.equal(engine.settleDebtInstallmentMutation(paid, input), paid);
   assert.deepEqual(paid.accounts, before.accounts);
   assert.deepEqual(paid.transactions, before.transactions);
+});
+
+test('cash settlement without treasury account is strictly rejected', () => {
+  const before = debt();
+  const input = { debtId: 'debt', amount: 100, paymentMethod: 'cash', idempotencyKey: 'no-acc-submit' };
+  const rejected = engine.settleDebtInstallmentMutation(before, input);
+  assert.equal(rejected, before);
 });
 
 test('cash outflows and fees cannot overdraw the account', () => {

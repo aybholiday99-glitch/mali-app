@@ -57,14 +57,18 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   - TypeScript typecheck: 0 errors.
   - Implemented Debt & Treasury Accounting Integration (الربط المحاسبي الكامل بين الديون والخزائن):
     - Direction-aware initial debt issuance/receipt (receivable loans deduct cash, payable debts deposit cash/bank).
-    - Excluded debt capital movements from operating expenses and income filters in P&L (`ExpensesScreen.tsx`).
+    - Enforced overdraft prevention on disbursements (`canDisburseFromAccount`): physical cash accounts can never overdraft; bank accounts require explicit `allowOverdraft` and respect `overdraftLimit`.
+    - Mandatory treasury selection on all cash debt installments, disallowing cash settlements without an account.
+    - Independent `settlementType: 'non_cash'` mode with mandatory reason (`مقاصة ديون`, `تنازل / إبراء ذمة`, `تسوية عينية`, etc.) without impacting treasury balances.
+    - Missing matching currency treasury alert card and guidance in UI.
+    - Real-time deficit breakdown alert card (Available, Required, Deficit) on lending disbursements and debt settlements.
+    - Excluded debt capital movements from operating expenses and income filters in P&L (`isDebtTransaction(tx)` in `DashboardScreen.tsx` and `ExpensesScreen.tsx`).
     - Enforced boundary check: installment amount cannot exceed remaining debt.
-    - Direction-aware installment collection/payment prompts with multi-treasury repayments and balance displays.
-    - Insufficient cash warnings and overpayment alerts in ProceduresDebtsScreen.
+    - Atomic individual installment deletion (`deleteDebtInstallmentMutation`) restoring remaining debt balance and reversing transactions.
     - Visual treasury badges in debt card headers and exact treasury name on each installment row.
     - Preserved opening balance mode («تسجيل رصيد دين سابق بدون حركة نقدية في الخزينة»).
-    - Created comprehensive integration test suite `tests/debtTreasuryIntegration.test.mjs` (9/9 pass).
-  - All tests passing: npm test **584/584 PASS** (0 failures across all 54 test files).
+    - Comprehensive integration test suite `tests/debtTreasuryIntegration.test.mjs` (15/15 pass).
+  - All tests passing: npm test **592/592 PASS** (0 failures across all 54 test files).
   - PostgreSQL 17.11 real instance: 16 RLS + 67 validator + 17 audit checks = **100/100 PASS**,
     plus independent dump & restore rehearsal (10 tables, ACLs, RLS, CAS, 21 originals + 21 archives) PASS.
   - Web production bundle export (npm run build:web) verified: PASS.

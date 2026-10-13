@@ -9,6 +9,7 @@ import {
   subtractRates,
   reconcileDashboardSummary,
   roundMoney,
+  isDebtTransaction,
 } from '../services/financialEngine';
 import React, { useState } from 'react';
 import {
@@ -106,7 +107,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
   const totalExpensesLyd = state.transactions
     .filter(
       (t) =>
-        (t.type === 'expense' && t.category !== 'ديون وأمانات' && t.currency === 'LYD') ||
+        (t.type === 'expense' && !isDebtTransaction(t) && t.currency === 'LYD') ||
         (t.type === 'cheque_liquidation' && t.currency === 'LYD')
     )
     .reduce(

@@ -6,6 +6,7 @@ import {
   ContactPerson,
   ContactRole,
   Currency,
+  DebtSettlementType,
   FinancialProcedure,
   MaliState,
   MarketRates,
@@ -44,6 +45,7 @@ import {
   deleteAccountMutation,
   deleteContactMutation,
   deleteDebtMutation,
+  deleteDebtInstallmentMutation,
   deleteTransactionMutation,
   deleteUsdDealMutation,
   liquidateChequeToCashMutation,
@@ -163,7 +165,10 @@ export interface AddDebtInstallmentInput {
   debtId: string;
   amount: number;
   accountId?: string;
-  paymentMethod: PaymentMethodType;
+  paymentMethod?: PaymentMethodType;
+  settlementType?: DebtSettlementType;
+  isNonCash?: boolean;
+  nonCashReason?: string;
   notes?: string;
   idempotencyKey?: string;
 }
@@ -222,6 +227,7 @@ interface MaliContextValue {
   updateCategoryBudget: (category: string, monthlyLimitLyd: number) => Promise<boolean>;
   addDebt: (input: AddDebtInput) => Promise<boolean>;
   addDebtInstallment: (input: AddDebtInstallmentInput) => Promise<boolean>;
+  deleteDebtInstallment: (debtId: string, installmentId: string) => Promise<boolean>;
   deleteDebt: (debtId: string) => Promise<boolean>;
   addProcedure: (input: AddProcedureInput) => Promise<boolean>;
   toggleProcedureStage: (procedureId: string, stageId: string) => Promise<boolean>;
@@ -899,16 +905,31 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
     input = snapshot.value;
     return persistState((prev) => {
-      return settleDebtInstallmentMutation(prev, {
+      const candidate = settleDebtInstallmentMutation(prev, {
         idempotencyKey: input.idempotencyKey,
         debtId: input.debtId,
         amount: input.amount,
         accountId: input.accountId,
-        paymentMethod: input.paymentMethod,
+        paymentMethod: input.paymentMethod || 'cash',
+        settlementType: input.settlementType,
+        isNonCash: input.isNonCash,
+        nonCashReason: input.nonCashReason,
         notes: input.notes,
         date: todayStr(),
       });
+      return candidate === prev ? prev : candidate;
     }, undefined, 'debt:installment:' + snapshot.fingerprint);
+  };
+
+  const deleteDebtInstallment = (debtId: string, installmentId: string) => {
+    return persistState(
+      (prev) => {
+        const candidate = deleteDebtInstallmentMutation(prev, debtId, installmentId);
+        return candidate === prev ? prev : candidate;
+      },
+      { action: 'installment_reversal', reason: 'عكس قسط الدين ' + installmentId },
+      'debt:installment:delete:' + debtId + ':' + installmentId
+    );
   };
 
   const deleteDebt = (debtId: string) => {
@@ -1462,6 +1483,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         updateCategoryBudget,
         addDebt,
         addDebtInstallment,
+        deleteDebtInstallment,
         deleteDebt,
         addProcedure,
         toggleProcedureStage,

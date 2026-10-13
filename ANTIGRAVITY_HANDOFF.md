@@ -16,10 +16,10 @@ Antigravity has taken over as Lead Engineer following the Codex session to compl
 Furthermore, the **Full Debt & Treasury Accounting Integration (الربط المحاسبي الكامل بين الديون والخزائن)** has been designed, implemented, and verified across the core financial engine, context, procedures/debts screen, and test suite.
 
 All code quality and test suites are 100% passing:
-- **Test Suite:** **584 / 584 PASS** (0 failures, 0 skipped, 0 flakiness across all 54 test files).
+- **Test Suite:** **592 / 592 PASS** (0 failures, 0 skipped, 0 flakiness across all 54 test files).
 - **TypeScript:** **0 errors** (`tsc --noEmit`).
 - **ESLint:** **0 errors, 0 warnings** (flat config clean).
-- **Debt & Treasury Integration Suite:** **9 / 9 PASS** in `tests/debtTreasuryIntegration.test.mjs`.
+- **Debt & Treasury Integration Suite:** **15 / 15 PASS** in `tests/debtTreasuryIntegration.test.mjs`.
 - **PostgreSQL 17.11 (Real instance):** **100 / 100 PASS** (16 RLS policies, 67 nested validators, 17 immutable audit checks) + full dump and restore rehearsal PASS.
 - **Dependency Gate:** Local security backports and consumer suites PASS 6/6.
 - **Web Export:** `npm run build:web` exported clean candidate to `dist/`.
@@ -44,11 +44,21 @@ All code quality and test suites are 100% passing:
   - Expanded capacity bounds for 50,000-record vaults/backups (48 MiB / 100,000 changes in audit, 96 MiB in chunks).
   - Cleaned all 13 ESLint warnings across screens, context, and test files.
   - `tests/webFinancialStorageBackend.test.mjs`: Comprehensive multi-tier test suite for 1,000, 10,000, and 50,000 records, interrupted migrations, and multi-user isolation.
-  - **Debt & Treasury Integration**:
-    - [src/services/financialEngine.ts](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/services/financialEngine.ts): Added installment remaining amount boundary guard (`if (reqAmount > debt.remainingAmount) return state;`), preserving atomic rollback on deletion.
-    - [src/screens/ExpensesScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/ExpensesScreen.tsx): P&L operating expense/income filters updated to exclude debt capital movements (`!t.debtId && t.category !== 'ديون وأمانات'`).
-    - [src/screens/ProceduresDebtsScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/ProceduresDebtsScreen.tsx): Implemented direction-aware treasury selectors, live balance displays, insufficient balance warnings, opening balance toggle («تسجيل رصيد دين سابق بدون حركة نقدية»), installment treasury badges, and debt card origin badges.
-    - `tests/debtTreasuryIntegration.test.mjs`: Complete 8-stage lifecycle integration test suite covering lending deduction, borrowing deposit, multi-treasury installments, completion, rejection of overpayments, opening balances, and atomic reversal.
+  - **Debt & Treasury Accounting & Governance Repair**:
+    - [src/types/mali.ts](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/types/mali.ts): Added `allowOverdraft?: boolean`, `overdraftLimit?: number` to `Account`; added `DebtSettlementType` (`'cash' | 'non_cash'`), `isNonCash?: boolean`, `nonCashReason?: string` to `DebtInstallment`.
+    - [src/services/financialEngine.ts](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/services/financialEngine.ts):
+      - Enforced `canDisburseFromAccount` preventing negative cash balances on physical cash accounts and strictly enforcing overdraft limits on bank accounts.
+      - Enforced mandatory matching treasury on cash debt installments, disallowing cash settlements without an account.
+      - Introduced explicit `non_cash` settlement type requiring a clear settlement reason (`مقاصة ديون`, `تنازل / إبراء ذمة`, `تسوية عينية`, etc.) without moving treasury funds.
+      - Implemented atomic `deleteDebtInstallmentMutation` restoring remaining balance and reversing transaction / cash movement.
+      - Implemented and exported `isDebtTransaction(tx)` isolating debt capital disbursements/repayments from P&L operating income and expenses.
+    - [src/screens/DashboardScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/DashboardScreen.tsx) & [src/screens/ExpensesScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/ExpensesScreen.tsx): Excluded debt transactions from operating expense/income calculations.
+    - [src/screens/ProceduresDebtsScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/ProceduresDebtsScreen.tsx):
+      - Real-time deficit breakdown alert card (Available, Required, Deficit) on lending disbursements and debt settlements.
+      - Installment settlement type selector (`حركة نقدية (خزينة)` vs `تسوية غير نقدية (مقاصة)`).
+      - Missing matching currency treasury alert prompt.
+      - Non-cash badge and individual installment deletion button with confirmation modal.
+    - `tests/debtTreasuryIntegration.test.mjs`: Expanded to 15 comprehensive tests covering all edge cases, validations, overdraft blocking, non-cash settlements, P&L isolation, and atomic reversals.
 
 ---
 
@@ -66,8 +76,8 @@ The following local untracked files have been strictly preserved and excluded fr
 
 | Verification Check | Target / Environment | Command / Suite | Result |
 |---|---|---|---|
-| Unit & Integration Tests | Node.js 24 | `npm test` | **584 / 584 PASS** (0 failures) |
-| Debt & Treasury Accounting Suite | Node.js 24 | `node --test tests/debtTreasuryIntegration.test.mjs` | **9 / 9 PASS** |
+| Unit & Integration Tests | Node.js 24 | `npm test` | **592 / 592 PASS** (0 failures) |
+| Debt & Treasury Accounting Suite | Node.js 24 | `node --test tests/debtTreasuryIntegration.test.mjs` | **15 / 15 PASS** |
 | TypeScript Types | TypeScript 5.3 | `npm run typecheck` | **0 errors** |
 | Code Quality / Linter | ESLint Flat Config | `npm run lint` | **0 errors, 0 warnings** |
 | Real PostgreSQL 17.11 RLS | Loopback 127.0.0.1:55432 | `node --test tests/database.test.mjs` | **16 / 16 PASS** |

@@ -5,8 +5,12 @@ import {
   createAccountMutation,
   deleteAccountMutation,
   deleteDebtMutation,
+  deleteDebtInstallmentMutation,
   deleteTransactionMutation,
   settleDebtInstallmentMutation,
+  canDisburseFromAccount,
+  isDebtTransaction,
+  reconcileDashboardSummary,
 } from '../src/services/financialEngine.ts';
 
 function createInitialState() {
@@ -383,5 +387,273 @@ test('Debt & Treasury Integration — Full Accounting Flow & Lifecycle', async (
     const afterState = deleteAccountMutation(state, 'acc-cash-lyd');
     assert.strictEqual(afterState, beforeState);
     assert.ok(afterState.accounts.some((a) => a.id === 'acc-cash-lyd'));
+  });
+
+  await t.test('9. Prevent unauthorized negative balances: Lending blocked when treasury has insufficient funds', () => {
+    let state = createInitialState();
+    // Cash balance is 10,000 LYD
+    const cashAcc = state.accounts.find((a) => a.id === 'acc-cash-lyd');
+    assert.equal(cashAcc.balance, 10000);
+
+    // Attempt to lend 15,000 LYD from Cash Treasury (exceeds balance)
+    const before = state;
+    const result = addDebtRecordMutation(state, {
+      id: 'debt-rec-overdraw',
+      personName: 'شخص مقترض',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 15000,
+      accountId: 'acc-cash-lyd',
+    });
+
+    // Must be completely rejected without modifying state
+    assert.strictEqual(result, before);
+    assert.equal(state.debts.some((d) => d.id === 'debt-rec-overdraw'), false);
+    assert.equal(state.accounts.find((a) => a.id === 'acc-cash-lyd').balance, 10000);
+
+    // canDisburseFromAccount report check
+    const check = canDisburseFromAccount(cashAcc, 15000);
+    assert.equal(check.allowed, false);
+    assert.equal(check.available, 10000);
+    assert.equal(check.deficit, 5000);
+  });
+
+  await t.test('10. Authorized Overdraft: Bank accounts with allowOverdraft permitted up to overdraftLimit', () => {
+    let state = createInitialState();
+    // Bank balance is 5,000 LYD. Enable overdraft with 3,000 LYD limit
+    state = {
+      ...state,
+      accounts: state.accounts.map((a) =>
+        a.id === 'acc-bank-lyd'
+          ? { ...a, allowOverdraft: true, overdraftLimit: 3000 }
+          : a
+      ),
+    };
+
+    const bankAcc = state.accounts.find((a) => a.id === 'acc-bank-lyd');
+    // Max available is 5,000 + 3,000 = 8,000
+    const checkAllowed = canDisburseFromAccount(bankAcc, 7500);
+    assert.equal(checkAllowed.allowed, true);
+    assert.equal(checkAllowed.available, 8000);
+    assert.equal(checkAllowed.deficit, 0);
+
+    // Exceeding limit (8,500) must be rejected
+    const checkExceeded = canDisburseFromAccount(bankAcc, 8500);
+    assert.equal(checkExceeded.allowed, false);
+    assert.equal(checkExceeded.deficit, 500);
+
+    // Lending 7,500 from bank with authorized overdraft succeeds
+    const lent = addDebtRecordMutation(state, {
+      id: 'debt-rec-overdraft-ok',
+      personName: 'مقترض بنكي',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 7500,
+      accountId: 'acc-bank-lyd',
+    });
+    assert.notStrictEqual(lent, state);
+    assert.equal(lent.accounts.find((a) => a.id === 'acc-bank-lyd').balance, -2500);
+
+    // Physical cash can NEVER overdraft even if flag was set
+    const cashAcc = { ...state.accounts.find((a) => a.id === 'acc-cash-lyd'), allowOverdraft: true, overdraftLimit: 5000 };
+    const cashCheck = canDisburseFromAccount(cashAcc, 12000);
+    assert.equal(cashCheck.allowed, false);
+    assert.equal(cashCheck.deficit, 2000);
+  });
+
+  await t.test('11. Prevent unauthorized negative balances on debt repayment (payable installment)', () => {
+    let state = createInitialState();
+    // Bank balance: 5,000 LYD
+    // Create a payable debt of 8,000 LYD (opening balance mode)
+    state = addDebtRecordMutation(state, {
+      id: 'debt-payable-big',
+      personName: 'دائن كبير',
+      direction: 'payable',
+      currency: 'LYD',
+      totalAmount: 8000,
+    });
+
+    // Attempt to pay 6,000 LYD installment from Bank (balance only 5,000, no overdraft)
+    const before = state;
+    const result = settleDebtInstallmentMutation(state, {
+      installmentId: 'inst-overdraw',
+      debtId: 'debt-payable-big',
+      amount: 6000,
+      accountId: 'acc-bank-lyd',
+      paymentMethod: 'transfer',
+    });
+    // Must be rejected
+    assert.strictEqual(result, before);
+    assert.equal(state.accounts.find((a) => a.id === 'acc-bank-lyd').balance, 5000);
+  });
+
+  await t.test('12. Non-cash settlement (مقاصة / تنازل / عينية) updates debt without touching treasuries or transactions', () => {
+    let state = createInitialState();
+    const initialCash = state.accounts.find((a) => a.id === 'acc-cash-lyd').balance;
+    const initialBank = state.accounts.find((a) => a.id === 'acc-bank-lyd').balance;
+    const initialTxCount = state.transactions.length;
+
+    // Create debt of 5,000 LYD
+    state = addDebtRecordMutation(state, {
+      id: 'debt-non-cash',
+      personName: 'تاجر شريك',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 5000,
+    });
+
+    // Record non-cash settlement (مقاصة ديون) of 2,000 LYD
+    state = settleDebtInstallmentMutation(state, {
+      installmentId: 'inst-non-cash-1',
+      debtId: 'debt-non-cash',
+      amount: 2000,
+      settlementType: 'non_cash',
+      isNonCash: true,
+      nonCashReason: 'مقاصة مقابل فاتورة بضاعة رقم 104',
+    });
+
+    // Check debt is updated
+    const debt = state.debts.find((d) => d.id === 'debt-non-cash');
+    assert.equal(debt.paidAmount, 2000);
+    assert.equal(debt.remainingAmount, 3000);
+    assert.equal(debt.status, 'active');
+    assert.equal(debt.installments.length, 1);
+    assert.equal(debt.installments[0].isNonCash, true);
+    assert.equal(debt.installments[0].nonCashReason, 'مقاصة مقابل فاتورة بضاعة رقم 104');
+    assert.equal(debt.installments[0].accountId, undefined);
+    assert.equal(debt.installments[0].transactionId, undefined);
+
+    // Treasuries and transactions MUST NOT be affected at all
+    assert.equal(state.accounts.find((a) => a.id === 'acc-cash-lyd').balance, initialCash);
+    assert.equal(state.accounts.find((a) => a.id === 'acc-bank-lyd').balance, initialBank);
+    assert.equal(state.transactions.length, initialTxCount);
+  });
+
+  await t.test('13. Strict rejection: Cash installment without account or non-cash without reason', () => {
+    let state = createInitialState();
+    state = addDebtRecordMutation(state, {
+      id: 'debt-validate',
+      personName: 'عميل اختبار',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 1000,
+    });
+
+    // Cash settlement without account MUST be rejected (never silently default to non-cash)
+    const rejectNoAcc = settleDebtInstallmentMutation(state, {
+      debtId: 'debt-validate',
+      amount: 200,
+      paymentMethod: 'cash',
+    });
+    assert.strictEqual(rejectNoAcc, state);
+
+    // Non-cash settlement without reason MUST be rejected
+    const rejectNoReason = settleDebtInstallmentMutation(state, {
+      debtId: 'debt-validate',
+      amount: 200,
+      settlementType: 'non_cash',
+      isNonCash: true,
+      nonCashReason: '   ',
+    });
+    assert.strictEqual(rejectNoReason, state);
+  });
+
+  await t.test('14. Structural Isolation from P&L: Debt capital movements excluded from operating expenses and revenue', () => {
+    let state = createInitialState();
+    const beforeSummary = reconcileDashboardSummary(state);
+
+    // Lend 1,000 LYD to Muhammad (receivable creation)
+    state = addDebtRecordMutation(state, {
+      id: 'debt-rec-iso',
+      personName: 'محمد',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 1000,
+      accountId: 'acc-cash-lyd',
+    });
+
+    // Borrow 2,000 LYD from Salem (payable creation)
+    state = addDebtRecordMutation(state, {
+      id: 'debt-pay-iso',
+      personName: 'سالم',
+      direction: 'payable',
+      currency: 'LYD',
+      totalAmount: 2000,
+      accountId: 'acc-cash-lyd',
+    });
+
+    // Settle 500 LYD installment
+    state = settleDebtInstallmentMutation(state, {
+      debtId: 'debt-rec-iso',
+      amount: 500,
+      accountId: 'acc-cash-lyd',
+      paymentMethod: 'cash',
+    });
+
+    // All linked transactions MUST test true for isDebtTransaction
+    const debtTxs = state.transactions.filter((tx) => tx.debtId);
+    assert.ok(debtTxs.length >= 3);
+    for (const tx of debtTxs) {
+      assert.equal(isDebtTransaction(tx), true);
+    }
+
+    // Monthly operating expenses in reconcileDashboardSummary MUST be exactly 0 (debt movements are balance sheet only)
+    const afterSummary = reconcileDashboardSummary(state);
+    assert.equal(afterSummary.currentMonthExpensesLyd, beforeSummary.currentMonthExpensesLyd);
+    assert.equal(afterSummary.currentMonthExpensesLyd, 0);
+  });
+
+  await t.test('15. deleteDebtInstallmentMutation atomically reverses both cash and non-cash installments', () => {
+    let state = createInitialState();
+    // 1. Setup debt of 4,000 LYD
+    state = addDebtRecordMutation(state, {
+      id: 'debt-del-inst',
+      personName: 'عميل أقساط',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 4000,
+      accountId: 'acc-cash-lyd',
+    });
+    assert.equal(state.accounts.find((a) => a.id === 'acc-cash-lyd').balance, 6000);
+
+    // 2. Add cash installment of 1,000 into Bank (bank becomes 6,000)
+    state = settleDebtInstallmentMutation(state, {
+      installmentId: 'inst-cash-del',
+      debtId: 'debt-del-inst',
+      amount: 1000,
+      accountId: 'acc-bank-lyd',
+      paymentMethod: 'transfer',
+    });
+    assert.equal(state.accounts.find((a) => a.id === 'acc-bank-lyd').balance, 6000);
+    assert.equal(state.debts.find((d) => d.id === 'debt-del-inst').paidAmount, 1000);
+
+    // 3. Add non-cash installment of 500 (bank stays 6,000)
+    state = settleDebtInstallmentMutation(state, {
+      installmentId: 'inst-nc-del',
+      debtId: 'debt-del-inst',
+      amount: 500,
+      settlementType: 'non_cash',
+      isNonCash: true,
+      nonCashReason: 'مقاصة',
+    });
+    assert.equal(state.accounts.find((a) => a.id === 'acc-bank-lyd').balance, 6000);
+    assert.equal(state.debts.find((d) => d.id === 'debt-del-inst').paidAmount, 1500);
+
+    // 4. Delete non-cash installment directly
+    state = deleteDebtInstallmentMutation(state, 'debt-del-inst', 'inst-nc-del');
+    const afterNcDel = state.debts.find((d) => d.id === 'debt-del-inst');
+    assert.equal(afterNcDel.paidAmount, 1000);
+    assert.equal(afterNcDel.remainingAmount, 3000);
+    assert.equal(state.accounts.find((a) => a.id === 'acc-bank-lyd').balance, 6000);
+
+    // 5. Delete cash installment directly
+    state = deleteDebtInstallmentMutation(state, 'debt-del-inst', 'inst-cash-del');
+    const afterCashDel = state.debts.find((d) => d.id === 'debt-del-inst');
+    assert.equal(afterCashDel.paidAmount, 0);
+    assert.equal(afterCashDel.remainingAmount, 4000);
+    // Bank must reverse by -1,000 back to 5,000
+    assert.equal(state.accounts.find((a) => a.id === 'acc-bank-lyd').balance, 5000);
+    // Linked transaction must be removed
+    assert.equal(state.transactions.some((tx) => tx.installmentId === 'inst-cash-del'), false);
   });
 });

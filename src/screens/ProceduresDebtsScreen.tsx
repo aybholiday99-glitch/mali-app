@@ -17,9 +17,11 @@ import { useMali } from '../context/MaliContext';
 import {
   Currency,
   DebtRecord,
+  DebtSettlementType,
   FinancialProcedure,
   PaymentMethodType,
 } from '../types/mali';
+import { canDisburseFromAccount } from '../services/financialEngine';
 import { formatMoney, getPaymentMethodLabel } from '../utils/exportHelper';
 import { CalmDropdown } from '../components/CalmDropdown';
 
@@ -39,6 +41,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     theme,
     addDebt,
     addDebtInstallment,
+    deleteDebtInstallment,
     deleteDebt,
     addProcedure,
     toggleProcedureStage,
@@ -75,6 +78,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const [installmentMethod, setInstallmentMethod] =
     useState<PaymentMethodType>('cash');
   const [installmentNotes, setInstallmentNotes] = useState('');
+  const [installmentSettlementType, setInstallmentSettlementType] =
+    useState<DebtSettlementType>('cash');
+  const [nonCashReason, setNonCashReason] = useState('');
 
   // New Procedure Modal State
   const [newProcModal, setNewProcModal] = useState(false);
@@ -103,6 +109,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     setPersonName(''); setPhone(''); setDebtAmount(''); setDebtNotes(''); setDebtDueDate(''); setDebtError(null);
     setSelectedWalletId(state.accounts.find((a) => a.currency === 'LYD')?.id || state.accounts[0]?.id || '');
     setInstallmentAmt(''); setInstallmentNotes(''); setInstallmentAccId('');
+    setInstallmentSettlementType('cash'); setNonCashReason('');
     setProcTitle(''); setProcBank(''); setProcRef(''); setProcAmt(''); setProcNotes(''); setProcDueDate(''); setNewStageTitle('');
     setAffectWallet(true); setProcStagesText('');
   });
@@ -159,6 +166,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
         setDebtError('اختر الخزينة المالية لإتمام الحركة، أو ألغِ تحديث الرصيد لتسجيل رصيد دين سابق.');
         return reject('اختر الخزينة المالية أو ألغِ تحديث الرصيد لتسجيل دين سابق.', 'selectedWalletId');
       }
+      if (direction === 'receivable') {
+        const disburse = canDisburseFromAccount(validWallet, amt);
+        if (!disburse.allowed) {
+          const err = `رصيد الخزينة (${formatMoney(disburse.available, debtCurrency)}) غير كافٍ لصرف القرض (${formatMoney(amt, debtCurrency)})! العجز: ${formatMoney(disburse.deficit, debtCurrency)}. (السحب على المكشوف غير مصرح به)`;
+          setDebtError(err);
+          return reject(err, 'debtAmount');
+        }
+      }
       chosenWallet = validWallet;
     }
 
@@ -193,32 +208,69 @@ export const ProceduresDebtsScreen: React.FC = () => {
       return reject(`قيمة الدفعة (${formatMoney(amt, activeDebtForPay.currency)}) تتجاوز المبلغ المتبقي (${formatMoney(activeDebtForPay.remainingAmount, activeDebtForPay.currency)}).`, 'installmentAmt');
     }
 
-    let chosenAccId: string | undefined = undefined;
-    if (installmentAccId) {
-      const chosenAcc = state.accounts.find(
-        (a) => a.id === installmentAccId && a.currency === activeDebtForPay.currency
+    if (installmentSettlementType === 'non_cash') {
+      const reason = nonCashReason.trim() || installmentNotes.trim();
+      if (!reason) {
+        return reject('يرجى تحديد أو كتابة سبب وتفاصيل التسوية غير النقدية.', 'nonCashReason');
+      }
+      if (!await submit(() => addDebtInstallment({
+        idempotencyKey: submissionKey + ":addDebtInstallment",
+        debtId: activeDebtForPay.id,
+        amount: amt,
+        settlementType: 'non_cash',
+        isNonCash: true,
+        nonCashReason: reason,
+        notes: installmentNotes.trim() || undefined,
+        paymentMethod: 'cash',
+      }))) return;
+    } else {
+      // Cash installment: Treasury is strictly mandatory
+      const matchingAccs = state.accounts.filter(
+        (a) => a.currency === activeDebtForPay.currency
       );
+      if (matchingAccs.length === 0) {
+        return reject(
+          `لا توجد خزينة مسجلة بعملة الدين (${activeDebtForPay.currency}). يرجى إنشاء خزينة بهذه العملة أولاً لتسجيل دفعة نقدية، أو اختيار 'تسوية غير نقدية / مقاصة'.`,
+          'installmentAccId'
+        );
+      }
+      if (!installmentAccId) {
+        return reject('اختر الخزينة التي تمت من خلالها حركة الدفعة.', 'installmentAccId');
+      }
+      const chosenAcc = matchingAccs.find((a) => a.id === installmentAccId);
       if (!chosenAcc) {
         return reject('اختر خزينة صالحة بنفس عملة الدين.', 'installmentAccId');
       }
-      chosenAccId = chosenAcc.id;
-    } else if (state.accounts.some((a) => a.currency === activeDebtForPay.currency)) {
-      return reject('اختر الخزينة التي تمت من خلالها حركة الدفعة.', 'installmentAccId');
+
+      if (activeDebtForPay.direction === 'payable') {
+        const disburse = canDisburseFromAccount(chosenAcc, amt);
+        if (!disburse.allowed) {
+          return reject(
+            `رصيد الخزينة (${formatMoney(disburse.available, activeDebtForPay.currency)}) غير كافٍ لسداد هذا القسط (${formatMoney(amt, activeDebtForPay.currency)})! العجز: ${formatMoney(disburse.deficit, activeDebtForPay.currency)}. (السحب على المكشوف غير مصرح به لهذه الخزينة)`,
+            'installmentAmt'
+          );
+        }
+      }
+
+      if (!await submit(() => addDebtInstallment({
+        idempotencyKey: submissionKey + ":addDebtInstallment",
+        debtId: activeDebtForPay.id,
+        amount: amt,
+        accountId: chosenAcc.id,
+        settlementType: 'cash',
+        isNonCash: false,
+        paymentMethod: installmentMethod,
+        notes: installmentNotes.trim() || undefined,
+      }))) return;
     }
 
-    if (!await submit(() => addDebtInstallment({
-      idempotencyKey: submissionKey + ":addDebtInstallment",
-      debtId: activeDebtForPay.id,
-      amount: amt,
-      accountId: chosenAccId,
-      paymentMethod: installmentMethod,
-      notes: installmentNotes.trim() || undefined,
-    }))) return;
     setSubmissionKey(nextSubmissionKey());
     setActiveDebtForPay(null);
     setInstallmentAmt('');
     setInstallmentNotes('');
     setInstallmentAccId('');
+    setInstallmentSettlementType('cash');
+    setNonCashReason('');
   };
 
   const handleSaveProcedure = async () => {
@@ -609,26 +661,48 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       const instAcc = inst.accountId
                         ? state.accounts.find((a) => a.id === inst.accountId)
                         : undefined;
+                      const isNonCash = inst.isNonCash || inst.settlementType === 'non_cash';
                       return (
-                        <View key={inst.id} style={styles.instRow}>
-                          <Text
-                            style={[
-                              styles.instText,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            • {inst.date}: دفعة بقيمة{' '}
-                            <Text style={{ fontWeight: 'bold', color: theme.text }}>
-                              {formatMoney(inst.amount, debt.currency)}
-                            </Text>
-                            {' '}({getPaymentMethodLabel(inst.paymentMethod)})
-                            {instAcc ? (
-                              <Text style={{ color: theme.primary, fontWeight: '600' }}>
-                                {' '}• {isReceivable ? `أُودعت في: ${instAcc.name}` : `دُفعت من: ${instAcc.name}`}
+                        <View key={inst.id} style={[styles.instRow, { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center' }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                styles.instText,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              • {inst.date}: دفعة بقيمة{' '}
+                              <Text style={{ fontWeight: 'bold', color: theme.text }}>
+                                {formatMoney(inst.amount, debt.currency)}
                               </Text>
-                            ) : null}
-                            {inst.notes ? ` - ${inst.notes}` : ''}
-                          </Text>
+                              {isNonCash ? (
+                                <Text style={{ color: '#8B5CF6', fontWeight: 'bold' }}>
+                                  {' '}• [تسوية غير نقدية: {inst.nonCashReason || 'مقاصة'}]
+                                </Text>
+                              ) : (
+                                <>
+                                  {' '}({getPaymentMethodLabel(inst.paymentMethod)})
+                                  {instAcc ? (
+                                    <Text style={{ color: theme.primary, fontWeight: '600' }}>
+                                      {' '}• {isReceivable ? `أُودعت في: ${instAcc.name}` : `دُفعت من: ${instAcc.name}`}
+                                    </Text>
+                                  ) : null}
+                                </>
+                              )}
+                              {inst.notes ? ` - ${inst.notes}` : ''}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel={`حذف دفعة ${formatMoney(inst.amount, debt.currency)}`}
+                            disabled={saving}
+                            style={[styles.touchTarget, { padding: 6, marginLeft: 8 }]}
+                            onPress={async () => {
+                              await submit(() => deleteDebtInstallment(debt.id, inst.id));
+                            }}
+                          >
+                            <Ionicons name="trash-outline" size={16} color={theme.danger} />
+                          </TouchableOpacity>
                         </View>
                       );
                     }}</PagedRows>}
@@ -650,6 +724,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         setActiveDebtForPay(debt);
                         setInstallmentAmt(String(debt.remainingAmount));
                         setInstallmentAccId(matchingAccs[0]?.id || '');
+                        setInstallmentSettlementType('cash');
+                        setNonCashReason('');
                       }}
                     >
                       <Ionicons
@@ -1081,6 +1157,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     onSelect={setSelectedWalletId}
                   />
 
+                  {state.accounts.filter((a) => a.currency === debtCurrency).length === 0 && (
+                    <View style={[styles.balanceWarningBox, { borderColor: theme.warning }]}>
+                      <Text style={[styles.balanceWarningText, { color: theme.warning }]}>
+                        ⚠️ لا توجد خزينة مسجلة بعملة {debtCurrency}. يرجى إنشاء خزينة أولاً لإتمام حركة النقدية، أو تعطيل خيار تحديث الرصيد لتسجيل رصيد افتتاحي سابق.
+                      </Text>
+                    </View>
+                  )}
+
                   {(() => {
                     const amtVal = parseFinancialInput(debtAmount);
                     const chosenAcc = state.accounts.find((a) => a.id === selectedWalletId);
@@ -1088,16 +1172,27 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       direction === 'receivable' &&
                       chosenAcc &&
                       amtVal !== null &&
-                      amtVal > 0 &&
-                      chosenAcc.balance < amtVal
+                      amtVal > 0
                     ) {
-                      return (
-                        <View style={styles.balanceWarningBox}>
-                          <Text style={styles.balanceWarningText}>
-                            ⚠️ تنبيه: رصيد الخزينة ({formatMoney(chosenAcc.balance, debtCurrency)}) أقل من مبلغ الإقراض ({formatMoney(amtVal, debtCurrency)}). سيصبح رصيد الخزينة بالسالب عند الخصم!
-                          </Text>
-                        </View>
-                      );
+                      const check = canDisburseFromAccount(chosenAcc, amtVal);
+                      if (!check.allowed) {
+                        return (
+                          <View style={[styles.balanceWarningBox, { borderColor: theme.danger, backgroundColor: theme.danger + '15' }]}>
+                            <Text style={[styles.balanceWarningText, { color: theme.danger, fontWeight: 'bold' }]}>
+                              ⛔ عجز في رصيد الخزينة — السحب على المكشوف غير مصرح به!
+                            </Text>
+                            <Text style={{ color: theme.text, fontSize: 13, marginTop: 4 }}>
+                              • الرصيد المتاح: {formatMoney(check.available, debtCurrency)}
+                            </Text>
+                            <Text style={{ color: theme.text, fontSize: 13 }}>
+                              • المبلغ المطلوب صرفه: {formatMoney(amtVal, debtCurrency)}
+                            </Text>
+                            <Text style={{ color: theme.danger, fontSize: 13, fontWeight: 'bold' }}>
+                              • العجز المالي: {formatMoney(check.deficit, debtCurrency)}
+                            </Text>
+                          </View>
+                        );
+                      }
                     }
                     return null;
                   })()}
@@ -1245,6 +1340,101 @@ export const ProceduresDebtsScreen: React.FC = () => {
               )}
             </Text>
 
+            {/* اختيار نوع العملية: حركة نقدية أو تسوية غير نقدية / مقاصة */}
+            <View style={{ flexDirection: 'row-reverse', gap: 8, marginVertical: 10 }}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{ selected: installmentSettlementType === 'cash' }}
+                disabled={saving}
+                style={[
+                  styles.segmentBtn,
+                  styles.touchTarget,
+                  {
+                    flex: 1,
+                    backgroundColor:
+                      installmentSettlementType === 'cash'
+                        ? theme.primary
+                        : theme.cardAlt,
+                    borderColor:
+                      installmentSettlementType === 'cash'
+                        ? theme.primary
+                        : theme.border,
+                  },
+                ]}
+                onPress={() => setInstallmentSettlementType('cash')}
+              >
+                <Ionicons
+                  name="cash-outline"
+                  size={16}
+                  color={
+                    installmentSettlementType === 'cash'
+                      ? '#FFFFFF'
+                      : theme.textSecondary
+                  }
+                  style={{ marginLeft: 4 }}
+                />
+                <Text
+                  style={{
+                    color:
+                      installmentSettlementType === 'cash'
+                        ? '#FFFFFF'
+                        : theme.text,
+                    fontWeight:
+                      installmentSettlementType === 'cash' ? 'bold' : 'normal',
+                    fontSize: 12,
+                  }}
+                >
+                  حركة نقدية (خزينة)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{ selected: installmentSettlementType === 'non_cash' }}
+                disabled={saving}
+                style={[
+                  styles.segmentBtn,
+                  styles.touchTarget,
+                  {
+                    flex: 1,
+                    backgroundColor:
+                      installmentSettlementType === 'non_cash'
+                        ? '#8B5CF6'
+                        : theme.cardAlt,
+                    borderColor:
+                      installmentSettlementType === 'non_cash'
+                        ? '#8B5CF6'
+                        : theme.border,
+                  },
+                ]}
+                onPress={() => setInstallmentSettlementType('non_cash')}
+              >
+                <Ionicons
+                  name="git-compare-outline"
+                  size={16}
+                  color={
+                    installmentSettlementType === 'non_cash'
+                      ? '#FFFFFF'
+                      : theme.textSecondary
+                  }
+                  style={{ marginLeft: 4 }}
+                />
+                <Text
+                  style={{
+                    color:
+                      installmentSettlementType === 'non_cash'
+                        ? '#FFFFFF'
+                        : theme.text,
+                    fontWeight:
+                      installmentSettlementType === 'non_cash' ? 'bold' : 'normal',
+                    fontSize: 12,
+                  }}
+                >
+                  تسوية غير نقدية (مقاصة)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               قيمة الدفعة المسددة الآن
             </Text>
@@ -1263,50 +1453,12 @@ export const ProceduresDebtsScreen: React.FC = () => {
               onChangeText={setInstallmentAmt}
             />
 
-            <CalmDropdown disabled={saving}
-              label={
-                activeDebtForPay?.direction === 'receivable'
-                  ? 'في أي خزينة تم استلام الدفعة؟ (سيتم الإيداع فيها):'
-                  : 'من أي خزينة تم دفع القسط؟ (سيتم الخصم منها):'
-              }
-              value={installmentAccId}
-              options={state.accounts
-                .filter((a) => a.currency === activeDebtForPay?.currency)
-                .map((acc) => ({
-                  value: acc.id,
-                  label: acc.name,
-                  subLabel: `الرصيد: ${formatMoney(acc.balance, acc.currency)} • ${
-                    acc.isCash ? 'نقدي كاش' : acc.bankName
-                  }`,
-                  icon: acc.isCash ? 'cash-outline' : 'card-outline',
-                  badgeColor: acc.color,
-                }))}
-              onSelect={setInstallmentAccId}
-            />
-
-            {(() => {
-              if (activeDebtForPay?.direction === 'payable') {
-                const instAmtVal = parseFinancialInput(installmentAmt);
-                const chosenAcc = state.accounts.find((a) => a.id === installmentAccId);
-                if (chosenAcc && instAmtVal !== null && instAmtVal > 0 && chosenAcc.balance < instAmtVal) {
-                  return (
-                    <View style={styles.balanceWarningBox}>
-                      <Text style={styles.balanceWarningText}>
-                        ⚠️ تنبيه: رصيد الخزينة ({formatMoney(chosenAcc.balance, activeDebtForPay.currency)}) أقل من قيمة القسط ({formatMoney(instAmtVal, activeDebtForPay.currency)})!
-                      </Text>
-                    </View>
-                  );
-                }
-              }
-              return null;
-            })()}
-
             {(() => {
               const instAmtVal = parseFinancialInput(installmentAmt);
               if (activeDebtForPay && instAmtVal !== null && instAmtVal > activeDebtForPay.remainingAmount) {
                 return (
-                  <View style={styles.balanceWarningBox}>
-                    <Text style={styles.balanceWarningText}>
+                  <View style={[styles.balanceWarningBox, { borderColor: theme.danger, backgroundColor: theme.danger + '15' }]}>
+                    <Text style={[styles.balanceWarningText, { color: theme.danger }]}>
                       ⚠️ تنبيه: قيمة الدفعة تتجاوز المبلغ المتبقي ({formatMoney(activeDebtForPay.remainingAmount, activeDebtForPay.currency)})!
                     </Text>
                   </View>
@@ -1314,17 +1466,122 @@ export const ProceduresDebtsScreen: React.FC = () => {
               }
               return null;
             })()}
-            <CalmDropdown disabled={saving}
-              label="طريقة السداد"
-              value={installmentMethod}
-              options={[
-                { value: 'cash', label: 'نقدي (كاش)', icon: 'cash-outline' },
-                { value: 'transfer', label: 'حوالة مصرفية', icon: 'swap-horizontal-outline' },
-                { value: 'cheque', label: 'صك مصرفي', icon: 'document-outline' },
-                { value: 'card', label: 'بطاقة', icon: 'card-outline' },
-              ]}
-              onSelect={(value) => setInstallmentMethod(value as PaymentMethodType)}
-            />
+
+            {installmentSettlementType === 'cash' ? (
+              <>
+                {state.accounts.filter((a) => a.currency === activeDebtForPay?.currency).length === 0 ? (
+                  <View style={[styles.balanceWarningBox, { borderColor: theme.warning }]}>
+                    <Text style={[styles.balanceWarningText, { color: theme.warning }]}>
+                      ⚠️ لا توجد أي خزينة مسجلة بعملة الدين ({activeDebtForPay?.currency}). يرجى إنشاء خزينة أولاً لإيداع أو صرف الدفعة، أو اختيار وضع &apos;تسوية غير نقدية (مقاصة)&apos;.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <CalmDropdown disabled={saving}
+                      label={
+                        activeDebtForPay?.direction === 'receivable'
+                          ? 'في أي خزينة تم استلام الدفعة؟ (سيتم الإيداع فيها):'
+                          : 'من أي خزينة تم دفع القسط؟ (سيتم الخصم منها):'
+                      }
+                      value={installmentAccId}
+                      options={state.accounts
+                        .filter((a) => a.currency === activeDebtForPay?.currency)
+                        .map((acc) => ({
+                          value: acc.id,
+                          label: acc.name,
+                          subLabel: `الرصيد: ${formatMoney(acc.balance, acc.currency)} • ${
+                            acc.isCash ? 'نقدي كاش' : acc.bankName
+                          }`,
+                          icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                          badgeColor: acc.color,
+                        }))}
+                      onSelect={setInstallmentAccId}
+                    />
+
+                    {(() => {
+                      if (activeDebtForPay?.direction === 'payable') {
+                        const instAmtVal = parseFinancialInput(installmentAmt);
+                        const chosenAcc = state.accounts.find((a) => a.id === installmentAccId);
+                        if (chosenAcc && instAmtVal !== null && instAmtVal > 0) {
+                          const check = canDisburseFromAccount(chosenAcc, instAmtVal);
+                          if (!check.allowed) {
+                            return (
+                              <View style={[styles.balanceWarningBox, { borderColor: theme.danger, backgroundColor: theme.danger + '15' }]}>
+                                <Text style={[styles.balanceWarningText, { color: theme.danger, fontWeight: 'bold' }]}>
+                                  ⛔ عجز في رصيد الخزينة — السحب على المكشوف غير مصرح به!
+                                </Text>
+                                <Text style={{ color: theme.text, fontSize: 13, marginTop: 4 }}>
+                                  • الرصيد المتاح: {formatMoney(check.available, activeDebtForPay.currency)}
+                                </Text>
+                                <Text style={{ color: theme.text, fontSize: 13 }}>
+                                  • المبلغ المطلوب سداده: {formatMoney(instAmtVal, activeDebtForPay.currency)}
+                                </Text>
+                                <Text style={{ color: theme.danger, fontSize: 13, fontWeight: 'bold' }}>
+                                  • العجز المالي: {formatMoney(check.deficit, activeDebtForPay.currency)}
+                                </Text>
+                              </View>
+                            );
+                          }
+                        }
+                      }
+                      return null;
+                    })()}
+
+                    <CalmDropdown disabled={saving}
+                      label="طريقة السداد"
+                      value={installmentMethod}
+                      options={[
+                        { value: 'cash', label: 'نقدي (كاش)', icon: 'cash-outline' },
+                        { value: 'transfer', label: 'حوالة مصرفية', icon: 'swap-horizontal-outline' },
+                        { value: 'cheque', label: 'صك مصرفي', icon: 'document-outline' },
+                        { value: 'card', label: 'بطاقة', icon: 'card-outline' },
+                      ]}
+                      onSelect={(value) => setInstallmentMethod(value as PaymentMethodType)}
+                    />
+                  </>
+                )}
+              </>
+            ) : (
+              <View style={{ marginVertical: 4 }}>
+                <CalmDropdown disabled={saving}
+                  label="نوع وسبب التسوية غير النقدية"
+                  value={nonCashReason || 'مقاصة ديون'}
+                  options={[
+                    { value: 'مقاصة ديون (دين مقابل دين آخر)', label: 'مقاصة ديون (دين مقابل دين آخر)', icon: 'git-compare-outline' },
+                    { value: 'تنازل / إبراء ذمة / خصم مسموح به', label: 'تنازل / إبراء ذمة / خصم مسموح به', icon: 'shield-checkmark-outline' },
+                    { value: 'تسوية عينية (بضاعة / أصول / خدمات)', label: 'تسوية عينية (بضاعة / أصول / خدمات)', icon: 'cube-outline' },
+                    { value: 'أخرى (بيان مخصص)', label: 'أخرى (بيان مخصص)', icon: 'document-text-outline' },
+                  ]}
+                  onSelect={(val) => setNonCashReason(val)}
+                />
+
+                <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                  تفاصيل وسبب التسوية غير النقدية (إلزامي)
+                </Text>
+                <TextInput accessibilityLabel="سبب وتفاصيل التسوية غير النقدية" ref={fieldRef('nonCashReason')} editable={!saving}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.border,
+                      color: theme.text,
+                    },
+                    styles.touchTarget,
+                  ]}
+                  value={nonCashReason}
+                  onChangeText={setNonCashReason}
+                  placeholder="مثال: مقاصة مقابل فاتورة أو دين آخر..."
+                  placeholderTextColor={theme.textMuted}
+                />
+
+                <View style={[styles.infoBanner, { backgroundColor: '#8B5CF6' + '15', borderColor: '#8B5CF6' }]}>
+                  <Ionicons name="information-circle-outline" size={18} color="#8B5CF6" />
+                  <Text style={[styles.infoBannerText, { color: theme.text, flex: 1, marginRight: 6 }]}>
+                    ℹ️ التسوية غير النقدية تُخفض الرصيد المتبقي للدين مباشرة دون إيداع أو سحب أي أموال من الخزائن.
+                  </Text>
+                </View>
+              </View>
+            )}
 
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظات الدفعة
@@ -1341,7 +1598,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               ]}
               value={installmentNotes}
               onChangeText={setInstallmentNotes}
-              placeholder="مثال: دفعة نقدية باليد أو حوالة مصرفية..."
+              placeholder="اختياري..."
               placeholderTextColor={theme.textMuted}
             />
 
@@ -1367,11 +1624,11 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
+                style={[styles.saveBtn, { backgroundColor: installmentSettlementType === 'non_cash' ? '#8B5CF6' : theme.primary }, styles.touchTarget]}
                 onPress={handleSaveInstallment}
               >
                 <Text style={styles.saveBtnText}>
-                  تأكيد الدفعة وتحديث الرصيد
+                  {installmentSettlementType === 'non_cash' ? 'تأكيد التسوية غير النقدية' : 'تأكيد الدفعة وتحديث الرصيد'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2008,5 +2265,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flex: 1,
     textAlign: 'right',
+  },
+  segmentBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
   },
 });
