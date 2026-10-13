@@ -15,10 +15,10 @@ Each source needs its own validation; prior CI is not the final integrated gate.
 | Reconnect/backoff/cancellation | PASS candidate durable owner outbox/timers/session/CAS stops and chunked integration; native E2E remains |
 | Usable conflict recovery | PARTIAL: verified archive+single decision/outbox commit, changed CAS renewed review/no force,independent review8probes PASS atd2db769; archive retrieval UI ongoing |
 | Proven backup/restore | PARTIAL: actual PG17 full dump/restore10tables/owner/ACL/RLS/CAS/21originals+21archives PASS local+CI; atomic local restore faults PASS; browser actual JSON download/explicit restorePASS; production backup/native round-trip remain |
-| All UI/RTL/accessibility/performance | PASS: STORAGE-116 resolved with IndexedDB backend (mali_financial_vault_v1), lossless localStorage migration, 50k bounds, 18 accessibility tests, and clean 4-tab responsive shell |
+| All UI/RTL/accessibility/performance | PARTIAL: real Chromium 2026-10-13 verified UI mount, offline guest navigation, lossless IndexedDB migration, 1k/10k/50k record persistence and 50k full reload; accessibility/RTL source tests pass; every screen and fault-path on physical devices still requires acceptance |
 | Compatible secure dependencies | FAIL: braces absent and Expo57 consumers PASS; truthful forge1.4.0 backport passes all security/consumer tests but raw audit reports 4 high due to unreleased upstream fix |
-| Mandatory tests and CI | PARTIAL: candidate 594/594 tests PASS, real PostgreSQL 17.11 100/100 PASS, dump/restore rehearsal PASS, web build PASS; new CI push required for PR2 |
-| Android acceptance | PARTIAL: actual Android16 APK built/installed; repaired Hermes crash, cold startup/guest entryPASS; functional acceptance ongoing |
+| Mandatory tests and CI | PARTIAL: 619/619 app tests PASS, PostgreSQL 17.11 120/120 PASS, real browser storage/guest acceptance PASS, dump/restore rehearsal PASS, web build PASS; unpatched node-forge advisory keeps npm audit and aggregate CI FAIL |
+| Android acceptance | PARTIAL: prior Android16 local APK startup and guest entry PASS; separate Ubuntu Android emulator APK/launch CI introduced, but new run 38435753028 awaits final result. Full native financial/OAuth acceptance still required |
 | iOS acceptance | PENDING: Windows lacks Xcode/iOS device; external hardware required |
 | Approved production published/tested | FAIL: PR2 draft; no merge/publication/financial migration deployment |
 
