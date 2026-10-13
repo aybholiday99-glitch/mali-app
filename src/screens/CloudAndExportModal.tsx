@@ -18,6 +18,7 @@ import { RecoveryArchivePanel } from '../components/RecoveryArchivePanel';
 import { createSafeDiagnostics } from '../services/diagnosticsCore';
 import { pickBackupFile,type BackupFileResult } from '../utils/backupFilePicker';
 import { SUPABASE_SQL_SCHEMA } from '../services/supabaseSync';
+import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
 import {
   exportFileOrShare,
   generateDealsCsv,
@@ -103,6 +104,31 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
     const res = await pullFromCloud(cfg);
     setStatusBanner(res.message);
   };
+
+  if (CENTRAL_SERVER_ONLY) {
+    return (
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <View style={[styles.backdrop, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.modalContainer, { backgroundColor: theme.card, borderColor: theme.border, padding: 20 }]}>
+            <Text style={[styles.title, { color: theme.text }]}>التخزين المركزي — مالي</Text>
+            <Text style={{ color: theme.textSecondary, marginTop: 12, marginBottom: 16, textAlign: 'right' }}>
+              جميع السجلات المالية الجديدة تُعتمد مباشرة على الخادم. لا توجد مزامنة محلية أو تنزيل تقارير إلى هاتف العميل. يلزم الاتصال بالإنترنت.
+            </Text>
+            {lastSyncMessage ? <Text style={{ color: theme.text, marginBottom: 12, textAlign: 'right' }}>{lastSyncMessage}</Text> : null}
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="تحديث البيانات من الخادم"
+              disabled={isSyncing} onPress={() => { void pullFromCloud(); }}
+              style={[styles.closeBtn, { backgroundColor: theme.cardAlt, marginBottom: 10, minHeight: 45, justifyContent: 'center' }]}>
+              <Text style={{ color: theme.text, textAlign: 'center' }}>{isSyncing ? 'جارٍ تحديث البيانات…' : 'تحديث البيانات من الخادم'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="إغلاق إعدادات الخادم"
+              onPress={onClose} style={[styles.closeBtn, { minHeight: 45, justifyContent: 'center' }]}>
+              <Text style={{ color: theme.text, textAlign: 'center' }}>إغلاق</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
