@@ -109,7 +109,7 @@ DECLARE v_event JSONB; v_change JSONB; v_index INTEGER := 0; v_id TEXT; v_operat
 BEGIN
   IF p_events IS NULL THEN RETURN; END IF;
   IF jsonb_typeof(p_events)<>'array' OR jsonb_array_length(p_events)>10000 OR
-     octet_length(convert_to(p_events::TEXT,'UTF8'))>33554432 THEN
+     octet_length(convert_to(p_events::TEXT,'UTF8'))>50331648 THEN
     RAISE EXCEPTION 'Invalid or oversized financial audit' USING ERRCODE='22023';
   END IF;
   FOR v_event IN SELECT value FROM jsonb_array_elements(p_events) LOOP
@@ -136,7 +136,7 @@ BEGIN
       IF length(v_operation)>256 OR v_operation=ANY(v_operations) THEN RAISE EXCEPTION 'Duplicate audit operation' USING ERRCODE='22023'; END IF;
       v_operations := array_append(v_operations,v_operation);
     END IF;
-    IF jsonb_typeof(v_event->'changes') IS DISTINCT FROM 'array' OR jsonb_array_length(v_event->'changes')>20000 OR
+    IF jsonb_typeof(v_event->'changes') IS DISTINCT FROM 'array' OR jsonb_array_length(v_event->'changes')>100000 OR
        (v_index>1 AND jsonb_array_length(v_event->'changes')=0) THEN RAISE EXCEPTION 'Invalid audit changes' USING ERRCODE='22023'; END IF;
     v_keys := ARRAY[]::TEXT[];
     FOR v_change IN SELECT value FROM jsonb_array_elements(v_event->'changes') LOOP

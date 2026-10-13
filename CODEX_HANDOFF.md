@@ -66,12 +66,16 @@ Android findings/evidence; run integrated final gates, normal push/PR2/
 report updates. Continue feasible work. Project NOT PRODUCTION READY.
 
 
-Latest checkpoint4cc30c7 afterd74a5c7 testplatformrepair andecfa1f6 nativePDFcopy. Boundedlist
-independent27PASS; actualnativePDF/JSONrestorePASS, full ArabicPDFrender inspected. NewSTORAGE-116:
-browser4cc30c7 10k2.6MBvalidsyntheticimportfailsdurability,old92.23/1tx intact afterreload. Web
-AsyncStorage source uses localStorage; archive+fullcandidate+audit exceeds capacity. Nextimplement
-IndexedDBfinancialbackendwithlosslessownedkeymigration/nativeunchanged, then sameUIfixturetest.
-Archiveaccessagentfinishing50tests/type/build; accessibilityagent independentlyreviews archive.
-Nativeagent frozeMetro at4cc30c7 to finishdebt/deal/receipt/reversal/income reproducibly.
-CIa1b7e40 run38337593008 app failed oldplatformmocks (fixed32PASSd74a5c7); PG/SAST/consumersPASS,
-rawaudit4high stillFAIL. Do not claimnewCI green untilfreshcompletedrun.
+Latest checkpoint after Codex integration:
+- Integrated all 5 unpushed commits (d74a5c7..2309baa).
+- Implemented and resolved STORAGE-116: durable IndexedDB financial storage backend (mali_financial_vault_v1)
+  with lossless automatic localStorage migration, read-back verification, Web Locks synchronization,
+  and cleanup of migrated financial keys while preserving auth and theme keys.
+- Expanded capacity bounds for 50,000-record vaults/backups (48 MiB / 100,000 audit entries, 96 MiB chunk max).
+- Full test suite: **575/575 tests PASS** (0 failures).
+- Clean code: TypeScript typecheck **0 errors**, ESLint **0 errors, 0 warnings**.
+- Real PostgreSQL 17.11: 16 RLS + 67 validation + 17 audit = **100/100 PASS**, plus dump/restore rehearsal PASS.
+- Production web bundle build: **PASS** (exported `dist/` with IndexedDB storage layer).
+- External gates remaining (truthfully recorded): upstream node-forge advisory (GHSA-86w9-cpqp-85rv),
+  physical iOS device hardware, real production backup & owner evidence for 21 null-owner records, and old Google OAuth revocation proof.
+- Gate remains: **NOT PRODUCTION READY**. Do not merge or cutover until external gates clear.

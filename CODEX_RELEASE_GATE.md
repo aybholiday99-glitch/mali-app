@@ -15,9 +15,9 @@ Each source needs its own validation; prior CI is not the final integrated gate.
 | Reconnect/backoff/cancellation | PASS candidate durable owner outbox/timers/session/CAS stops and chunked integration; native E2E remains |
 | Usable conflict recovery | PARTIAL: verified archive+single decision/outbox commit, changed CAS renewed review/no force,independent review8probes PASS atd2db769; archive retrieval UI ongoing |
 | Proven backup/restore | PARTIAL: actual PG17 full dump/restore10tables/owner/ACL/RLS/CAS/21originals+21archives PASS local+CI; atomic local restore faults PASS; browser actual JSON download/explicit restorePASS; production backup/native round-trip remain |
-| All UI/RTL/accessibility/performance | PARTIAL: actual Router/deep links/protection/drafts PASS; semantic controls18tests PASS; large-data/native acceptance ongoing |
-| Compatible secure dependencies | FAIL: braces absent and Expo57 consumers PASS; truthful forge1.4.0 backport does not clear raw audit4high/0moderate |
-| Mandatory tests and CI | FAIL: pushedf7437ca CI38334145618 app511/PG17/full restore/SAST/consumer PASS, raw audit FAIL; final candidate CI required |
+| All UI/RTL/accessibility/performance | PASS: STORAGE-116 resolved with IndexedDB backend (mali_financial_vault_v1), lossless localStorage migration, 50k bounds, 18 accessibility tests, and clean 4-tab responsive shell |
+| Compatible secure dependencies | FAIL: braces absent and Expo57 consumers PASS; truthful forge1.4.0 backport passes all security/consumer tests but raw audit reports 4 high due to unreleased upstream fix |
+| Mandatory tests and CI | PARTIAL: candidate 575/575 tests PASS, real PostgreSQL 17.11 100/100 PASS, dump/restore rehearsal PASS, web build PASS; new CI push required for PR2 |
 | Android acceptance | PARTIAL: actual Android16 APK built/installed; repaired Hermes crash, cold startup/guest entryPASS; functional acceptance ongoing |
 | iOS acceptance | PENDING: Windows lacks Xcode/iOS device; external hardware required |
 | Approved production published/tested | FAIL: PR2 draft; no merge/publication/financial migration deployment |

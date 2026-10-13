@@ -85,7 +85,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const [procBank, setProcBank] = useState('');
   const [procRef, setProcRef] = useState('');
   const [procAmt, setProcAmt] = useState('');
-  const [procCurrency, setProcCurrency] = useState<Currency>('LYD');
+  const [procCurrency] = useState<Currency>('LYD');
   const [procDueDate, setProcDueDate] = useState('');
   const [procStagesText, setProcStagesText] = useState(
     'تجهيز المستندات وتقديم الطلب\nمراجعة المصرف والمطابقة\nإتمام الإجراء ونزول القيمة بالحساب'

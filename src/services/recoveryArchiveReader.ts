@@ -6,7 +6,7 @@ import { isAbsoluteTimestamp } from '../utils/absoluteTimestamp.ts';
 import type { MaliState } from '../types/mali';
 
 const COLLECTIONS = ['accounts', 'contacts', 'transactions', 'deals', 'debts', 'procedures', 'budgets', 'marketRates'] as const;
-const LIMIT = 48 * 1024 * 1024;
+const LIMIT = 96 * 1024 * 1024;
 export const RECOVERY_ARCHIVE_PAGE_SIZE = 5;
 export interface RecoveryReadStorage {
   getItem(key: string): Promise<string | null>;

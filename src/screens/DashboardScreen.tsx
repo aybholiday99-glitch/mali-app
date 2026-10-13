@@ -2,7 +2,14 @@ import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
-import { proportionalMoney, addMoney, multiplyMoney, subtractRates } from '../services/financialEngine';
+import {
+  proportionalMoney,
+  addMoney,
+  multiplyMoney,
+  subtractRates,
+  reconcileDashboardSummary,
+  roundMoney,
+} from '../services/financialEngine';
 import React, { useState } from 'react';
 import {
   View,
@@ -17,16 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { QUICK_EXPENSE_PURPOSES } from '../data/initialData';
 import { CalmDropdown } from '../components/CalmDropdown';
-import {
-  formatMoney,
-  formatRate,
-  getPaymentMethodLabel,
-  getTransactionTypeLabel,
-} from '../utils/exportHelper';
-import {
-  reconcileDashboardSummary,
-  roundMoney,
-} from '../services/financialEngine';
+import { formatMoney } from '../utils/exportHelper';
 
 interface DashboardProps {
   onNavigate: (tab: string) => void;
@@ -104,14 +102,6 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
   // Deals summary
   const totalRealizedProfitLyd = summary.totalRealizedProfitLyd;
   const openDealsRemainingUsd = summary.totalOpenDealsUsd;
-
-  const unrealizedProfitLyd = state.deals
-    .filter((d) => d.status !== 'closed')
-    .reduce(
-      (s, d) =>
-        roundMoney(s + roundMoney(d.remainingUsd * (cashRate - d.effectiveBuyRate))),
-      0
-    );
 
   const totalExpensesLyd = state.transactions
     .filter(

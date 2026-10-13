@@ -78,7 +78,6 @@ function state() {
     supabaseConfig: { url: '', anonKey: '', workspaceKey: 'isolated-tests', autoSync: false },
   };
 }
-const balance = (s, id) => s.accounts.find(a => a.id === id).balance;
 function buy(s = state(), extra = {}) {
   return engine.createUsdDealMutation(s, { id: 'deal', title: 'test',
     totalUsdBought: 100, buyRate: 6.2, buyCommissionLyd: 0,

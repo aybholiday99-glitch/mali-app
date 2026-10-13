@@ -8,13 +8,11 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthUser, SupabaseConfig } from '../types/mali';
 import { useMali } from '../context/MaliContext';
 import {
-  getSupabaseOAuthRedirectUrl,
   launchSocialOAuthWindow,
   resetUserPasswordLocal,
   signInWithEmail,
@@ -164,17 +162,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const handleQuickGuestStart = async () => {
     const guestUser = await startOfflineGuestSession();
     onAuthenticated(guestUser);
-  };
-
-  const handleRedirectSupabaseOAuth = () => {
-    if (!socialModalProvider) return;
-    const url = getSupabaseOAuthRedirectUrl(
-      socialModalProvider,
-      supabaseConfig
-    );
-    if (url) {
-      Linking.openURL(url).catch(() => {});
-    }
   };
 
   return (

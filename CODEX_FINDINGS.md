@@ -54,6 +54,7 @@ The register covers inspected paths; full application acceptance remains incompl
 | UX-101 | Medium | Routing/drafts/accessibility/RTL/performance coverage incomplete | OPEN: Expo Router as repository requires, all controls and large-data acceptance |
 | DEP-101 | High | Initially22 affected packages; now4high/0moderate | BLOCKED: tested actual-Metro braces replacement and truthful forge backport; actual Linux consumers/provenance CI PASS; mandatory raw audit stillFAIL one advisory |
 | DEP-102 | Medium | Xcode transitive UUID vulnerable in7 moderate package paths | VERIFIED_LOCAL: scoped uuid11.1.1 override; actual Xcode parse/edit/write/2000IDs and bounds regression4PASS; Expo native config introspectionPASS |
+| STORAGE-116 | High | Web 5MB localStorage quota overflow on large financial vaults (10,000-50,000 records) | VERIFIED_LOCAL: durable IndexedDB storage backend (mali_financial_vault_v1), automatic lossless localStorage migration with readback verification and Web Locks, financial keys cleanup leaving auth/theme intact, 48 MiB / 100,000 audit bounds, 96 MiB chunk bounds, verified 1k, 10k, 50k records |
 | OPS-101 | Medium | Monitoring/redaction/alerts not comprehensively proved | OPEN: safe diagnostics, recovery alerts and measured performance |
 
 No production financial record, archive owner, existing account or credential was changed.

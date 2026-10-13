@@ -368,7 +368,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   }, () => syncWorker.current?.wake()), []);
 
   useEffect(() => {
-    const boot = scope.current.capture();
+    const activeScope = scope.current;
+    const boot = activeScope.capture();
     let mounted = true;
     (async () => {
       try {
@@ -376,16 +377,17 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         const callbackUser = await consumeOAuthRedirectIfPresent(INITIAL_MALI_STATE.supabaseConfig);
         const savedUser = callbackUser || await getPersistedSessionUser(INITIAL_MALI_STATE.supabaseConfig);
         const savedTheme = await AsyncStorage.getItem(THEME_KEY);
-        if (!mounted || !scope.current.isCurrent(boot)) return;
+        if (!mounted || !activeScope.isCurrent(boot)) return;
         if (savedTheme === 'dark') setIsDarkMode(true);
         if (savedUser) loginUser(savedUser);
       } catch {
-        if (mounted && scope.current.isCurrent(boot)) setLastSyncMessage('تعذر قراءة البيانات المحفوظة.');
+        if (mounted && activeScope.isCurrent(boot)) setLastSyncMessage('تعذر قراءة البيانات المحفوظة.');
       } finally {
-        if (mounted && scope.current.isCurrent(boot)) setIsLoading(false);
+        if (mounted && activeScope.isCurrent(boot)) setIsLoading(false);
       }
     })();
-    return () => { mounted = false; scope.current.begin(null); conflictRequest.current?.abort(); syncWorker.current?.dispose(); };
+    return () => { mounted = false; activeScope.begin(null); conflictRequest.current?.abort(); syncWorker.current?.dispose(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleTheme = () => {
@@ -1421,6 +1423,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     } else if (!pendingLogoutConfig.current && userRef.current?.id !== user.id) {
       loginUser(user);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, INITIAL_MALI_STATE.supabaseConfig), []);
 
   return (

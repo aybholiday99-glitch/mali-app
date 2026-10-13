@@ -6,7 +6,7 @@ export interface FinancialStorageBackend {
 }
 interface Head { version: 1; slot: 0 | 1; count: number; length: number; checksum: string }
 const CHUNK_CHARACTERS = 65_536; // <=192KiB UTF-8, below Android CursorWindow limits.
-const MAX_CHARACTERS = 48 * 1024 * 1024;
+const MAX_CHARACTERS = 96 * 1024 * 1024;
 const namespace = (key: string) => '@mali_financial_chunks_v1:' + encodeURIComponent(key);
 const backendQueues=new WeakMap<FinancialStorageBackend,Map<string,Promise<unknown>>>();
 

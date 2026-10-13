@@ -47,8 +47,18 @@ dependency gateFAIL15high. No merge, atomic production migration or new Pages pu
 Release remains NOT READY. Full restore, immutable audit, reconnect/conflict workflow, native device builds,
 all-control accessibility/RTL/performance acceptance, old credential evidence and remaining dependencies are open.
 
-## Resumed execution, 2026-10-13
-
+- Resumed execution, 2026-10-13:
+  - Verified and integrated commits through 2309baa199b18358f14574a67c9e3047aff2bfdc.
+  - Implemented STORAGE-116: durable IndexedDB storage backend (mali_financial_vault_v1, store records)
+    with automatic lossless localStorage migration, read-back verification, Web Locks synchronization,
+    and cleanup of migrated financial keys while preserving auth/theme keys.
+  - Expanded capacity bounds for 50,000-record vaults/backups (48 MiB / 100,000 audit entries, 96 MiB chunk max).
+  - Cleaned all ESLint warnings (0 errors, 0 warnings across all source and test files).
+  - TypeScript typecheck: 0 errors.
+  - All tests passing: npm test **575/575 PASS** (43 new/updated storage & provider tests, 0 failures).
+  - PostgreSQL 17.11 real instance: 16 RLS + 67 validator + 17 audit checks = **100/100 PASS**,
+    plus independent dump & restore rehearsal (10 tables, ACLs, RLS, CAS, 21 originals + 21 archives) PASS.
+  - Web production bundle export (npm run build:web) verified: PASS.
 - Reconciled c829fa40f6d1910153041fd8e094838b44d3a053 on codex/mali-production-audit; tracked tree clean.
 - SYNC-107 implementation owns the new mali-durable-retry worktree from that SHA: durable pending vault,
   bounded backoff, lifecycle/session cancellation and persisted CAS stop. Independent review follows tests.

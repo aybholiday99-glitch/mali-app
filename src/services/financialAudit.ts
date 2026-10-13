@@ -1,9 +1,9 @@
 import type { MaliState } from '../types/mali';
 import type { FinancialAuditChange, FinancialAuditCollection, FinancialAuditEvent, FinancialAuditMetadata } from '../types/financialAudit';
 
-export const MAX_FINANCIAL_AUDIT_BYTES = 32 * 1024 * 1024;
+export const MAX_FINANCIAL_AUDIT_BYTES = 48 * 1024 * 1024;
 export const MAX_FINANCIAL_AUDIT_EVENTS = 10000;
-export const MAX_FINANCIAL_AUDIT_CHANGES = 20000;
+export const MAX_FINANCIAL_AUDIT_CHANGES = 100000;
 const COLLECTIONS: FinancialAuditCollection[] = ['accounts', 'contacts', 'transactions', 'deals', 'debts', 'procedures', 'budgets', 'marketRates'];
 const invalid = () => new Error('سجل التدقيق المالي غير صالح أو تجاوز حد الحفظ. لا يجوز حذف دليل سابق.');
 const text = (value: unknown, maximum: number): value is string => typeof value === 'string' && !!value.trim() && value.length <= maximum;

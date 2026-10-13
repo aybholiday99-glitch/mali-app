@@ -17,7 +17,6 @@ import {
   sellFromUsdDealMutation,
   settleDebtInstallmentMutation,
   takePersonalFromUsdDealMutation,
-  updateAccountBalanceMutation,
   validateAndSanitizeBackupPayload,
 } from '../src/services/financialEngine.ts';
 

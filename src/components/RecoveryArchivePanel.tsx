@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMali } from '../context/MaliContext';
+import { financialRecoveryStorage } from '../services/financialStorage';
 import { createRecoveryArchiveReader, type RecoveryArchive, type RecoveryArchiveSummary } from '../services/recoveryArchiveReader';
 import { exportFileOrShare } from '../utils/exportHelper';
 
@@ -24,7 +24,7 @@ function ArchiveContents({ ownerId, generation }: { ownerId: string; generation:
   const run = async (operation: (reader: ReturnType<typeof createRecoveryArchiveReader>) => Promise<void>) => {
     if (pending.current || !current()) return;
     pending.current = true; setBusy(true); setMessage(null);
-    try { await operation(createRecoveryArchiveReader(AsyncStorage, ownerId, current)); }
+    try { await operation(createRecoveryArchiveReader(financialRecoveryStorage, ownerId, current)); }
     catch { if (current()) setMessage('تعذر قراءة هذه النسخة أو تصديرها. بقي الأرشيف محفوظاً؛ أعد المحاولة أو اختر نسخة أخرى.'); }
     finally { pending.current = false; if (current()) setBusy(false); }
   };

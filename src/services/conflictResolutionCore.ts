@@ -5,7 +5,7 @@ import { validateAndSanitizeBackupPayload } from './financialEngine.ts';
 import { syncConfigIdentity, validateSyncOutbox } from './syncOutboxValidation.ts';
 
 const COLLECTIONS = ['accounts', 'contacts', 'transactions', 'deals', 'debts', 'procedures', 'budgets', 'marketRates'] as const;
-export const MAX_CONFLICT_EVIDENCE_LENGTH = 48 * 1024 * 1024;
+export const MAX_CONFLICT_EVIDENCE_LENGTH = 96 * 1024 * 1024;
 export type ConflictChoice = 'keep-local' | 'adopt-cloud';
 export interface ConflictReviewToken {
   ownerId: string;
