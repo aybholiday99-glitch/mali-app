@@ -18,9 +18,11 @@ export {
 export async function exportFileOrShare(
   filename: string,
   content: string,
-  mimeType: string = 'text/csv;charset=utf-8;'
+  mimeType: string = 'text/csv;charset=utf-8;',
+  canContinue: () => boolean = () => true
 ): Promise<boolean> {
   try {
+    if (!canContinue()) return false;
     if (Platform.OS === 'web') {
       if (typeof window === 'undefined' || typeof document === 'undefined') return false;
       const file=prepareTextExport(filename,content,mimeType);
@@ -28,10 +30,15 @@ export async function exportFileOrShare(
       const url=URL.createObjectURL(blob);
       const link=document.createElement('a');
       try {
-        link.href=url;link.setAttribute('download',file.filename);document.body.appendChild(link);link.click();return true;
+        link.href=url;link.setAttribute('download',file.filename);document.body.appendChild(link);
+        if (!canContinue()) return false;
+        link.click();return canContinue();
       } finally { link.remove();URL.revokeObjectURL(url); }
     }
-    return await createFileExportService(await nativeExportPorts()).text(filename,content,mimeType);
+    const ports = await nativeExportPorts();
+    if (!canContinue()) return false;
+    const exported = await createFileExportService(ports, canContinue).text(filename,content,mimeType);
+    return canContinue() && exported;
   } catch { return false; }
 }
 

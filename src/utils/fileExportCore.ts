@@ -33,16 +33,17 @@ export function prepareTextExport(filename: string, content: string, mimeType: s
     content:body,
     mimeType:mime,UTI:mime === 'text/csv' ? 'public.comma-separated-values-text' : 'public.json'};
 }
-export function createFileExportService(ports: ExportPorts) {
+export function createFileExportService(ports: ExportPorts, canContinue: () => boolean = () => true) {
   async function perform(prepare: () => Promise<string>, options: {mimeType:string;UTI:string}) {
     let uri: string | undefined;
     try {
-      if (!await ports.available()) return false;
+      if (!canContinue() || !await ports.available() || !canContinue()) return false;
       uri=await prepare();
+      if (!canContinue()) throw new Error('export cancelled');
       if (!uri.startsWith('file://')) throw new Error('export must be a local file');
       await ports.share(uri,options);
       // Keep successful files in bounded private cache so receiving apps can read them.
-      return true;
+      return canContinue();
     } catch {
       if (uri) await ports.remove(uri).catch(()=>{});
       return false;
