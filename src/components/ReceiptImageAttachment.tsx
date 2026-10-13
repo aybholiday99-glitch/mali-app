@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,115 +7,43 @@ import {
   Image,
   Modal,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
+import { pickReceiptImagesFromDevice } from '../utils/receiptPicker';
+import { MAX_RECEIPTS, type ReceiptSource } from '../utils/receiptCore';
 
-/**
- * Compresses an image File on Web / iOS Safari into a lightweight JPEG base64 Data URL
- * (max width/height 1100px, quality 0.75) so multiple transfer receipts fit comfortably
- * in AsyncStorage / localStorage and Supabase sync.
- */
-const compressImageFileToDataUrl = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const rawDataUrl = e.target?.result as string;
-      if (!rawDataUrl) {
-        reject(new Error('Empty file'));
-        return;
+export { pickReceiptImagesFromDevice } from '../utils/receiptPicker';
+const EMPTY_RECEIPTS: string[] = [];
+
+function useReceiptSelection(images: string[], onChange?: (images: string[]) => void | boolean) {
+  const mounted=useRef(true), locked=useRef(false), latestImages=useRef(images), imagesVersion=useRef(0);
+  const [isPicking,setIsPicking]=useState(false);
+  const [message,setMessage]=useState<string | null>(null);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
+  useEffect(()=>{if (latestImages.current !== images) imagesVersion.current++;latestImages.current=images;},[images]);
+  const pick=async (source: ReceiptSource) => {
+    if (!onChange || locked.current) return;
+    locked.current=true;setIsPicking(true);setMessage(null);
+    const before=[...images], version=imagesVersion.current;
+    try {
+      const result=await pickReceiptImagesFromDevice(before.length,source);
+      if (!mounted.current) return;
+      if (result.status !== 'selected') { setMessage(result.message || 'تعذر اختيار الصور.');return; }
+      if (imagesVersion.current !== version || latestImages.current.length !== before.length || latestImages.current.some((image,index)=>image !== before[index])) {
+        setMessage('تغيّرت الصور أثناء الاختيار. أعد إرفاق الصور المطلوبة.');return;
       }
-      if (typeof document === 'undefined') {
-        resolve(rawDataUrl);
-        return;
-      }
-      const img = new window.Image();
-      img.onload = () => {
-        try {
-          const maxDim = 1100;
-          let width = img.width;
-          let height = img.height;
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            } else {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(rawDataUrl);
-            return;
-          }
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.75);
-          resolve(compressed);
-        } catch {
-          resolve(rawDataUrl);
-        }
-      };
-      img.onerror = () => resolve(rawDataUrl);
-      img.src = rawDataUrl;
-    };
-    reader.onerror = () => reject(new Error('File read error'));
-    reader.readAsDataURL(file);
-  });
-};
-
-/**
- * Opens the system Photo Library / Camera / File Picker on iOS Safari & Web.
- */
-export const pickReceiptImagesFromDevice = (): Promise<string[]> => {
-  return new Promise((resolve) => {
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.multiple = true;
-      input.style.display = 'none';
-      document.body.appendChild(input);
-
-      input.onchange = async () => {
-        const files = input.files ? Array.from(input.files) : [];
-        document.body.removeChild(input);
-        if (files.length === 0) {
-          resolve([]);
-          return;
-        }
-        try {
-          const results = await Promise.all(
-            files.map((f) => compressImageFileToDataUrl(f))
-          );
-          resolve(results.filter(Boolean));
-        } catch {
-          resolve([]);
-        }
-      };
-
-      input.oncancel = () => {
-        if (document.body.contains(input)) {
-          document.body.removeChild(input);
-        }
-        resolve([]);
-      };
-
-      input.click();
-    } else {
-      resolve([]);
-    }
-  });
-};
+      if (onChange([...before,...result.images]) === false) setMessage('تعذر إرفاق الصور بالخزنة. حاول مجدداً.');
+    } catch { if (mounted.current) setMessage('تعذر إرفاق الصور بالخزنة. حاول مجدداً.');
+    } finally { locked.current=false;if (mounted.current) setIsPicking(false); }
+  };
+  return {pick,isPicking,message,disabled:isPicking || images.length >= MAX_RECEIPTS};
+}
 
 interface ReceiptAttachmentFieldProps {
   label?: string;
   images: string[];
-  onChange: (nextImages: string[]) => void;
+  onChange: (nextImages: string[]) => void | boolean;
   accentColor?: string;
 }
 
@@ -131,13 +59,7 @@ export const ReceiptAttachmentField: React.FC<ReceiptAttachmentFieldProps> = ({
   const { theme } = useMali();
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const activeColor = accentColor || theme.primary;
-
-  const handlePick = async () => {
-    const picked = await pickReceiptImagesFromDevice();
-    if (picked.length > 0) {
-      onChange([...images, ...picked]);
-    }
-  };
+  const selection=useReceiptSelection(images,onChange);
 
   const handleRemove = (idx: number) => {
     onChange(images.filter((_, i) => i !== idx));
@@ -157,15 +79,28 @@ export const ReceiptAttachmentField: React.FC<ReceiptAttachmentFieldProps> = ({
               borderColor: activeColor,
             },
           ]}
-          onPress={handlePick}
+          onPress={() => { void selection.pick('library'); }}
+          disabled={selection.disabled}
+          accessibilityRole="button"
+          accessibilityLabel="اختيار صور إيصال من المعرض"
+          accessibilityState={{disabled:selection.disabled,busy:selection.isPicking}}
           activeOpacity={0.75}
         >
-          <Ionicons name="camera-outline" size={16} color={activeColor} />
+          <Ionicons name="image-outline" size={16} color={activeColor} />
           <Text style={[styles.attachBtnText, { color: activeColor }]}>
-            {images.length > 0 ? '+ إضافة صورة أخرى' : 'إرفاق صورة الحوالة'}
+            {selection.isPicking ? 'جارٍ تجهيز الصور…' : images.length > 0 ? '+ إضافة صورة' : 'إرفاق صورة'}
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity style={[styles.cameraBtn,{borderColor:activeColor,backgroundColor:theme.cardAlt}]}
+          accessibilityRole="button" accessibilityLabel="التقاط صورة إيصال بالكاميرا" disabled={selection.disabled}
+          accessibilityState={{disabled:selection.disabled,busy:selection.isPicking}} onPress={() => { void selection.pick('camera'); }}>
+          <Ionicons name="camera-outline" size={20} color={activeColor} />
+        </TouchableOpacity>
       </View>
+
+      {(selection.message || images.length >= MAX_RECEIPTS) && <Text accessibilityRole="alert" style={[styles.pickerMessage,{color:theme.textSecondary}]}>
+        {selection.message || 'تم بلوغ الحد الأقصى (4 صور). احذف صورة لإضافة أخرى.'}
+      </Text>}
 
       {images.length > 0 && (
         <ScrollView
@@ -181,6 +116,8 @@ export const ReceiptAttachmentField: React.FC<ReceiptAttachmentFieldProps> = ({
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={() => setViewerIndex(idx)}
+                accessibilityRole="button"
+                accessibilityLabel={`عرض صورة الإيصال ${idx + 1}`}
               >
                 <Image
                   source={{ uri }}
@@ -194,6 +131,9 @@ export const ReceiptAttachmentField: React.FC<ReceiptAttachmentFieldProps> = ({
                   { backgroundColor: theme.danger },
                 ]}
                 onPress={() => handleRemove(idx)}
+                accessibilityRole="button"
+                accessibilityLabel={`حذف صورة الإيصال ${idx + 1}`}
+                hitSlop={12}
               >
                 <Ionicons name="close" size={12} color="#FFFFFF" />
               </TouchableOpacity>
@@ -221,7 +161,7 @@ export const ReceiptAttachmentField: React.FC<ReceiptAttachmentFieldProps> = ({
 interface ReceiptInlineStripProps {
   images?: string[];
   title: string;
-  onUpdateImages?: (nextImages: string[]) => void;
+  onUpdateImages?: (nextImages: string[]) => void | boolean;
   accentColor?: string;
   compactLabel?: string;
 }
@@ -231,7 +171,7 @@ interface ReceiptInlineStripProps {
  * and Contact Ledgers to view or attach transfer receipt images on the fly.
  */
 export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
-  images = [],
+  images = EMPTY_RECEIPTS,
   title,
   onUpdateImages,
   accentColor,
@@ -240,21 +180,16 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
   const { theme } = useMali();
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const color = accentColor || theme.primary;
-
-  const handleQuickAdd = async () => {
-    if (!onUpdateImages) return;
-    const picked = await pickReceiptImagesFromDevice();
-    if (picked.length > 0) {
-      onUpdateImages([...images, ...picked]);
-    }
-  };
+  const selection=useReceiptSelection(images,onUpdateImages);
+  const handleQuickAdd=()=>selection.pick('library');
 
   if (images.length === 0 && !onUpdateImages) {
     return null;
   }
 
   return (
-    <View style={styles.inlineRow}>
+    <View>
+      <View style={styles.inlineRow}>
       {images.length > 0 ? (
         <View style={styles.inlineThumbsGroup}>
           <TouchableOpacity
@@ -267,6 +202,8 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
             ]}
             onPress={() => setViewerIndex(0)}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={`عرض ${compactLabel} (${images.length})`}
           >
             <Image
               source={{ uri: images[0] }}
@@ -289,6 +226,10 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
                 },
               ]}
               onPress={handleQuickAdd}
+              disabled={selection.disabled}
+              accessibilityRole="button"
+              accessibilityLabel="إضافة صور إيصال من المعرض"
+              accessibilityState={{disabled:selection.disabled,busy:selection.isPicking}}
             >
               <Ionicons name="add" size={14} color={theme.textSecondary} />
             </TouchableOpacity>
@@ -305,6 +246,10 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
               },
             ]}
             onPress={handleQuickAdd}
+            disabled={selection.disabled}
+            accessibilityRole="button"
+            accessibilityLabel="اختيار صور إيصال من المعرض"
+            accessibilityState={{disabled:selection.disabled,busy:selection.isPicking}}
             activeOpacity={0.75}
           >
             <Ionicons
@@ -323,6 +268,15 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
           </TouchableOpacity>
         )
       )}
+      {onUpdateImages && <TouchableOpacity style={[styles.cameraBtn,{borderColor:theme.border,backgroundColor:theme.card}]}
+        disabled={selection.disabled} accessibilityRole="button" accessibilityLabel="التقاط صورة إيصال بالكاميرا"
+        accessibilityState={{disabled:selection.disabled,busy:selection.isPicking}} onPress={() => { void selection.pick('camera'); }}>
+        <Ionicons name="camera-outline" size={18} color={color} />
+      </TouchableOpacity>}
+      </View>
+      {(selection.message || images.length >= MAX_RECEIPTS) && <Text accessibilityRole="alert" style={[styles.pickerMessage,{color:theme.textSecondary}]}>
+        {selection.message || 'تم بلوغ الحد الأقصى (4 صور). احذف صورة لإضافة أخرى.'}
+      </Text>}
 
       <ReceiptViewerModal
         visible={viewerIndex !== null}
@@ -330,7 +284,7 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
         initialIndex={viewerIndex || 0}
         title={title}
         onClose={() => setViewerIndex(null)}
-        onAddMore={onUpdateImages ? handleQuickAdd : undefined}
+        onAddMore={onUpdateImages && !selection.disabled ? handleQuickAdd : undefined}
         onDeleteImage={
           onUpdateImages
             ? (idx) => {
@@ -538,6 +492,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   attachBtn: {
+    minHeight: 44,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
@@ -547,6 +502,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: 'dashed',
   },
+  cameraBtn: {minWidth:44,minHeight:44,borderWidth:1,borderRadius:10,alignItems:'center',justifyContent:'center',marginHorizontal:4},
+  pickerMessage: {fontSize:12,textAlign:'right',marginTop:6},
   attachBtnText: {
     fontSize: 12,
     fontWeight: 'bold',
@@ -591,6 +548,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   viewPill: {
+    minHeight:44,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
@@ -609,6 +567,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   addMoreMiniBtn: {
+    minWidth:44,minHeight:44,
     width: 26,
     height: 26,
     borderRadius: 7,
@@ -617,6 +576,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyAttachChip: {
+    minHeight:44,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 5,
