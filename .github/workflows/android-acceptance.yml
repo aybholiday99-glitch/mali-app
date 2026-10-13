@@ -32,48 +32,26 @@ jobs:
           java-version: '17'
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
+      - name: Prepare Android SDK command line tools
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
       - name: Generate isolated Android native project
         run: npx expo prebuild --platform android --no-install
       - name: Compile native debug APK
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew :app:assembleDebug --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
-      - name: Install Android emulator components
-        run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "platforms;android-35" "system-images;android-35;google_apis;x86_64" "emulator" "platform-tools"
-          echo no | avdmanager create avd -n mali-ci -k "system-images;android-35;google_apis;x86_64" --force
-      - name: Boot Android emulator and smoke-test Mali
-        timeout-minutes: 12
-        run: |
-          mkdir -p android-acceptance-evidence
-          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
-          nohup "$ANDROID_HOME/emulator/emulator" -avd mali-ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > android-acceptance-evidence/emulator.log 2>&1 &
-          timeout 420 adb wait-for-device
-          deadline=$((SECONDS+420))
-          while [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" != "1" ]; do
-            if [ "$SECONDS" -gt "$deadline" ]; then
-              tail -n 120 android-acceptance-evidence/emulator.log
-              exit 1
-            fi
-            sleep 5
-          done
-          adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-          adb shell am force-stop com.aybholiday.mali || true
-          adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
-          sleep 18
-          APP_PID=$(adb shell pidof com.aybholiday.mali | tr -d '\r')
-          if [ -z "$APP_PID" ]; then
-            adb logcat -d -t 350 | tail -n 120
-            echo "ERROR: Mali native process crashed or failed to launch"
-            exit 1
-          fi
-          adb shell uiautomator dump /sdcard/mali-window.xml || true
-          adb pull /sdcard/mali-window.xml android-acceptance-evidence/mali-window.xml || true
-          adb shell screencap -p /sdcard/mali-smoke.png
-          adb pull /sdcard/mali-smoke.png android-acceptance-evidence/mali-smoke.png
-          echo "PASS native Android emulator app process: $APP_PID"
+          ./gradlew :app:assembleDebug --no-daemon --max-workers=2 -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
+      - name: Run Mali APK on real Android emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 15
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: bash scripts/androidSmoke.sh
       - name: Upload debug and emulator evidence (never a production release)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
