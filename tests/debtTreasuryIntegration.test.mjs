@@ -847,3 +847,99 @@ test('Debt & Treasury Integration — Full Accounting Flow & Lifecycle', async (
     assert.equal(negBankFail.deficit, 100);
   });
 });
+
+
+test('cash installment reversal requires both transaction identity and installment identity', () => {
+  let state = createInitialState();
+  state = addDebtRecordMutation(state, {
+    id: 'identity-debt', personName: 'العميل', direction: 'receivable',
+    currency: 'LYD', totalAmount: 500, accountId: 'acc-cash-lyd',
+  });
+  state = settleDebtInstallmentMutation(state, {
+    debtId: 'identity-debt', installmentId: 'identity-installment', amount: 100,
+    accountId: 'acc-bank-lyd', paymentMethod: 'transfer',
+  });
+  const installment = state.debts[0].installments[0];
+  const linkedTx = state.transactions.find((tx) => tx.id === installment.transactionId);
+  assert.ok(linkedTx);
+
+  // The matching installmentId MUST NOT rescue a different transactionId.
+  const wrongPointer = {
+    ...state,
+    debts: state.debts.map((d) => ({
+      ...d,
+      installments: d.installments.map((i) =>
+        i.id === installment.id ? { ...i, transactionId: 'another-valid-looking-id' } : i),
+    })),
+  };
+  assert.strictEqual(
+    deleteDebtInstallmentMutation(wrongPointer, 'identity-debt', installment.id),
+    wrongPointer,
+  );
+  assert.strictEqual(deleteTransactionMutation(wrongPointer, linkedTx.id), wrongPointer);
+
+  // The reverse mismatch (correct transaction ID, wrong installmentId) also fails.
+  const wrongInstallment = {
+    ...state,
+    transactions: state.transactions.map((tx) =>
+      tx.id === linkedTx.id ? { ...tx, installmentId: 'another-installment' } : tx),
+  };
+  assert.strictEqual(
+    deleteDebtInstallmentMutation(wrongInstallment, 'identity-debt', installment.id),
+    wrongInstallment,
+  );
+  assert.strictEqual(deleteTransactionMutation(wrongInstallment, linkedTx.id), wrongInstallment);
+  const afterValid = deleteDebtInstallmentMutation(state, 'identity-debt', installment.id);
+  assert.equal(afterValid.accounts.find((a) => a.id === 'acc-bank-lyd').balance, 5000);
+  assert.equal(afterValid.debts[0].remainingAmount, 500);
+});
+
+test('legacy cash installment with account reference but missing journal requires reconciliation', () => {
+  let state = createInitialState();
+  state = addDebtRecordMutation(state, {
+    id: 'legacy-treasury-debt', personName: 'العميل', direction: 'receivable',
+    currency: 'LYD', totalAmount: 300,
+  });
+  state = {
+    ...state,
+    debts: state.debts.map((d) => ({
+      ...d, paidAmount: 100, remainingAmount: 200,
+      installments: [{
+        id: 'legacy-with-cash', amount: 100,
+        accountId: 'acc-cash-lyd', paymentMethod: 'cash',
+        date: '2026-10-12T00:00:00.000Z',
+      }],
+    })),
+  };
+  assert.strictEqual(
+    deleteDebtInstallmentMutation(state, 'legacy-treasury-debt', 'legacy-with-cash'),
+    state,
+  );
+});
+
+test('non-cash installment with a forged linked transaction cannot be silently reversed', () => {
+  let state = createInitialState();
+  state = addDebtRecordMutation(state, {
+    id: 'noncash-audit-debt', personName: 'العميل', direction: 'receivable',
+    currency: 'LYD', totalAmount: 300,
+  });
+  state = settleDebtInstallmentMutation(state, {
+    debtId: 'noncash-audit-debt', installmentId: 'noncash-audit-inst',
+    amount: 100, settlementType: 'non_cash', isNonCash: true,
+    nonCashReason: 'مقاصة مؤكدة',
+  });
+  const tampered = {
+    ...state,
+    transactions: [...state.transactions, {
+      id: 'forged-noncash-tx', installmentId: 'noncash-audit-inst',
+      debtId: 'noncash-audit-debt', title: 'forged', type: 'debt_settlement',
+      amount: 100, currency: 'LYD', category: 'تحصيل ديون',
+      accountId: 'acc-cash-lyd', paymentMethod: 'cash',
+      date: '2026-10-12T00:00:00.000Z',
+    }],
+  };
+  assert.strictEqual(
+    deleteDebtInstallmentMutation(tampered, 'noncash-audit-debt', 'noncash-audit-inst'),
+    tampered,
+  );
+});
