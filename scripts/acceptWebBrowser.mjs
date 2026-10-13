@@ -163,11 +163,21 @@ try {
     "document.readyState === 'complete' && document.body && document.body.innerText.trim().length > 10"),
   'Mali actual web UI mount');
   console.log('PASS real Chromium renders Mali web app', await evaluate(call, 'document.title'));
-  const guestEntered = await until(async () => {
-    try {
-      return await evaluate(call, "(() => { const elements = [...document.querySelectorAll('button,[role=button]')]; const entry = elements.find(el => (el.textContent || '').includes('الدخول السريع المباشر إلى خزنتي المحلية')); if (!entry) return false; entry.click(); return true; })()");
-    } catch { return false; }
-  }, 'offline guest entry after provider bootstrap', 60000);
+  let guestEntered = false;
+  try {
+    guestEntered = await until(async () => {
+      try {
+        return await evaluate(call, "(() => { const elements = [...document.querySelectorAll('button,[role=button]')]; const entry = elements.find(el => (el.textContent || '').includes('الدخول السريع المباشر إلى خزنتي المحلية')); if (!entry) return false; entry.click(); return true; })()");
+      } catch { return false; }
+    }, 'offline guest entry after provider bootstrap', 18000);
+  } catch (error) {
+    // This browser uses a disposable profile: only UI labels and router URL
+    // are recorded, never persisted account payloads or authentication tokens.
+    const snapshot = await evaluate(call,
+      "({ url:location.pathname, title:document.title, text:document.body.innerText.slice(0,500), buttons:[...document.querySelectorAll('button,[role=button]')].slice(0,15).map(x=>(x.textContent||'').slice(0,80)) })");
+    console.error('AUTH_BOOTSTRAP_DIAGNOSTICS', JSON.stringify(snapshot));
+    throw error;
+  }
   assert.equal(guestEntered, true, 'The real web UI must expose the offline guest entry button');
   await until(async () => {
     try {
