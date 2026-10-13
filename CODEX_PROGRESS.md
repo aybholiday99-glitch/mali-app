@@ -181,3 +181,21 @@ guard fixes,4regressionsPASS, actual coldstartup+guestentryPASS. Native acceptan
 and2tests;18PASS/typePASS/lint0errors13baselinewarnings. Root review pending. Next bounded work:
 10k-list rendering and accessible archived-version retrieval. Latest completed CI f7437ca run
 38334145618 app511PASS, PG1716+67+17/fullrestorePASS, SAST/actualLinuxconsumersPASS; rawaudit4highFAIL.
+
+
+## 2026-10-13 Android exports and bounded rendering
+
+Actual Android synthetic accounts1000/0 ->transfer100 ->expense12.34 yields887.66/100;
+coldrestart retains987.66 aggregate,2transactions and5auditevents. Native JSON share/actualfile
+12,626bytes valid/no config; native Downloads picker+explicitrestorePASS; guest cloudPushrefuses.
+Native PDF first failed because SDK57 File.copy is asynchronous. ecfa1f6 awaits copy before
+verification/cleanup/share;18nativecore+integration testsPASS with heldcopyandfailure. Actual
+Android PDFsharePASS;93,493bytePDF SHA256a93219c15fb98152180137b110a958b5587d95cb8c68b760c6ddee4a59871712.
+Root Poppler rendered/inspected1page ArabicRTL/987.66/887.66/100/12.34/100: legible/no clipping.
+4cc30c7 integrates paged rows6screens/dropdown/fullsearch, totals/exportsunchanged. Root independent
+27testsPASS; same beforebenchmark now100/1k/10kall542hostnodes,207Text;10k36mshostonlynotnative.
+Realbrowser10k2.6MBimport then exposedWeblocalStoragecapacity: failsafely,old92.23/1tx survivesreload.
+STORAGE-116 OPEN, requires highercapacitywebbackendwithlosslessmigration; no data deleted.
+a1b7e40 CI38337593008 type/lint/PG/SAST/consumerPASS but app tests15fail: newnative guard exposed
+oldtestmocks with missingplatformor pretendingiOShasbrowseronlineevents. d74a5c7 uses explicit
+platformfixturesandseparateweb/nativecycles;32targetedPASS. Final newsource CIstillrequired.

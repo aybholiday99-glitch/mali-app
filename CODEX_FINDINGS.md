@@ -68,3 +68,5 @@ Final additional repairs:
 | FIN-115 | High | Financial success preceded disk; queued DTO mutations changed amounts or conflated explicit clears | VERIFIED_LOCAL:4527b7a/fd69c5d verified serialized exact candidate/outbox before Promise-success, invocation snapshots preserve absence; independent61 regressions/original probes PASS |
 
 No ownership inference for21 legacy records. Local verification does not mean production completion.
+
+| STORAGE-116 | High | Web AsyncStorage uses localStorage; full cold evidence plus candidate/audit exceeds the small origin quota during a 2.6MB/10k-row import | OPEN: actual browser4cc30c7 safely refused import, reload preserved92.23/one transaction; implement reviewed durable web backend and lossless migration, then repeat exact fixture |
