@@ -20,6 +20,8 @@ import { createDurableSyncWorker, type CloudSyncStatus, type SyncOutbox, type Sy
 import { subscribeSyncLifecycle } from '../services/syncLifecycle';
 import { syncConfigIdentity, validateSyncOutbox } from '../services/syncOutboxValidation';
 import { financialStorage } from '../services/financialStorage';
+import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
+import { createCentralVaultSession } from '../services/centralVaultSession';
 import { appendFinancialAudit, financialOperationId } from '../services/financialAudit';
 import type { FinancialAuditMetadata } from '../types/financialAudit';
 import { financialDate } from '../services/financialDate';
@@ -285,6 +287,15 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const stateRef = useRef(state);
   const durableStateRef = useRef(state);
   const userRef = useRef<AuthUser | null>(null);
+  const centralSession = useRef(createCentralVaultSession(
+    { pull: (config, user) => pullStateFromSupabase(config, user),
+      push: (candidate, config, user) => pushStateToSupabase(candidate, config, user) },
+    (user) => ({
+      ...emptyFinancialState(INITIAL_MALI_STATE),
+      budgets: [],
+      supabaseConfig: { ...INITIAL_MALI_STATE.supabaseConfig, workspaceKey: `mali-vault-${user.id}`, lastSyncedAt: undefined },
+    }),
+  ));
   const syncQueue = useRef(new SerialQueue());
   const storageQueue = useRef(new SerialQueue());
   const mutationQueue = useRef(new SerialQueue());
@@ -303,6 +314,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const applyState = (next: MaliState) => { durableStateRef.current = next; stateRef.current = next; setState(next); };
 
   const saveCache = (next: MaliState, ownerId?: string | null, retained?: SyncOutbox<MaliState> | null) => {
+    if (CENTRAL_SERVER_ONLY) return Promise.reject(new Error('التخزين المالي على جهاز العميل محظور في الوضع المركزي.'));
     const record = retained === undefined ? syncWorker.current?.getRecord() : retained;
     const raw = JSON.stringify({ ...next, cloudOutbox: record?.ownerId === ownerId ? record : undefined });
     return storageQueue.current.run(async () => {
@@ -313,6 +325,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   function activateWorker() {
+    if (CENTRAL_SERVER_ONLY) return;
     syncWorker.current?.setActive(foreground.current && !hydrating.current && !recoveryRequired.current && !pendingMutation.current && !configurationSaving.current && stateRef.current.supabaseConfig.autoSync);
   }
 
@@ -409,6 +422,23 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     if (!staged || !scope.current.isCurrent(staged.token) || staged.configId !== syncConfigIdentity(stateRef.current.supabaseConfig)) return false;
     setMutationStatus({ phase: 'saving' }); setLastSyncMessage(null);
     const { user, token, next, revision, configId } = staged;
+    if (CENTRAL_SERVER_ONLY) {
+      if (!user || user.isLocalOnly) return false;
+      const confirmed = await centralSession.current.update(() => next);
+      if (!scope.current.isCurrent(token) || pendingMutation.current !== staged) return false;
+      pendingMutation.current = null;
+      if (!confirmed.ok) {
+        recoveryRequired.current = true;
+        setMutationStatus({ phase: 'storage-error' });
+        setLastSyncMessage(confirmed.message + ' أعد تسجيل الدخول لاسترجاع النسخة الموثّقة.');
+        return false;
+      }
+      localRevision.current = revision;
+      applyState(confirmed.state);
+      setMutationStatus({ phase: 'idle' });
+      setLastSyncMessage('تم اعتماد العملية وحفظها على الخادم المركزي.');
+      return true;
+    }
     const worker = syncWorker.current || (user && !user.isLocalOnly ? startSyncWorker(user, token) : null);
     worker?.setActive(false);
     try {
@@ -1038,6 +1068,10 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const updateSupabaseConfig = async (cfg: Partial<SupabaseConfig>) => {
+    if (CENTRAL_SERVER_ONLY) {
+      setLastSyncMessage('خادم مالي المركزي ثابت ويديره المسؤول؛ لا يمكن للعميل تغييره.');
+      return false;
+    }
     const token = mutationSession;
     if (!scope.current.isCurrent(token) || hydrating.current || recoveryRequired.current || isFinancialMutationLocked() || configurationSaving.current) return false;
     const snapshot = captureFinancialInput(cfg); if (!snapshot) return false;
@@ -1067,6 +1101,9 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const syncToCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
+    if (CENTRAL_SERVER_ONLY) return {
+      ok: false, success: false, message: 'الحفظ يتم مباشرة على الخادم مع كل عملية؛ لا توجد قائمة رفع محلية.',
+    };
     const token = mutationSession;
     const user = userRef.current;
     try {
@@ -1089,6 +1126,28 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const pullFromCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
+    if (CENTRAL_SERVER_ONLY) {
+      const user = userRef.current, token = mutationSession;
+      if (!user || user.isLocalOnly || !scope.current.isCurrent(token) || hydrating.current ||
+          isFinancialMutationLocked() || configurationSaving.current) {
+        return { ok: false, success: false, message: 'يلزم إنهاء العملية الجارية وتسجيل الدخول بحساب سحابي.' };
+      }
+      setIsSyncing(true);
+      try {
+        const fresh = await centralSession.current.open(user, stateRef.current.supabaseConfig);
+        if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
+        if (!fresh.ok) {
+          recoveryRequired.current = true;
+          setLastSyncMessage(fresh.message);
+          return { ok: false, success: false, message: fresh.message };
+        }
+        recoveryRequired.current = false;
+        applyState(fresh.state);
+        setMutationStatus({ phase: 'idle' });
+        setLastSyncMessage('تم تحديث البيانات المالية مباشرة من الخادم.');
+        return { ok: true, success: true, message: 'تم تحديث البيانات المالية من الخادم.' };
+      } finally { if (scope.current.isCurrent(token)) setIsSyncing(false); }
+    }
     const token = mutationSession;
     const user = userRef.current;
     if (!scope.current.isCurrent(token) || hydrating.current || recoveryRequired.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
@@ -1251,6 +1310,10 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const importStateJson = async (jsonStr: string): Promise<boolean> => {
+    if (CENTRAL_SERVER_ONLY) {
+      setLastSyncMessage('استيراد ملفات الخزنة مباشرة إلى الهاتف معطل. تُرحّل النسخ القديمة عبر عملية مؤمّنة إلى الخادم فقط.');
+      return false;
+    }
     if (!scope.current.isCurrent(mutationSession) || hydrating.current || isFinancialMutationLocked() || configurationSaving.current) return false;
     const validation = validateAndSanitizeBackupPayload(jsonStr, stateRef.current);
     if (!validation.valid || !validation.state) return false;
@@ -1291,6 +1354,10 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   function loginUser(user: AuthUser) {
+    if (CENTRAL_SERVER_ONLY && user.isLocalOnly) {
+      setLastSyncMessage('الدخول كضيف غير متاح؛ بيانات العملاء تُحفظ حصرياً على الخادم.');
+      return;
+    }
     conflictRequest.current?.abort(); conflictRequest.current = null;
     pendingMutation.current = null; cacheReplacement.current = null; configurationSaving.current = false; mutationRequests.current = 0;
     setMutationStatus({ phase: 'idle' });
@@ -1314,6 +1381,43 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     applyState(userState);
     (async () => {
       const key = getStorageKeyForUser(user.id);
+      if (CENTRAL_SERVER_ONLY) {
+        try {
+          // Pre-cutover legacy records MUST NOT be discarded or silently ignored.
+          const previous = await storageQueue.current.run(() => financialStorage.getItem(key));
+          if (!scope.current.isCurrent(token)) return;
+          if (previous !== null) {
+            recoveryRequired.current = true;
+            setLastSyncMessage('توجد خزنة محفوظة على هذا الجهاز. يلزم ترحيلها والتحقق من نسخة الخادم قبل التحويل إلى الوضع المركزي؛ لم تُحذف البيانات.');
+            setCurrentUser(null);
+            return;
+          }
+          const opened = await centralSession.current.open(user, userState.supabaseConfig);
+          if (!scope.current.isCurrent(token)) return;
+          if (!opened.ok) {
+            recoveryRequired.current = true;
+            setLastSyncMessage(opened.message);
+            setCurrentUser(null);
+            return;
+          }
+          applyState(opened.state);
+          await savePersistedSessionUser(user, opened.state.supabaseConfig);
+          setLastSyncMessage('تم تحميل الخزنة المعتمدة من الخادم فقط.');
+        } catch {
+          if (scope.current.isCurrent(token)) {
+            recoveryRequired.current = true;
+            setCurrentUser(null);
+            setLastSyncMessage('تعذر التحقق من البيانات على الخادم. مُنعت العمليات لحماية سجلات العميل.');
+          }
+        } finally {
+          if (scope.current.isCurrent(token)) {
+            hydrating.current = false;
+            setIsLoading(false);
+            setIsSyncing(false);
+          }
+        }
+        return;
+      }
       let cacheLoaded = false;
       let identityVerified = false;
       let outbox: SyncOutbox<MaliState> | null = null;
@@ -1402,6 +1506,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   }
 
   function invalidateLocalSession() {
+    centralSession.current.clear();
     conflictRequest.current?.abort(); conflictRequest.current = null;
     pendingMutation.current = null; cacheReplacement.current = null; configurationSaving.current = false; mutationRequests.current = 0;
     setMutationStatus({ phase: 'idle' });
