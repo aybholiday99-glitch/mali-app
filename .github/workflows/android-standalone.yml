@@ -1,0 +1,71 @@
+name: Mali standalone Android candidate acceptance
+on:
+  push:
+    branches: ['codex/mali-production-audit']
+    paths:
+      - '.github/workflows/android-standalone.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+permissions:
+  contents: read
+jobs:
+  android-release-candidate:
+    name: Unsigned-store Android standalone APK + emulator acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Locked dependency install
+        run: npm ci --ignore-scripts
+      - name: Create isolated Android native project
+        run: npx expo prebuild --platform android --no-install
+      - name: Compile self-contained release variant (test signing only)
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
+      - name: Check standalone APK embedded JS and test signing
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          unzip -Z1 "$APK" | grep -Eq '^assets/index.android.bundle$'
+          echo "PASS: JS included. This APK is NOT signed with a production key."
+          SIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$SIGNER"
+          "$SIGNER" verify --verbose "$APK"
+      - name: Run standalone APK on isolated Android emulator WITHOUT Metro
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 15
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: bash scripts/androidStandaloneSmoke.sh
+      - name: Upload candidate APK and logs (not store-ready)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mali-android-standalone-test-key-acceptance
+          if-no-files-found: warn
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android-standalone-evidence/
