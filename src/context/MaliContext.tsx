@@ -23,6 +23,8 @@ import { appendFinancialAudit, financialOperationId } from '../services/financia
 import type { FinancialAuditMetadata } from '../types/financialAudit';
 import { financialDate } from '../services/financialDate';
 import { snapshotFinancialInput } from '../services/financialInputSnapshot';
+import { conflictSnapshotForReview, prepareConflictResolution, type ConflictChoice, type ConflictReviewToken } from '../services/conflictResolutionCore';
+import type { CloudConflictReview, CloudConflictResolutionResult } from '../types/cloudConflict';
 import {
   pullStateFromSupabase,
   pushStateToSupabase,
@@ -229,6 +231,8 @@ interface MaliContextValue {
   syncToCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   pullFromCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   importStateJson: (jsonStr: string) => Promise<boolean>;
+  inspectCloudConflict: () => CloudConflictReview | null;
+  resolveCloudConflict: (review: Readonly<ConflictReviewToken>, choice: ConflictChoice, reason: string) => Promise<CloudConflictResolutionResult>;
 }
 
 const MaliContext = createContext<MaliContextValue | undefined>(undefined);
@@ -289,6 +293,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const hydrating = useRef(false);
   const foreground = useRef(true);
   const syncWorker = useRef<ReturnType<typeof createDurableSyncWorker<MaliState>> | null>(null);
+  const conflictRequest = useRef<AbortController | null>(null);
   const applyState = (next: MaliState) => { durableStateRef.current = next; stateRef.current = next; setState(next); };
 
   const saveCache = (next: MaliState, ownerId?: string | null, retained?: SyncOutbox<MaliState> | null) => {
@@ -307,11 +312,11 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
 
   function startSyncWorker(user: AuthUser, token: ReturnType<SessionScope['capture']>, initial?: SyncOutbox<MaliState>) {
     syncWorker.current?.dispose();
-    const worker = createDurableSyncWorker<MaliState>({
+    const worker: ReturnType<typeof createDurableSyncWorker<MaliState>> = createDurableSyncWorker<MaliState>({
       ownerId: user.id, initial, scheduler: syncScheduler,
       withBaseline: (payload, timestamp) => ({ ...payload, supabaseConfig: { ...payload.supabaseConfig, lastSyncedAt: timestamp } }),
       persist: record => storageQueue.current.run(async () => {
-        if (!scope.current.isCurrent(token)) throw new Error('Stale session.');
+        if (!scope.current.isCurrent(token) || syncWorker.current !== worker) throw new Error('Stale worker.');
         const before = stateRef.current;
         const staged = pendingMutation.current;
         const writesCandidate = !!staged && scope.current.isCurrent(staged.token) && staged.user?.id === record.ownerId &&
@@ -329,7 +334,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         const key = getStorageKeyForUser(user.id);
         await financialStorage.setItem(key, raw);
         if (await financialStorage.getItem(key) !== raw) throw new Error('Unverified outbox write.');
-        if (!scope.current.isCurrent(token)) throw new Error('Stale session.');
+        if (!scope.current.isCurrent(token) || syncWorker.current !== worker) throw new Error('Stale worker.');
         if (writesCandidate) {
           if (pendingMutation.current === staged) staged.verified = next;
           else if (durableStateRef.current.localRevision === staged.revision) {
@@ -343,16 +348,16 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         } else if (stateRef.current === before) applyState(next);
       }),
       send: (payload, signal) => syncQueue.current.run(async () => {
-        if (!scope.current.isCurrent(token) || signal.aborted) return { ok: false, success: false, failureKind: 'session', message: 'تغيرت جلسة المستخدم.' };
+        if (!scope.current.isCurrent(token) || syncWorker.current !== worker || signal.aborted) return { ok: false, success: false, failureKind: 'session', message: 'تغيرت جلسة المستخدم.' };
         if (syncConfigIdentity(payload.supabaseConfig) !== syncConfigIdentity(stateRef.current.supabaseConfig)) return { ok: false, success: false, failureKind: 'configuration', message: 'تغير مشروع المزامنة. تم إلغاء طلب الرفع السابق.' };
         return pushStateToSupabase(payload, payload.supabaseConfig, user, { signal });
       }),
       onStatus: status => {
-        if (!scope.current.isCurrent(token)) return;
+        if (!scope.current.isCurrent(token) || syncWorker.current !== worker) return;
         setCloudSyncStatus(status); setIsSyncing(status.phase === 'uploading');
         if (status.phase === 'storage-error') setLastSyncMessage('تعذر حفظ قائمة الرفع على الجهاز. تم إيقاف الرفع؛ صدّر نسخة احتياطية وأعد المحاولة.');
       },
-      onResult: result => { if (scope.current.isCurrent(token)) setLastSyncMessage(result.message); },
+      onResult: result => { if (scope.current.isCurrent(token) && syncWorker.current === worker) setLastSyncMessage(result.message); },
     });
     syncWorker.current = worker;
     return worker;
@@ -380,7 +385,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         if (mounted && scope.current.isCurrent(boot)) setIsLoading(false);
       }
     })();
-    return () => { mounted = false; scope.current.begin(null); syncWorker.current?.dispose(); };
+    return () => { mounted = false; scope.current.begin(null); conflictRequest.current?.abort(); syncWorker.current?.dispose(); };
   }, []);
 
   const toggleTheme = () => {
@@ -1039,7 +1044,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const syncToCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
-    const token = scope.current.capture();
+    const token = mutationSession;
     const user = userRef.current;
     try {
       if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
@@ -1061,13 +1066,15 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const pullFromCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
-    const token = scope.current.capture();
+    const token = mutationSession;
     const user = userRef.current;
+    if (!scope.current.isCurrent(token) || hydrating.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
     setIsSyncing(true);
     return syncQueue.current.run(async () => {
     const before = stateRef.current;
     try {
       if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
+      if (hydrating.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
       if (isFinancialMutationLocked() || configurationSaving.current) return { ok: false, success: false, message: 'أكمل حفظ العملية على الجهاز قبل الاسترجاع.' };
       const res = await pullStateFromSupabase(overrideCfg || before.supabaseConfig, user);
       if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
@@ -1123,6 +1130,101 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     });
   };
 
+  /** Archive first, then one verified commit of finances AND the replacement outbox. */
+  async function recoverEnvelope(next: MaliState, record: SyncOutbox<MaliState> | undefined,
+    evidence: string, token: ReturnType<SessionScope['capture']>, user: AuthUser | null, before: MaliState) {
+    const current = () => scope.current.isCurrent(token) && stateRef.current === before;
+    const raw = JSON.stringify({ ...next, cloudOutbox: record });
+    await storageQueue.current.run(async () => {
+      if (!current()) throw new Error('Stale recovery.');
+      const key = getStorageKeyForUser(user?.id);
+      await financialStorage.recoverItem(key, raw, evidence, current);
+      if (await financialStorage.getItem(key) !== raw) throw new Error('Unverified recovery.');
+    });
+    if (!current()) return false;
+    localRevision.current = next.localRevision!; recoveryRequired.current = false; applyState(next);
+    if (user && !user.isLocalOnly) startSyncWorker(user, token, record);
+    return true;
+  }
+
+  const inspectCloudConflict = (): CloudConflictReview | null => {
+    const user = userRef.current, token = mutationSession, record = syncWorker.current?.getRecord();
+    if (!scope.current.isCurrent(token) || !user || user.isLocalOnly || hydrating.current || isFinancialMutationLocked() || configurationSaving.current
+      || record?.stop?.reason !== 'conflict' || !record.stop.attempted || !record.stop.result.cloudState || !record.stop.result.updatedAt
+      || record.ownerId !== user.id || record.configId !== syncConfigIdentity(stateRef.current.supabaseConfig)) return null;
+    try {
+      const original = conflictSnapshotForReview(record.stop.result.cloudState as MaliState);
+      return Object.freeze({ token: Object.freeze({ ownerId: user.id, sessionGeneration: token.generation, configId: record.configId,
+        localRevision: localRevision.current, cloudTimestamp: record.stop.result.updatedAt }), local: conflictSnapshotForReview(stateRef.current),
+        cloud: original, originalCloud: original, attempted: conflictSnapshotForReview(record.stop.attempted.payload) });
+    } catch { return null; }
+  };
+
+  const resolveCloudConflict = async (suppliedReview: Readonly<ConflictReviewToken>, choice: ConflictChoice, reason: string): Promise<CloudConflictResolutionResult> => {
+    const fail = (message: string): CloudConflictResolutionResult => ({ ok: false, success: false, conflictDetected: true, message });
+    let review: ConflictReviewToken;
+    try { review = snapshotFinancialInput(suppliedReview).value; } catch { return fail('تعذر قراءة قرار التعارض. أعد مراجعة النسختين.'); }
+    if (!['keep-local', 'adopt-cloud'].includes(choice) || typeof reason !== 'string' || !reason.trim() || reason.length > 2048)
+      return fail('اكتب سبب اعتماد النسخة قبل حل التعارض.');
+    const token = mutationSession, user = userRef.current, before = stateRef.current, worker = syncWorker.current, record = worker?.getRecord();
+    if (!scope.current.isCurrent(token) || !user || user.isLocalOnly || hydrating.current || isFinancialMutationLocked() || configurationSaving.current
+      || !record || record.stop?.reason !== 'conflict' || review.ownerId !== user.id || review.sessionGeneration !== token.generation
+      || review.configId !== syncConfigIdentity(before.supabaseConfig) || review.localRevision !== localRevision.current)
+      return fail('تغيرت الجلسة أو النسخة المحلية. أعد مراجعة النسختين قبل القرار.');
+    const controller = new AbortController(); conflictRequest.current = controller;
+    const current = () => scope.current.isCurrent(token) && stateRef.current === before && syncWorker.current === worker
+      && worker?.getRecord() === record && !controller.signal.aborted;
+    hydrating.current = true; activateWorker(); setIsSyncing(true);
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    let replacedWorker = false;
+    try {
+      const fresh = await syncQueue.current.run(async () => {
+        if (!current()) return { ok: false, success: false, message: 'تم إلغاء مراجعة التعارض.' };
+        return Promise.race([pullStateFromSupabase(before.supabaseConfig, user, { signal: controller.signal }),
+          new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error('Cancelled review.')), { once: true }))]);
+      });
+      clearTimeout(timer);
+      if (!current()) return fail('تم إلغاء المراجعة أو تغيرت النسخة. بقي التعارض محفوظاً.');
+      const prepared = prepareConflictResolution({ choice, reason, review, current: { ownerId: user.id, sessionGeneration: token.generation,
+        configId: syncConfigIdentity(before.supabaseConfig), localRevision: localRevision.current }, local: before, blockedOutbox: record,
+        freshCloud: { ownerId: user.id, configId: syncConfigIdentity(before.supabaseConfig), identityVerified: fresh.identityVerified,
+          snapshotUpdatedAt: fresh.snapshotUpdatedAt ?? null, state: 'state' in fresh ? fresh.state : undefined, isEmpty: 'isEmpty' in fresh ? fresh.isEmpty : undefined } });
+      if (prepared.status === 'refused') return fail(prepared.message);
+      if (prepared.status === 'changed-cloud') {
+        const cached = inspectConflictDuringLock();
+        return { ...fail('تغيرت النسخة السحابية. اعرض النسخة الجديدة وراجعها ثم اختر قراراً جديداً؛ لم تتغير الخزنة.'),
+          review: cached ? Object.freeze({ ...cached, token: prepared.review, cloud: prepared.cloud }) : undefined };
+      }
+      // No second enqueue/write after publication: readyRecord is included in the same commit.
+      if (!current()) return fail('تغيرت النسخة أثناء المراجعة.');
+      worker?.dispose(); syncWorker.current = null; replacedWorker = true;
+      const committed = await recoverEnvelope(prepared.candidate as MaliState, prepared.readyRecord as SyncOutbox<MaliState>,
+        JSON.stringify(prepared.evidence), token, user, before);
+      if (!committed) return fail('تغيرت الجلسة. بقيت أدلة القرار محفوظة.');
+      return { ok: true, success: true, updatedAt: prepared.readyRecord.syncedAt,
+        message: choice === 'keep-local' ? 'تم حفظ القرار وجميع النسخ على هذا الجهاز. تنتظر المحلية رفعاً عادياً يتحقق من التعارض مجدداً.'
+          : 'تم اعتماد السحابية على هذا الجهاز وحفظ جميع النسخ السابقة للاسترجاع. لم تُرفع بيانات إلى السحابة.' };
+    } catch {
+      if (replacedWorker && scope.current.isCurrent(token)) {
+        recoveryRequired.current = true;
+        // Retain a blocked, inactive record for review/retry. Never overwrite an uncertain commit.
+        if (!syncWorker.current) startSyncWorker(user, token, record);
+      }
+      return fail('تعذر تأكيد مراجعة التعارض أو حفظ أدلته. بقي الرفع متوقفاً؛ أعد المراجعة أو افتح الخزنة مجدداً.');
+    } finally {
+      clearTimeout(timer);
+      if (conflictRequest.current === controller) conflictRequest.current = null;
+      if (scope.current.isCurrent(token)) { hydrating.current = false; setIsSyncing(false); activateWorker(); }
+    }
+    function inspectConflictDuringLock(): CloudConflictReview | null {
+      try {
+        const original = conflictSnapshotForReview(record!.stop!.result.cloudState as MaliState);
+        return { token: review, local: conflictSnapshotForReview(before), cloud: original, originalCloud: original,
+          attempted: conflictSnapshotForReview(record!.stop!.attempted!.payload) };
+      } catch { return null; }
+    }
+  };
+
   const importStateJson = async (jsonStr: string): Promise<boolean> => {
     if (!scope.current.isCurrent(mutationSession) || hydrating.current || isFinancialMutationLocked() || configurationSaving.current) return false;
     const validation = validateAndSanitizeBackupPayload(jsonStr, stateRef.current);
@@ -1137,30 +1239,30 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     try {replacement=preserveSourceHistory?validation.state:appendFinancialAudit(before,imported,{ownerId,action:'backup_import',reason:'استعادة نسخة احتياطية اختارها المستخدم على هذا الجهاز.'});}
     catch {setLastSyncMessage('تعذر اعتماد النسخة مع السجل المالي الحالي.');return false;}
     const retained=syncWorker.current?.getRecord();
+    const revision=Math.max(localRevision.current,retained?.pending?.revision||0,retained?.acknowledgedRevision||0,retained?.stop?.attempted?.revision||0)+1;
+    if(!Number.isSafeInteger(revision))return false;
     syncWorker.current?.dispose();syncWorker.current=null;hydrating.current=true;
-    const revision=localRevision.current+1;
-    const next={...touchState(replacement),localRevision:revision,pendingCloudSync:!!user && !user.isLocalOnly};
+    const sameConfig=!retained || retained.configId===syncConfigIdentity(replacement.supabaseConfig);
+    const next={...touchState(replacement),localRevision:revision,pendingCloudSync:!!user && !user.isLocalOnly,
+      supabaseConfig:{...replacement.supabaseConfig,lastSyncedAt:sameConfig?(retained?.syncedAt||replacement.supabaseConfig.lastSyncedAt):replacement.supabaseConfig.lastSyncedAt}};
+    const outbox:SyncOutbox<MaliState>|undefined=user && !user.isLocalOnly?{version:1,ownerId:user.id,configId:retained?.configId||syncConfigIdentity(next.supabaseConfig),
+      pending:{revision,payload:next},attempts:retained?.attempts||0,nextAttemptAt:retained?.nextAttemptAt||Date.now(),syncedAt:retained?.syncedAt||next.supabaseConfig.lastSyncedAt,
+      acknowledgedRevision:retained?.acknowledgedRevision,stop:retained?.stop||(!sameConfig?{reason:'configuration',result:{ok:false,success:false,message:'تغير مشروع المزامنة. تم الاحتفاظ بالنسختين.'}}:undefined)}:undefined;
     const {supabaseConfig:_sourceConfig,...sourceEvidence}=validation.state;
     try {
-      await storageQueue.current.run(()=>financialStorage.recoverItem(getStorageKeyForUser(user?.id),JSON.stringify({...next,cloudOutbox:retained}),JSON.stringify(sourceEvidence)));
-      if(!scope.current.isCurrent(token) || stateRef.current!==before)return false;
-      localRevision.current=revision;recoveryRequired.current=false;applyState(next);
-      if(user && !user.isLocalOnly) {
-        const worker=startSyncWorker(user,token,retained||undefined);
-        await worker.enqueue(next,revision,syncConfigIdentity(next.supabaseConfig),next.supabaseConfig.lastSyncedAt);
-      }
-      return scope.current.isCurrent(token);
-    } catch {if(scope.current.isCurrent(token))setLastSyncMessage('تعذر حفظ أدلة الاستعادة. تم الاحتفاظ بنسخ الاسترجاع.');return false;}
+      return await recoverEnvelope(next,outbox,JSON.stringify(sourceEvidence),token,user,before);
+    } catch {if(scope.current.isCurrent(token)){recoveryRequired.current=true;setLastSyncMessage('تعذر تأكيد حفظ الاستعادة. تم إيقاف التعديل والرفع؛ أعد الاسترجاع أو افتح الخزنة مجدداً.');}return false;}
     finally {
       if(scope.current.isCurrent(token)) {
         hydrating.current=false;
-        if(!recoveryRequired.current && user && !user.isLocalOnly && !syncWorker.current)startSyncWorker(user,token,retained||undefined);
+        if(user && !user.isLocalOnly && !syncWorker.current)startSyncWorker(user,token,retained||undefined);
         activateWorker();
       }
     }
   };
 
   function loginUser(user: AuthUser) {
+    conflictRequest.current?.abort(); conflictRequest.current = null;
     pendingMutation.current = null; cacheReplacement.current = null; configurationSaving.current = false; mutationRequests.current = 0;
     setMutationStatus({ phase: 'idle' });
     syncWorker.current?.dispose(); syncWorker.current = null;
@@ -1271,6 +1373,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   }
 
   function invalidateLocalSession() {
+    conflictRequest.current?.abort(); conflictRequest.current = null;
     pendingMutation.current = null; cacheReplacement.current = null; configurationSaving.current = false; mutationRequests.current = 0;
     setMutationStatus({ phase: 'idle' });
     syncWorker.current?.dispose(); syncWorker.current = null;
@@ -1359,6 +1462,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         syncToCloud,
         pullFromCloud,
         importStateJson,
+        inspectCloudConflict,
+        resolveCloudConflict,
       }}
     >
       {children}

@@ -147,3 +147,19 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   Seven actual SDK route/identity/history/provider checks PASS; type/lint/web build PASS.
 - Cloud/backup controls now expose semantic roles, labels, switch state and44px close target; guest
   status explicitly describes local saving. File selection is in the backup section.5focused checks PASS.
+
+- Serialized financial durability4527b7a and immutable invocation repairfd69c5d integrated; independent
+  review61/61 PASS, original amount5->30 and explicit-clear/{} collision fixed; all14 DTO/config/receipt
+  paths reject getters/coercion without writes. Exact IDs/audit/revision retained. ea7eced generation
+  UI/aborted Pull fences late A->logout->A responses.
+- Atomic backup/explicit conflict candidate: fresh verified ownership/exact CAS, renewed choice if
+  server changed, all versions cold-archived before one verified finance+readyOutbox commit. Keep-local
+  normal CAS can re-stop; cloud adoption sends nothing. Unknown commit fences stale RAM/network;
+  cancelled archive never replaces main head.129 integrated +3 actual UI tests PASS, types PASS,
+  scoped lint0errors/3existing warnings. Independent review pending. No production calls.
+- Android cold build failed JBR25 prefab stderr native-access warning despite subprocess EXIT0;
+  official hash-verified portable JDK21 fixed configure, cached C++ compilation ongoing. No APK/device
+  acceptance claimed. Six-screen accessibility map found unnamed fields/icons/missing states/small
+  targets; bounded isolated repair in progress.
+- Pushed6b79ee0 CI38328473640 app392/PG17 SQL/actual full restore/SAST/dependency provenance/actual
+  Linux consumers PASS; mandatory raw audit FAIL4high, one forge advisory. No suppression.

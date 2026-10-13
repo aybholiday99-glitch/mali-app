@@ -126,7 +126,8 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
      * Raw owned physical keys are copied and verified before replacing corrupt metadata.
      * Authentication/theme keys are neither read nor modified.
      */
-    recoverItem:(key: string,value: string,sourceEvidence?: string)=>serialize(key,async()=>{
+    recoverItem:(key: string,value: string,sourceEvidence?: string,canCommit:()=>boolean=()=>true)=>serialize(key,async()=>{
+      if(!canCommit())throw new Error('Cancelled financial recovery.');
       if(!backend.getAllKeys)throw new Error('Financial recovery requires a complete owned-key inventory.');
       const prefix=namespace(key)+':';
       const keys=(await backend.getAllKeys()).filter(name=>name===key || (name.startsWith(prefix) &&
@@ -139,6 +140,7 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
       while(await backend.getItem(headKey(evidenceKey))!==null || await backend.getItem(enrollmentKey(evidenceKey))!==null || await backend.getItem(evidenceKey)!==null);
       await serialize(evidenceKey,()=>write(evidenceKey,evidence));
       if(await read(evidenceKey)!==evidence)throw new Error('Unverified financial recovery evidence.');
+      if(!canCommit())throw new Error('Cancelled financial recovery.');
       await write(key,value,true);
       return evidenceKey;
     }),

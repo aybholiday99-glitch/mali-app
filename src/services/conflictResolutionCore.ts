@@ -131,7 +131,7 @@ export function conflictSnapshotForReview(state:MaliState):Readonly<FinancialCon
 /**
  * No I/O or authorization side effects. The provider owns the resolution lock,
  * fresh server pull, currentness checks around every await, and verified archive
- * before committing candidate+blockedRecord. Only then may it commit readyRecord.
+ * before committing candidate+readyRecord together in one verified cache envelope.
  * A prepared result is permission to stage a choice, never proof of persistence
  * or cloud acceptance. Keep-local still uses normal server CAS and can conflict.
  */

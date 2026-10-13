@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { FinancialHistoryPanel } from '../components/FinancialHistoryPanel';
+import { ConflictResolutionPanel } from '../components/ConflictResolutionPanel';
 import { createSafeDiagnostics } from '../services/diagnosticsCore';
 import { pickBackupFile,type BackupFileResult } from '../utils/backupFilePicker';
 import { SUPABASE_SQL_SCHEMA } from '../services/supabaseSync';
@@ -139,6 +140,7 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
 
           <ScrollView style={styles.scrollArea}>
             <FinancialHistoryPanel />
+            {cloudSyncStatus.outbox?.stop?.reason === 'conflict' && <ConflictResolutionPanel key={`${state.localRevision}:${cloudSyncStatus.outbox.stop.result.updatedAt}`} />}
             <View style={[styles.sectionBox,{backgroundColor:theme.cardAlt,borderColor:theme.border}]}>
               <Text accessibilityLiveRegion="polite" style={[styles.sectionTitle,{color:theme.text}]}>{mutationStatus.phase==='storage-error'?'لم يتأكد الحفظ على الجهاز؛ أعد تأكيد نفس العملية':mutationStatus.phase==='saving'?'جارٍ التحقق من الحفظ على الجهاز':currentUser?.isLocalOnly?'الحفظ المحلي على هذا الجهاز':cloudSyncStatus.phase==='blocked'?'توقفت المزامنة لحماية بياناتك':cloudSyncStatus.phase==='retrying'?'تعذر الاتصال؛ ستُعاد المحاولة عند فتح التطبيق':cloudSyncStatus.phase==='storage-error'?'تعذر الحفظ على الجهاز؛ يلزم إعادة المحاولة':cloudSyncStatus.phase==='uploading'?'جارٍ رفع النسخة المحفوظة':state.pendingCloudSync?'نسخة محفوظة على الجهاز تنتظر الرفع':'حالة الحفظ والمزامنة'}</Text>
               {mutationStatus.phase==='storage-error' && <TouchableOpacity accessibilityRole="button" style={styles.sqlToggleBtn} onPress={async()=>{
