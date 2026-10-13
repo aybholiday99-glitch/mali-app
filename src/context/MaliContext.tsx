@@ -1068,18 +1068,19 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const pullFromCloud = async (overrideCfg?: SupabaseConfig): Promise<SyncResult> => {
     const token = mutationSession;
     const user = userRef.current;
-    if (!scope.current.isCurrent(token) || hydrating.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
+    if (!scope.current.isCurrent(token) || hydrating.current || recoveryRequired.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
     setIsSyncing(true);
     return syncQueue.current.run(async () => {
     const before = stateRef.current;
+    let ownsReplacement = false;
     try {
       if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
-      if (hydrating.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
+      if (hydrating.current || recoveryRequired.current) return { ok: false, success: false, message: 'انتظر اكتمال الحفظ أو مراجعة التعارض قبل الاسترجاع.' };
       if (isFinancialMutationLocked() || configurationSaving.current) return { ok: false, success: false, message: 'أكمل حفظ العملية على الجهاز قبل الاسترجاع.' };
       const res = await pullStateFromSupabase(overrideCfg || before.supabaseConfig, user);
       if (!scope.current.isCurrent(token)) return { ok: false, success: false, message: 'تغيرت جلسة المستخدم.' };
       // A concurrent local edit must never be discarded by a delayed pull.
-      if (stateRef.current !== before || isFinancialMutationLocked() || configurationSaving.current) {
+      if (stateRef.current !== before || hydrating.current || recoveryRequired.current || isFinancialMutationLocked() || configurationSaving.current) {
         return { ok: false, success: false, conflictDetected: true, message: 'توجد تعديلات محلية جديدة. لم يتم استبدالها بالنسخة السحابية.' };
       }
       setLastSyncMessage(res.message);
@@ -1095,7 +1096,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           return { ...res, ok: false, success: false, message };
         }
         const cleared = { ...before, supabaseConfig: { ...(overrideCfg || before.supabaseConfig), lastSyncedAt: undefined } };
-        hydrating.current = true; activateWorker();
+        ownsReplacement = true; hydrating.current = true; activateWorker();
         const replacement = { token, next: cleared } as NonNullable<typeof cacheReplacement.current>;
         cacheReplacement.current = replacement;
         await syncWorker.current?.observeCloudBaseline(undefined, true);
@@ -1105,7 +1106,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
       }
       if (res.ok && res.state) {
         const merged = mergePartialCloudState({ ...before, supabaseConfig: overrideCfg || before.supabaseConfig }, res.state, res.updatedAt, res.snapshotUpdatedAt);
-        hydrating.current = true; activateWorker();
+        ownsReplacement = true; hydrating.current = true; activateWorker();
         const replacement = { token, next: merged } as NonNullable<typeof cacheReplacement.current>;
         cacheReplacement.current = replacement;
         await syncWorker.current?.observeCloudBaseline(res.snapshotUpdatedAt === null ? undefined : res.snapshotUpdatedAt || res.updatedAt);
@@ -1123,8 +1124,9 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
       return { ok: false, success: false, message: 'تعذر تأكيد حفظ النسخة المسترجعة على الجهاز.' };
     } finally {
       if (scope.current.isCurrent(token)) {
-        cacheReplacement.current = null;
-        hydrating.current = false; setIsSyncing(false); activateWorker();
+        if (ownsReplacement) { cacheReplacement.current = null; hydrating.current = false; }
+        if (!hydrating.current) setIsSyncing(false);
+        activateWorker();
       }
     }
     });

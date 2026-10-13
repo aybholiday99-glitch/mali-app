@@ -164,6 +164,23 @@ test('session expiry during verified archive cancels head publication and does n
   assert.equal(pushes.length, 0); await close(tree);
 });
 
+for (const operation of ['conflict', 'backup']) test(operation + ' cancels after archive verification while candidate chunks are still writing', async () => {
+  const { tree } = await mount(), review = api.inspectCloudConflict(), realWrite = write;
+  let release, entered; const started = new Promise(resolve => { entered = resolve; }), held = new Promise(resolve => { release = resolve; });
+  let once = true;
+  write = async (key, value) => {
+    if (once && key.startsWith(HEAD.slice(0, -4)) && /:[01]:\d+$/.test(key)) { once = false; entered(); await held; }
+    await realWrite(key, value);
+  };
+  const imported = copy(source); delete imported.financialAudit; imported.accounts[0].balance = 120;
+  let result;
+  await act(async () => { result = operation === 'conflict' ? api.resolveCloudConflict(review.token, 'adopt-cloud', 'Reviewed cloud') : api.importStateJson(JSON.stringify(imported)); await started; });
+  assert.ok((await archives()).length > 0, 'all prior evidence precedes candidate chunks');
+  await act(async () => { identity(null); release(); const outcome = await result; assert.equal(operation === 'conflict' ? outcome.ok : outcome, false); await settle(); });
+  assert.equal(api.currentUser, null); assert.equal(await financialStorage.getItem(KEY), original); assert.equal(pushes.length, 0);
+  await close(tree);
+});
+
 test('stale review after local edit and simultaneous review/config/restore submissions are rejected', async () => {
   const { tree } = await mount(), stale = api.inspectCloudConflict();
   await act(async () => { assert.equal(await api.updateAccountBalance('cash', 86), true); });
@@ -201,4 +218,61 @@ test('backup uncertain head acknowledgement never publishes success or lets old 
   await act(async () => { assert.equal(await api.updateAccountBalance('cash', 40), false); assert.equal((await api.syncToCloud()).ok, false); });
   assert.equal((await disk()).accounts[0].balance, 120); assert.equal((await disk()).cloudOutbox.pending.payload.accounts[0].balance, 120); assert.equal(pushes.length, 0);
   await close(tree);
+});
+
+test('independent: ordinary pull cannot overwrite uncertain import from clean cloud state', async () => {
+  const {tree}=await mount();
+  await act(async()=>{assert.equal((await api.resolveCloudConflict(api.inspectCloudConflict().token,'adopt-cloud','Prepare clean state')).ok,true);});
+  assert.equal(api.state.pendingCloudSync,false);
+  const realWrite=write,realRead=read;
+  const imported=copy(api.state);delete imported.financialAudit; imported.accounts[0].balance=120;
+  let uncertain=false;
+  write=async(key,value)=>{await realWrite(key,value);if(key===HEAD){uncertain=true;throw new Error('unknown acknowledgement');}};
+  read=async key=>{if(uncertain && key===HEAD)throw new Error('unavailable read'); return realRead(key);};
+  await act(async()=>{assert.equal(await api.importStateJson(JSON.stringify(imported)),false);});
+  write=realWrite;read=realRead;
+  assert.equal((await disk()).accounts[0].balance,120);
+  assert.equal(api.state.accounts[0].balance,80);
+  let result;await act(async()=>{result=await api.pullFromCloud();});
+  const after=await disk();
+  await close(tree);
+  assert.equal(result.ok,false,'ordinary pull must refuse while recovery required');
+  assert.equal(after.accounts[0].balance,120,'unknown restored commit must remain untouched');
+});
+
+
+test('independent: an already-running pull refuses after import commit acknowledgement becomes unknown',async()=>{
+  const {tree}=await mount();
+  await act(async()=>{assert.equal((await api.resolveCloudConflict(api.inspectCloudConflict().token,'adopt-cloud','Prepare clean state')).ok,true);});
+  let release,entered; const started=new Promise(r=>entered=r);
+  pull=async()=>{entered();return new Promise(r=>release=r);};
+  let pendingPull;await act(async()=>{pendingPull=api.pullFromCloud();await started;});
+  const realWrite=write,realRead=read,imported=copy(api.state);delete imported.financialAudit;imported.accounts[0].balance=120;
+  let uncertain=false;write=async(key,value)=>{await realWrite(key,value);if(key===HEAD){uncertain=true;throw new Error('unknown acknowledgement');}};
+  read=async key=>{if(uncertain&&key===HEAD)throw new Error('unavailable read');return realRead(key);};
+  await act(async()=>{assert.equal(await api.importStateJson(JSON.stringify(imported)),false);});
+  write=realWrite;read=realRead;assert.equal((await disk()).accounts[0].balance,120);
+  let result;await act(async()=>{release({ok:true,success:true,identityVerified:true,snapshotUpdatedAt:FRESH,updatedAt:FRESH,state:server,message:'late read'});result=await pendingPull;});
+  const after=await disk();
+  await close(tree);
+  assert.equal(result.ok,false);assert.equal(after.accounts[0].balance,120);
+});
+
+test('independent: an old pull cannot queue a stale save behind an active backup recovery',async()=>{
+  const {tree}=await mount();
+  await act(async()=>{assert.equal((await api.resolveCloudConflict(api.inspectCloudConflict().token,'adopt-cloud','Prepare clean state')).ok,true);});
+  let releasePull,enteredPull; const pullStarted=new Promise(r=>enteredPull=r);
+  pull=async()=>{enteredPull();return new Promise(r=>releasePull=r);};
+  let pendingPull;await act(async()=>{pendingPull=api.pullFromCloud();await pullStarted;});
+  const realWrite=write,imported=copy(api.state);delete imported.financialAudit;imported.accounts[0].balance=120;
+  let releaseArchive,enteredArchive,once=true;const archiveStarted=new Promise(r=>enteredArchive=r),held=new Promise(r=>releaseArchive=r);
+  write=async(key,value)=>{if(once&&key.includes('_recovery_')){once=false;enteredArchive();await held;}await realWrite(key,value);};
+  let pendingImport;await act(async()=>{pendingImport=api.importStateJson(JSON.stringify(imported));await archiveStarted;});
+  await act(async()=>{releasePull({ok:true,success:true,identityVerified:true,snapshotUpdatedAt:FRESH,updatedAt:FRESH,state:server,message:'late read'});await settle();});
+  await act(async()=>{assert.equal(await api.importStateJson(JSON.stringify(imported)),false,'refused old pull must not release the active import lock');});
+  let importResult,pullResult;await act(async()=>{releaseArchive();importResult=await pendingImport;pullResult=await pendingPull;});
+  write=realWrite;const after=await disk();
+  assert.equal(api.state.accounts[0].balance,120);
+  await close(tree);
+  assert.equal(importResult,true);assert.equal(pullResult.ok,false);assert.equal(after.accounts[0].balance,120);
 });

@@ -66,7 +66,7 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
     }
     return readParts(key,parseHead(rawHead));
   }
-  async function write(key: string,value: string,recovery=false) {
+  async function write(key: string,value: string,recovery=false,canCommit:()=>boolean=()=>true) {
       if(typeof value!=='string' || value.length>MAX_CHARACTERS) throw new Error('Financial cache exceeds the supported storage bound.');
       const priorRaw=await backend.getItem(headKey(key));
       if(!recovery && priorRaw===null && await backend.getItem(enrollmentKey(key))!==null) throw new Error('Missing enrolled financial cache; recovery is required.');
@@ -102,6 +102,9 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
       const next:Head={version:1,slot,count,length:value.length,checksum:checksum(value)};
       if(await readParts(key,next)!==value) throw new Error('Unverified financial cache.');
       const nextRaw=JSON.stringify(next);
+      // Chunk writes can outlive a session even after the recovery archive was verified.
+      // The old committed head remains authoritative until this final synchronous fence.
+      if(!canCommit())throw new Error('Cancelled financial recovery.');
       let headError:unknown;
       try { await backend.setItem(headKey(key),nextRaw); } catch(error) { headError=error; }
       // An interrupted acknowledgement can still be accepted only after exact durable read-back.
@@ -141,7 +144,7 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
       await serialize(evidenceKey,()=>write(evidenceKey,evidence));
       if(await read(evidenceKey)!==evidence)throw new Error('Unverified financial recovery evidence.');
       if(!canCommit())throw new Error('Cancelled financial recovery.');
-      await write(key,value,true);
+      await write(key,value,true,canCommit);
       return evidenceKey;
     }),
   };
