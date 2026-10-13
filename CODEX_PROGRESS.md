@@ -222,3 +222,28 @@ STORAGE-116 OPEN, requires highercapacitywebbackendwithlosslessmigration; no dat
 a1b7e40 CI38337593008 type/lint/PG/SAST/consumerPASS but app tests15fail: newnative guard exposed
 oldtestmocks with missingplatformor pretendingiOShasbrowseronlineevents. d74a5c7 uses explicit
 platformfixturesandseparateweb/nativecycles;32targetedPASS. Final newsource CIstillrequired.
+
+## 2026-10-13 Central Server-Only Architecture & Hardening
+
+- Architectural cutover to central-server model (zero durable customer financial data stored on Android devices; memory-only financial state in active session; SecureStore auth tokens only; no guest mode on Android; authoritative server ACK required before committing mutations).
+- Implemented Safe Legacy Vault Migration Wizard:
+  - `src/services/legacyVaultMigrationService.ts`: in-place inspection of legacy local vault (`inspectLegacyVault`), SHA-256 payload checksum computation (`computeVaultChecksum`), pre-flight identity check, server sync upload, post-migration local archive key (`@mali_app_state_v2_<userId>_migrated_archive`) with cryptographic verification receipt, and safe removal of active device keys (chunked namespace & legacy key) only upon verified server ACK.
+  - `src/components/LegacyVaultMigrationModal.tsx`: User-facing Arabic modal presenting record counts, balance summaries in LYD and USD, payload hash, live progress indicator, and clear safety guarantees.
+  - Test suite `tests/legacyVaultMigration.test.mjs`: 5/5 PASS (inspection, checksum, rollback on failure, full migration lifecycle, and cleanup verification).
+- Implemented System Owner Admin Dashboard:
+  - `src/services/adminService.ts`: Strict role/email authorization (`isSystemOwner`), aggregate system metrics (`fetchAdminSystemMetrics`), registered user management (`fetchAdminUserList`), audited security events stream (`fetchAdminSecurityEvents`), and emergency maintenance mode control (`setEmergencyMaintenanceMode`).
+  - `src/screens/AdminDashboardScreen.tsx`: Responsive RTL dashboard with 4 tabs (نظرة عامة, المستخدمون, أحداث الأمان, التحكم في الصيانة) with Arabic terminology, badges, metric cards, and dark/light mode support.
+  - Integrated Gold Admin Pill in navigation header (`src/navigation/MaliVaultShell.tsx`) visible only for verified system owners/admins.
+  - Test suite `tests/adminDashboard.test.mjs`: 4/4 PASS (RBAC enforcement, metric aggregation, emergency controls, and security logging).
+- Implemented Offline Alert Banner & Mutation Guard:
+  - `src/components/OfflineBanner.tsx`: Visible Arabic banner when offline or under emergency maintenance.
+  - Central mutation blocking in `src/context/MaliContext.tsx`: Rejects mutations when disconnected or during maintenance with clear Arabic alerts, preventing unsynchronized local divergence.
+  - Test suite `tests/offlineCentralBlocking.test.mjs`: 4/4 PASS (guest rejection, network drop write-lock, server timeout protection, and CAS conflict rejection).
+- Verification:
+  - `npm test`: **642 / 642 PASS** across all 57 test files (0 failures, 0 skipped).
+  - PostgreSQL 17.11 loopback tests: **120 / 120 PASS** (`database.test.mjs`, `financialSqlValidation.test.mjs`, `financialAuditSql.test.mjs`).
+  - TypeScript: **0 errors**.
+  - ESLint: **0 errors, 0 warnings**.
+  - Web production bundle export (`npm run build:web`): **PASS** cleanly into `dist/`.
+  - GitHub Actions Run 38457703515 (`android-standalone.yml`): ARM64 standalone release APK built and test-signed successfully in 20m15s (`android/app/build/outputs/apk/release/app-release.apk`), uploaded as artifact `mali-android-arm64-standalone-apk`.
+

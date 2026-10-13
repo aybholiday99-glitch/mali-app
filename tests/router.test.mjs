@@ -22,12 +22,12 @@ globalThis.maliRealValidator=require('expo-router/build/react-navigation/core/va
 installNativeTestLoader({provider:true,ui:true});
 registerHooks({resolve(specifier,context,next){
   let source;
-  if(specifier==='react-native')source="export const Platform=globalThis.maliTestPlatform;export const View='View',Text='Text',TouchableOpacity='TouchableOpacity',StatusBar='StatusBar',Modal='Modal',ActivityIndicator='ActivityIndicator';export const StyleSheet={create:s=>s};";
+  if(specifier==='react-native')source="export const Platform=globalThis.maliTestPlatform;export const View='View',Text='Text',ScrollView='ScrollView',TouchableOpacity='TouchableOpacity',StatusBar='StatusBar',Modal='Modal',ActivityIndicator='ActivityIndicator',Switch='Switch',TextInput='TextInput';export const StyleSheet={create:s=>s};";
   if(specifier==='react-native-safe-area-context')source="export const SafeAreaView='SafeAreaView';";
   if(specifier==='expo-router')source="export const router={navigate:p=>{globalThis.maliRouterPath=p;}},usePathname=()=>globalThis.maliRouterPath,Link='Link',Slot='Slot',Redirect='Redirect';export function Stack({children}){globalThis.maliRouterProbe?.();return globalThis.maliRouterReact.createElement('Stack',null,children);}Stack.Screen='RouteEntry';Stack.Protected=({children,guard})=>guard?children:null;";
   if(specifier==='expo-router/js-tabs')source="export function Tabs({children}){return globalThis.maliRouterReact.createElement('Tabs',null,children);}Tabs.Screen='TabRouteEntry';";
   if(specifier.endsWith('/services/authService')&&context.parentURL?.includes('/navigation/'))source='export const launchSocialOAuthWindow=async()=>({success:false,message:"isolated failure"});';
-  const screen=specifier.match(/\/screens\/(\w+)$/)?.[1];
+  const screen=specifier.match(/\/screens\/(\w+)(\.tsx?)?$/)?.[1];
   if(screen)source=`export const ${screen}='${screen}';`;
   // Re-export the actual bundled validator without importing its unrelated
   // native navigation barrel into Node; parsing logic remains production code.

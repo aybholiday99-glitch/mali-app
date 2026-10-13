@@ -5,6 +5,10 @@ import { Link,router,usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { CloudAndExportModal } from '../screens/CloudAndExportModal';
+import { LegacyVaultMigrationModal } from '../components/LegacyVaultMigrationModal';
+import { OfflineBanner } from '../components/OfflineBanner';
+import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
+import { isSystemOwner } from '../services/adminService';
 import { launchSocialOAuthWindow } from '../services/authService';
 import { sectionFromPath,pathForSection,type VaultSection as TabKey } from './routes';
 import { VaultActionsProvider } from './VaultActions';
@@ -20,10 +24,17 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
     lastSyncMessage,
     loginUser,
     logoutUser,
+    legacyVaultPendingMigration,
+    isMigratingLegacy,
+    migrationStepStatus,
+    migrationError,
+    performLegacyVaultMigration,
+    cancelLegacyVaultMigration,
   } = useMali();
   const activeTab=sectionFromPath(usePathname());
   const [cloudModalVisible, setCloudModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [adminModalVisible, setAdminModalVisible] = useState(false);
   const [profileMessage,setProfileMessage]=useState<string | null>(null);
   const [profileBusy,setProfileBusy]=useState(false);
 
@@ -167,6 +178,23 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
               </Text>
             </TouchableOpacity>
 
+            {isSystemOwner(currentUser) && (
+              <TouchableOpacity
+                style={[
+                  styles.iconActionBtn,
+                  {
+                    backgroundColor: '#FEF3C7',
+                    borderColor: '#FDE68A',
+                  },
+                ]}
+                onPress={() => setAdminModalVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="لوحة تحكم مالك النظام"
+              >
+                <Ionicons name="shield-checkmark" size={18} color="#D97706" />
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[
                 styles.userPill,
@@ -194,6 +222,14 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
           </View>
         </View>
       </View>
+
+      <OfflineBanner
+        isOffline={Boolean(
+          lastSyncMessage &&
+            (lastSyncMessage.includes('تعذر الاتصال بالخادم') ||
+              lastSyncMessage.includes('لا يوجد اتصال'))
+        )}
+      />
 
       {lastSyncMessage && <Text accessibilityRole="alert" style={{ color: theme.text, backgroundColor: theme.surfaceSoft, padding: 10, textAlign: 'right' }}>{lastSyncMessage}</Text>}
 
@@ -598,6 +634,26 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Legacy Vault Migration Modal */}
+      <LegacyVaultMigrationModal
+        visible={Boolean(legacyVaultPendingMigration)}
+        summary={legacyVaultPendingMigration}
+        isMigrating={isMigratingLegacy}
+        stepStatus={migrationStepStatus}
+        errorMessage={migrationError}
+        onStartMigration={performLegacyVaultMigration}
+        onCancelOrLogout={cancelLegacyVaultMigration}
+      />
+
+      {/* System Owner Admin Dashboard Modal */}
+      <Modal
+        visible={adminModalVisible}
+        animationType="slide"
+        onRequestClose={() => setAdminModalVisible(false)}
+      >
+        <AdminDashboardScreen onClose={() => setAdminModalVisible(false)} />
       </Modal>
     </SafeAreaView>
     </VaultActionsProvider>

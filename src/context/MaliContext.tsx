@@ -22,6 +22,13 @@ import { syncConfigIdentity, validateSyncOutbox } from '../services/syncOutboxVa
 import { financialStorage } from '../services/financialStorage';
 import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
 import { createCentralVaultSession } from '../services/centralVaultSession';
+import {
+  inspectLegacyVault,
+  executeLegacyVaultMigration,
+  type LegacyVaultSummary,
+  type MigrationStepStatus,
+} from '../services/legacyVaultMigrationService';
+import { getEmergencyMaintenanceState } from '../services/adminService';
 import { appendFinancialAudit, financialOperationId } from '../services/financialAudit';
 import type { FinancialAuditMetadata } from '../types/financialAudit';
 import { financialDate } from '../services/financialDate';
@@ -241,6 +248,13 @@ interface MaliContextValue {
   importStateJson: (jsonStr: string) => Promise<boolean>;
   inspectCloudConflict: () => CloudConflictReview | null;
   resolveCloudConflict: (review: Readonly<ConflictReviewToken>, choice: ConflictChoice, reason: string) => Promise<CloudConflictResolutionResult>;
+  legacyVaultPendingMigration: LegacyVaultSummary | null;
+  isMigratingLegacy: boolean;
+  migrationStepStatus: MigrationStepStatus | null;
+  migrationError: string | null;
+  performLegacyVaultMigration: () => Promise<boolean>;
+  cancelLegacyVaultMigration: () => Promise<void>;
+  isEmergencyMaintenance: boolean;
 }
 
 const MaliContext = createContext<MaliContextValue | undefined>(undefined);
@@ -276,6 +290,10 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus<MaliState>>({ phase: 'idle', outbox: null });
   const [authCleanupPending, setAuthCleanupPending] = useState(false);
   const [mutationStatus, setMutationStatus] = useState<MaliContextValue['mutationStatus']>({ phase: 'idle' });
+  const [legacyVaultPendingMigration, setLegacyVaultPendingMigration] = useState<LegacyVaultSummary | null>(null);
+  const [isMigratingLegacy, setIsMigratingLegacy] = useState<boolean>(false);
+  const [migrationStepStatus, setMigrationStepStatus] = useState<MigrationStepStatus | null>(null);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
   const pendingLogoutConfig = useRef<SupabaseConfig | null>(null);
 
   const theme = isDarkMode ? CALM_DARK_THEME : CALM_LIGHT_THEME;
@@ -424,6 +442,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     const { user, token, next, revision, configId } = staged;
     if (CENTRAL_SERVER_ONLY) {
       if (!user || user.isLocalOnly) return false;
+      const maintenance = getEmergencyMaintenanceState();
+      if (maintenance.active) {
+        setMutationStatus({ phase: 'storage-error' });
+        setLastSyncMessage(maintenance.reason || 'العمليات المالية متوقفة مؤقتاً: وضع الصيانة الطارئة مفعل حالياً.');
+        return false;
+      }
       const confirmed = await centralSession.current.update(() => next);
       if (!scope.current.isCurrent(token) || pendingMutation.current !== staged) return false;
       pendingMutation.current = null;
@@ -1389,10 +1413,14 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           const previous = await storageQueue.current.run(() => financialStorage.getItem(key));
           if (!scope.current.isCurrent(token)) return;
           if (previous !== null) {
-            recoveryRequired.current = true;
-            setLastSyncMessage('توجد خزنة محفوظة على هذا الجهاز. يلزم ترحيلها والتحقق من نسخة الخادم قبل التحويل إلى الوضع المركزي؛ لم تُحذف البيانات.');
-            setCurrentUser(null);
-            return;
+            const summary = await inspectLegacyVault(user.id, emptyFinancialState(INITIAL_MALI_STATE));
+            if (summary && (summary.accountsCount > 0 || summary.transactionsCount > 0 || summary.debtsCount > 0 || summary.dealsCount > 0)) {
+              setLegacyVaultPendingMigration(summary);
+              setLastSyncMessage('توجد خزنة محفوظة على هذا الجهاز. يمكنك مراجعتها وترحيلها الآن إلى الخادم المركزي.');
+              setIsLoading(false);
+              hydrating.current = false;
+              return;
+            }
           }
           const opened = await centralSession.current.open(user, userState.supabaseConfig);
           if (!scope.current.isCurrent(token)) return;
@@ -1507,7 +1535,51 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     })();
   }
 
+  const performLegacyVaultMigration = async (): Promise<boolean> => {
+    if (!legacyVaultPendingMigration || !userRef.current) return false;
+    setIsMigratingLegacy(true);
+    setMigrationError(null);
+    try {
+      const res = await executeLegacyVaultMigration({
+        userId: userRef.current.id,
+        user: userRef.current,
+        config: stateRef.current.supabaseConfig,
+        emptyTemplate: emptyFinancialState(INITIAL_MALI_STATE),
+        onProgress: (status) => setMigrationStepStatus(status),
+      });
+      if (!res.ok) {
+        setMigrationError(res.message);
+        return false;
+      }
+      setLegacyVaultPendingMigration(null);
+      setMigrationStepStatus(null);
+      setLastSyncMessage(res.message);
+      const opened = await centralSession.current.open(userRef.current, stateRef.current.supabaseConfig);
+      if (opened.ok) {
+        applyState(opened.state);
+        await savePersistedSessionUser(userRef.current, opened.state.supabaseConfig);
+      }
+      return true;
+    } catch (err: any) {
+      setMigrationError(err?.message || 'حدث خطأ غير متوقع أثناء الترحيل.');
+      return false;
+    } finally {
+      setIsMigratingLegacy(false);
+    }
+  };
+
+  const cancelLegacyVaultMigration = async (): Promise<void> => {
+    setLegacyVaultPendingMigration(null);
+    setMigrationStepStatus(null);
+    setMigrationError(null);
+    await logoutUser();
+  };
+
   function invalidateLocalSession() {
+    setLegacyVaultPendingMigration(null);
+    setIsMigratingLegacy(false);
+    setMigrationStepStatus(null);
+    setMigrationError(null);
     centralSession.current.clear();
     conflictRequest.current?.abort(); conflictRequest.current = null;
     pendingMutation.current = null; cacheReplacement.current = null; configurationSaving.current = false; mutationRequests.current = 0;
@@ -1602,6 +1674,13 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         importStateJson,
         inspectCloudConflict,
         resolveCloudConflict,
+        legacyVaultPendingMigration,
+        isMigratingLegacy,
+        migrationStepStatus,
+        migrationError,
+        performLegacyVaultMigration,
+        cancelLegacyVaultMigration,
+        isEmergencyMaintenance: getEmergencyMaintenanceState().active,
       }}
     >
       {children}

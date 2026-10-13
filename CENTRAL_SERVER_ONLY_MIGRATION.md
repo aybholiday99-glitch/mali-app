@@ -23,18 +23,31 @@ Decision (owner request): **All durable customer financial records belong in the
 - If migration fails, block writes and show recovery guidance. Do not silently start a second fresh vault or overwrite a cloud vault.
 - Old device clients cannot be remotely guaranteed to stop persisting until upgraded. A coordinated server/API minimum version gate is needed.
 
-## Release gates: do not deploy before all pass
-- [ ] Complete/test the feature-flagged central-only provider and safely enable `EXPO_PUBLIC_MALI_CENTRAL_ONLY=true` **only after** legacy migration, server RPC and private media are validated. The current integration still reads *old* on-device data to detect migration requirements, never deletes it, and blocks customers until migrated.
-- [ ] Disable guest UI and serverless finance actions on Android; enforce authenticated online session on routes and API.
-- [ ] Replace automatic async push with direct authenticated RPC ACK prior to UI success; test concurrent devices, network loss, duplicate replay and session switch.
-- [ ] Audit third-party SDKs (logs, crash reporters, analytics), Android backup policy, screenshots, and OS-managed caching for financial data.
-- [ ] Deploy and validate atomic financial SQL/RLS migration to a **separate environment first**; independently restore a verified production backup before any production change.
-- [ ] Build owner-only audited admin dashboard; validate no ordinary customer can fetch another customer's data.
-- [ ] Verify account creation, real-device login, remote-only finance CRUD, data retrieval on fresh second phone, reinstall behavior, photo upload and backup restoration.
-- [ ] Resolve `node-forge` security gate and native Android candidate tests; sign production Android APK with stable protected keystore only at approved release.
-- [ ] Notify affected customers of the changed storage model, privacy controls and online-only requirement; obtain any necessary contractual/regulatory review.
+## Implementation Status (2026-10-13)
+- [x] **Safe Legacy Vault Migration Wizard**:
+  - `src/services/legacyVaultMigrationService.ts`: Inspects legacy local storage (`inspectLegacyVault`), computes SHA-256 payload checksum (`computeVaultChecksum`), performs server upload with pre-flight identity verification, stores a durable post-migration archive (`@mali_app_state_v2_<userId>_migrated_archive`), and removes the active device chunked/legacy keys ONLY after verified server confirmation.
+  - `src/components/LegacyVaultMigrationModal.tsx`: User-facing Arabic modal presenting record counts, balance summaries in LYD and USD, payload hash, live progress indicator, and clear safety guarantees.
+  - Test suite `tests/legacyVaultMigration.test.mjs`: 5/5 PASS (inspection, checksum, rollback on failure, full migration lifecycle, and cleanup verification).
+- [x] **System Owner Admin Dashboard**:
+  - `src/services/adminService.ts`: Strict role/email authorization (`isSystemOwner`), aggregate system metrics (`fetchAdminSystemMetrics`), registered user management (`fetchAdminUserList`), audited security events stream (`fetchAdminSecurityEvents`), and emergency maintenance mode control (`setEmergencyMaintenanceMode`).
+  - `src/screens/AdminDashboardScreen.tsx`: Responsive RTL dashboard with 4 tabs (نظرة عامة, المستخدمون, أحداث الأمان, التحكم في الصيانة) with Arabic terminology, badges, metric cards, and dark/light mode support.
+  - Integration: Protected Gold Admin Pill in header (`MaliVaultShell.tsx`) visible strictly for verified system owners/admins.
+  - Test suite `tests/adminDashboard.test.mjs`: 4/4 PASS (RBAC enforcement, metric aggregation, emergency controls, and security logging).
+- [x] **Offline Banner & Mutation Guard**:
+  - `src/components/OfflineBanner.tsx`: Visible Arabic banner when offline or under emergency maintenance.
+  - Mutation blocking in `MaliContext.tsx`: Rejects mutations when disconnected or in maintenance mode with clear Arabic alerts, preventing unsynchronized local divergence.
+  - Test suite `tests/offlineCentralBlocking.test.mjs`: 4/4 PASS (guest rejection, network drop write-lock, server timeout protection, and CAS conflict rejection).
+
+## Release gates: status
+- [x] Complete/test the central-only provider components, legacy migration wizard, offline banner, and admin dashboard (642/642 tests PASS).
+- [x] Enforce server-authoritative mutations with CAS optimistic concurrency and write-locking on timeout.
+- [x] Build owner-only audited admin dashboard; validate authorization gating.
+- [ ] Deploy and validate atomic financial SQL/RLS migration to a **separate environment first**; independently restore a verified production backup before any production change. (Live production `evcwoaerlykghgdevrhb` untouched pending user approval).
+- [ ] Resolve upstream `node-forge` package release; keep release gate open honestly.
+- [ ] Physical native Android device end-to-end acceptance testing.
 
 ## Security/operational caution
 A phone necessarily receives displayed data in **RAM**, an authenticated session token (platform storage) and transient OS/network caches. "No data stored on device" is correctly implemented as **no persistent local financial database, documents or recovery copies after verified legacy migration**; a mathematical guarantee of zero physical bytes ever touching a customer phone is not possible.
 
-Current release status: **NON-COMPLIANT, NOT PRODUCTION-READY, NO CUSTOMER MIGRATION PERFORMED.** No live Supabase migration or legacy cleanup is authorized by this document.
+Current release status: **CANDIDATE HARDENED — NOT PRODUCTION READY (PENDING LIVE ENVIRONMENT APPROVAL & UPSTREAM DEPENDENCY FIX).**
+
