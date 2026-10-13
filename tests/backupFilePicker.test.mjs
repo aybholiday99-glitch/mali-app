@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {registerHooks} from 'node:module';
+import {Buffer} from 'node:buffer';
 import {installNativeTestLoader} from './nativeModuleTestLoader.mjs';
 globalThis.maliTestPlatform={OS:'android'};
 installNativeTestLoader();
