@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
+import { FinancialHistoryPanel } from '../components/FinancialHistoryPanel';
 import { SUPABASE_SQL_SCHEMA } from '../services/supabaseSync';
 import {
   exportFileOrShare,
@@ -116,6 +117,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
           </View>
 
           <ScrollView style={styles.scrollArea}>
+            <FinancialHistoryPanel />
             {statusBanner || lastSyncMessage ? (
               <View
                 style={[

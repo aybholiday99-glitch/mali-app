@@ -107,3 +107,12 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   tests PASS. Clean npm ci --ignore-scripts PASS; raw audit still4high/0moderate, forge advisory unchanged.
 - Native CNG config defines candidate com.aybholiday.mali /scheme mali, image-picker purpose strings and
   microphone removal; sharing/webbrowser/storage plugins. No native source manually edited or publication.
+
+- GitHub run38328473640 at6b79ee0:392app tests/types/lint/Expo/web build PASS; actualPG17 RLS16 +financial
+  validation67 and full real restore PASS; SAST PASS; supply integrity/consumer tests PASS on Linux.
+  Raw npm audit FAIL4high is the only failure in that checkpoint, no audit suppression.
+- Added read-only financial history UI: retained event/reversal descriptions and device timestamps are
+  separate from owner-filtered, before/after authenticated server acceptance timestamps. Keyset pages
+  omit financial image payloads, reject foreign/malformed rows, cancel late owner responses and redact
+  remote errors. Focused actual panel/reader/existing Cloud UI10tests PASS; actualPG17 audit17PASS.
+  CI now explicitly repeats immutable audit17 against PG17 rather than only in-memory SQL emulation.
