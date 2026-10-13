@@ -32,6 +32,7 @@ export interface ConflictResolutionInput {
   };
 }
 type SemanticState = Omit<MaliState, 'supabaseConfig'> & { baseline?: string };
+export type FinancialConflictSnapshot=SemanticState;
 interface SemanticRevision { revision: number; state: SemanticState }
 export interface ConflictRecoveryEvidence {
   version: 1;
@@ -125,6 +126,7 @@ function semantic(state: MaliState): SemanticState {
   if (state.supabaseConfig?.lastSyncedAt !== undefined) result.baseline = state.supabaseConfig.lastSyncedAt;
   return result;
 }
+export function conflictSnapshotForReview(state:MaliState):Readonly<FinancialConflictSnapshot>{return freeze(semantic(state));}
 
 /**
  * No I/O or authorization side effects. The provider owns the resolution lock,

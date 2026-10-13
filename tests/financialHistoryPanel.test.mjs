@@ -39,3 +39,15 @@ test('actual panel drops an unresolved owner-history request on logout and never
   assert.ok(!text(tree).includes('تواريخ القبول التالية'));assert.equal(api.currentUser,null);
   await act(async()=>{tree.unmount();});
 });
+test('same-batched A logout and A login resets history review by session generation',async()=>{
+  let release,queried=0;
+  globalThis.maliTestCreateClient=()=>({auth:{getUser:()=>new Promise(resolve=>{release=resolve;})},from:()=>{queried++;throw Error('Stale read');}});
+  const tree=await mount(),before=api.mutationSessionGeneration;
+  await act(async()=>{button(tree,'السجل المالي').props.onPress();});
+  await act(async()=>{button(tree,'قراءة تواريخ').props.onPress();await Promise.resolve();});
+  await act(async()=>{await api.logoutUser();api.loginUser(user);});
+  assert.ok(api.mutationSessionGeneration>before);
+  await act(async()=>{release({data:{user:{id:user.id}},error:null});await Promise.resolve();});
+  assert.equal(queried,0);assert.ok(!text(tree).includes('تواريخ القبول التالية'));assert.equal(button(tree,'قراءة تواريخ'),undefined);
+  await act(async()=>{tree.unmount();});
+});

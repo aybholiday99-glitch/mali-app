@@ -105,7 +105,7 @@ test('actual provider survives six navigation changes and logout retains the ori
   assert.equal(bootExchanges,1);
   const guest={id:'local-router-guest',isLocalOnly:true,name:'Synthetic',email:'test@local.invalid',provider:'email',createdAt:'2026-10-13'};
   await act(async()=>api.loginUser(guest));
-  await act(async()=>assert.equal(api.addAccount({name:'Synthetic wallet',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:125,isCash:true}),true));
+  await act(async()=>assert.equal(await api.addAccount({name:'Synthetic wallet',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:125,isCash:true}),true));
   const wallet=api.state.accounts[0];
   for(const href of Object.values(VAULT_ROUTES)){globalThis.maliRouterPath=href;await act(async()=>tree.update(React.createElement(App)));assert.equal(api.state.accounts[0].id,wallet.id);assert.equal(api.state.accounts[0].balance,125);}
   assert.equal(bootExchanges,1);const cacheBefore=new Map(stored);

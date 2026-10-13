@@ -28,7 +28,11 @@ interface CloudModalProps {
   onClose: () => void;
 }
 
-export const CloudAndExportModal: React.FC<CloudModalProps> = ({
+export const CloudAndExportModal: React.FC<CloudModalProps> = props => {
+  const {mutationSessionGeneration}=useMali();
+  return <CloudModalContents key={mutationSessionGeneration} {...props}/>;
+};
+const CloudModalContents: React.FC<CloudModalProps> = ({
   visible,
   onClose,
 }) => {
@@ -39,6 +43,8 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
     lastSyncMessage,
     cloudSyncStatus,
     currentUser,
+    mutationStatus,
+    retryPendingMutation,
     updateSupabaseConfig,
     syncToCloud,
     pullFromCloud,
@@ -134,7 +140,10 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
           <ScrollView style={styles.scrollArea}>
             <FinancialHistoryPanel />
             <View style={[styles.sectionBox,{backgroundColor:theme.cardAlt,borderColor:theme.border}]}>
-              <Text accessibilityLiveRegion="polite" style={[styles.sectionTitle,{color:theme.text}]}>{currentUser?.isLocalOnly?'الحفظ المحلي على هذا الجهاز':cloudSyncStatus.phase==='blocked'?'توقفت المزامنة لحماية بياناتك':cloudSyncStatus.phase==='retrying'?'تعذر الاتصال؛ ستُعاد المحاولة عند فتح التطبيق':cloudSyncStatus.phase==='storage-error'?'تعذر الحفظ على الجهاز؛ يلزم إعادة المحاولة':cloudSyncStatus.phase==='uploading'?'جارٍ رفع النسخة المحفوظة':state.pendingCloudSync?'نسخة محفوظة على الجهاز تنتظر الرفع':'حالة الحفظ والمزامنة'}</Text>
+              <Text accessibilityLiveRegion="polite" style={[styles.sectionTitle,{color:theme.text}]}>{mutationStatus.phase==='storage-error'?'لم يتأكد الحفظ على الجهاز؛ أعد تأكيد نفس العملية':mutationStatus.phase==='saving'?'جارٍ التحقق من الحفظ على الجهاز':currentUser?.isLocalOnly?'الحفظ المحلي على هذا الجهاز':cloudSyncStatus.phase==='blocked'?'توقفت المزامنة لحماية بياناتك':cloudSyncStatus.phase==='retrying'?'تعذر الاتصال؛ ستُعاد المحاولة عند فتح التطبيق':cloudSyncStatus.phase==='storage-error'?'تعذر الحفظ على الجهاز؛ يلزم إعادة المحاولة':cloudSyncStatus.phase==='uploading'?'جارٍ رفع النسخة المحفوظة':state.pendingCloudSync?'نسخة محفوظة على الجهاز تنتظر الرفع':'حالة الحفظ والمزامنة'}</Text>
+              {mutationStatus.phase==='storage-error' && <TouchableOpacity accessibilityRole="button" style={styles.sqlToggleBtn} onPress={async()=>{
+                setStatusBanner(await retryPendingMutation()?'تم تأكيد نفس العملية على الجهاز دون إعادة احتسابها أو تكرارها.':'لم يتأكد الحفظ بعد. بقي الطلب لإعادة المحاولة؛ تحقق من مساحة التخزين.');
+              }}><Text style={[styles.sqlToggleText,{color:theme.primary}]}>إعادة تأكيد حفظ العملية السابقة</Text></TouchableOpacity>}
               <Text style={[styles.sectionSub,{color:theme.textSecondary}]}>تعمل إعادة المزامنة أثناء فتح التطبيق. عند التعارض تبقى النسختان محفوظتين ويتوقف الرفع حتى اختيار حلّ واضح.</Text>
               <TouchableOpacity accessibilityRole="button" style={styles.sqlToggleBtn} onPress={async()=>{
                 const report=createSafeDiagnostics(state,cloudSyncStatus,Platform.OS,!!currentUser?.isLocalOnly);

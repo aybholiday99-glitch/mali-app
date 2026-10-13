@@ -67,6 +67,21 @@ test('all sync transport failures redact raw server/request details while retain
   pull.client.auth.getUser=async()=>{throw new Error(privateText);};
   assert.ok(!(await pull.service.pullStateFromSupabase(baseState().supabaseConfig,user)).message.includes(privateText));
 });
+test('cancelled pull does not begin identity verification or query another owner',async()=>{
+  const f=fixture(),controller=new AbortController();let identities=0;
+  f.client.auth.getUser=async()=>{identities++;return {data:{user:{id:USER_ID}},error:null};};
+  controller.abort();const result=await f.service.pullStateFromSupabase(baseState().supabaseConfig,user,{signal:controller.signal});
+  assert.equal(result.ok,false);assert.equal(identities,0);assert.equal(f.queries.length,0);
+});
+test('in-flight cloud snapshot pull is abortable and cannot return its late version',async()=>{
+  const f=fixture(),controller=new AbortController();let release,started,seen;
+  const pending=new Promise(resolve=>{release=resolve;}),entered=new Promise(resolve=>{started=resolve;});
+  const query={select(){return this;},eq(){return this;},order(){return this;},limit(){return this;},abortSignal(signal){seen=signal;started();return this;},then(...args){return pending.then(...args);}};
+  f.client.from=()=>query;
+  const reading=f.service.pullStateFromSupabase(baseState().supabaseConfig,user,{signal:controller.signal});await entered;
+  controller.abort();const result=await reading;assert.equal(result.ok,false);assert.equal(result.failureKind,'transient');assert.equal(seen,controller.signal);
+  release({data:[snapshot()],error:null});await Promise.resolve();assert.equal(result.state,undefined);
+});
 
 test('typed write failure categories distinguish transient transport, session, validation and permanent rejection',async()=>{
   for(const [options,kind] of [

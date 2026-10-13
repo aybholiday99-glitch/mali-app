@@ -66,6 +66,7 @@ const failure = (error: unknown) => ({ ...fail(error instanceof SyncFailure ? er
 export function createSupabaseSyncService(deps: SyncDependencies) {
   const configured = (config: SupabaseConfig) => Boolean(config?.url?.trim() && config?.anonKey?.trim());
   async function verifyUser(client: SyncClient, expectedId: string, signal?: AbortSignal) {
+    if(signal?.aborted)throw new SyncFailure('تم إلغاء طلب المزامنة.','transient');
     const { data, error } = await unlessAborted(client.auth.getUser(), signal);
     if (error) throw new SyncFailure('تعذر التحقق من جلسة الحساب. يرجى تسجيل الدخول مجدداً.', errorKind(error, 'session'));
     if (!data?.user || data.user.id !== expectedId) throw new SyncFailure('تغيّرت جلسة الحساب أو انتهت صلاحيتها. يرجى تسجيل الدخول مجدداً.', 'session');
@@ -147,29 +148,33 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
         snapshotUpdatedAt: data.updatedAt, message: 'تم حفظ الخزنة وكافة الجداول المالية معاً بنجاح.' };
     } catch (error) { return failure(error); }
   }
-  async function pullStateFromSupabase(config: SupabaseConfig, currentUser?: AuthUser | null): Promise<PullResult> {
+  async function pullStateFromSupabase(config: SupabaseConfig, currentUser?: AuthUser | null, options?:{signal?:AbortSignal}): Promise<PullResult> {
     if (!configured(config)) return fail('إعدادات Supabase غير مكتملة.');
     try {
-      const { client, userId } = await verifiedClient(config, currentUser);
-      const snapshotResult: DbResult<any[]> = await client.from('mali_vault_snapshots').select('workspace_key, payload, updated_at, user_id')
+      const { client, userId } = await verifiedClient(config, currentUser,options?.signal);
+      const snapshotQuery = client.from('mali_vault_snapshots').select('workspace_key, payload, updated_at, user_id')
         .eq('user_id', userId).order('updated_at', { ascending: false }).limit(1);
+      const snapshotResult:DbResult<any[]>=await unlessAborted(options?.signal && snapshotQuery.abortSignal?snapshotQuery.abortSignal(options.signal):snapshotQuery,options?.signal);
       if (snapshotResult.error) throw new SyncFailure('تعذر قراءة الخزنة السحابية. تحقق من الاتصال والجلسة وإعداد المزامنة.',errorKind(snapshotResult.error));
       if (!Array.isArray(snapshotResult.data)) throw new Error('استجابة الخزنة السحابية غير صالحة.');
       if (snapshotResult.data.length) {
         const snapshot = snapshotResult.data[0];
         if (snapshot.user_id !== userId || !validTimestamp(snapshot.updated_at)) throw new Error('مالك الخزنة أو تاريخها غير صالح.');
         const state = validatePayload(snapshot.payload, userId);
-        await verifyUser(client, userId);
+        await verifyUser(client, userId,options?.signal);
         return { ok: true, success: true, state, data: state, updatedAt: snapshot.updated_at,
           identityVerified: true,
           timestamp: snapshot.updated_at, snapshotUpdatedAt: snapshot.updated_at, message: 'تم استرجاع خزنتك السحابية بنجاح.' };
       }
-      const results: DbResult<any[]>[] = await Promise.all(TABLES.map((table) => client.from(table).select('*').eq('user_id', userId)));
+      const results: DbResult<any[]>[] = await unlessAborted(Promise.all(TABLES.map((table) => {
+        const query=client.from(table).select('*').eq('user_id',userId);
+        return options?.signal && query.abortSignal?query.abortSignal(options.signal):query;
+      })),options?.signal);
       for (const result of results) {
         if (result.error) throw new SyncFailure('تعذر قراءة الجداول المالية القديمة. تم الاحتفاظ بالنسخة المحلية.',errorKind(result.error));
         if (!Array.isArray(result.data)) throw new Error('استجابة الجداول المالية غير صالحة.');
       }
-      await verifyUser(client, userId);
+      await verifyUser(client, userId,options?.signal);
       const rows = results.flatMap((result) => result.data!);
       if (!rows.length) return { ...fail('لا توجد نسخة محفوظة لهذا الحساب.'), isEmpty: true, snapshotUpdatedAt: null, identityVerified: true };
       if (rows.some((row) => row.user_id !== userId)) throw new Error('مالك السجلات المالية غير صالح.');

@@ -10,9 +10,9 @@ const date=(raw:string)=>new Date(raw).toLocaleString('ar-LY',{timeZone:'Africa/
 
 /** Read-only views of offline assertions and separately verified server acceptance. */
 export function FinancialHistoryPanel(){
-  const {state,currentUser}=useMali();
+  const {state,currentUser,mutationSessionGeneration}=useMali();
   const cfg=state.supabaseConfig;
-  return <HistoryContents key={currentUser?.id+'::'+cfg.url+'::'+cfg.anonKey+'::'+cfg.workspaceKey}/>;
+  return <HistoryContents key={mutationSessionGeneration+'::'+currentUser?.id+'::'+cfg.url+'::'+cfg.anonKey+'::'+cfg.workspaceKey}/>;
 }
 function HistoryContents(){
   const {state,theme,currentUser}=useMali();
@@ -47,7 +47,7 @@ function HistoryContents(){
       {!history.length && <Text style={[styles.description,{color:theme.textSecondary}]}>لم تُسجّل تغييرات بعد.</Text>}
       {history.slice(-visibleCount).reverse().map(event=><View key={event.id} style={[styles.event,{borderColor:theme.border}]}>
         <Text style={[styles.title,{color:theme.text}]}>{event.sequence}. {actions[event.action] || event.action}</Text>
-        <Text style={[styles.description,{color:theme.textSecondary}]}>{event.reason} · {date(event.recordedAt)}</Text>
+        <Text style={[styles.description,{color:theme.textSecondary}]}>{event.action==='observed_baseline'?'وُثّقت الحالة الموجودة عند بدء التسجيل؛ تاريخ العمليات السابقة غير معروف.':event.reason} · {date(event.recordedAt)}</Text>
         {event.changes.slice(0,5).map((change,index)=><Text key={index} style={[styles.description,{color:theme.textSecondary}]}>{collections[change.collection]} · {change.recordId} · {change.after===null?'عكس أو إزالة من السجلات الحالية؛ الدليل محفوظ':change.before===null?'إضافة':'تعديل موثّق'}</Text>)}
         {event.changes.length>5 && <Text style={[styles.description,{color:theme.textSecondary}]}>و{event.changes.length-5} تغييرات أخرى في النسخة الكاملة.</Text>}
       </View>)}
