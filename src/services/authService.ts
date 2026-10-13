@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { SerialQueue } from './serialQueue';
 import { clearAuthTokenStorage, getAuthTokenStorage } from './authTokenStorage';
 import { isAuthStorageKey, mayRemoveLegacyAuthValue } from './nativeAuthStorageCore';
+import { NATIVE_OAUTH_REDIRECT, nativeOAuthFailure, performNativeOAuth, type NativeOAuthFailure } from './nativeOAuthCore';
 import { INITIAL_MALI_STATE } from '../data/initialData';
 import { AuthProviderType, AuthUser, SupabaseConfig } from '../types/mali';
 
@@ -36,12 +37,16 @@ export interface AuthResponse {
   ok?: boolean;
   message: string;
   user?: AuthUser;
+  failureKind?: NativeOAuthFailure;
 }
 
 let sharedClient: SupabaseClient | null = null;
 let sharedClientKey = '';
 const authOperations = new SerialQueue();
 let oauthCallbackInFlight: Promise<AuthUser | null> | null = null;
+let nativeAuthGeneration = 0;
+let nativeOAuthAttempt: { controller: AbortController; key: string; promise: Promise<AuthResponse>; accepted: boolean } | null = null;
+function cancelNativeOAuth() { nativeAuthGeneration++; nativeOAuthAttempt?.controller.abort(); }
 
 function authStorageKey(url: string) {
   return 'mali_supabase_auth_' + new URL(url).hostname.replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -60,6 +65,7 @@ export function getSharedSupabaseClient(config?: Partial<SupabaseConfig>): Supab
   const { url, anonKey } = sanitizeConfig(config);
   const key = `${url}::${anonKey}`;
   if (!sharedClient || sharedClientKey !== key) {
+    if (nativeOAuthAttempt && sharedClientKey !== key) cancelNativeOAuth();
     sharedClient = createClient(url, anonKey, {
       auth: {
         persistSession: true,
@@ -648,6 +654,7 @@ export async function launchSocialOAuthWindow(
   provider: 'google' | 'facebook',
   supabaseConfig?: Partial<SupabaseConfig>
 ): Promise<AuthResponse> {
+  if (Platform.OS !== 'web') return launchNativeSocialOAuth(provider, supabaseConfig);
   await purgeLegacyInsecureStorage();
   const providerLabel = provider === 'google' ? 'Google' : 'Facebook';
 
@@ -656,7 +663,7 @@ export async function launchSocialOAuthWindow(
     const redirectTo =
       Platform.OS === 'web' && typeof window !== 'undefined'
         ? `${window.location.origin}${window.location.pathname}`
-        : 'maliapp://auth-callback';
+        : NATIVE_OAUTH_REDIRECT;
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -802,6 +809,34 @@ export async function launchSocialOAuthWindow(
   }
 }
 
+function launchNativeSocialOAuth(provider: 'google' | 'facebook', config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  if (provider !== 'google' && provider !== 'facebook') return Promise.resolve(nativeOAuthFailure('provider'));
+  const resolved = sanitizeConfig(config), key = `${provider}::${resolved.url}::${resolved.anonKey}`;
+  if (nativeOAuthAttempt) return nativeOAuthAttempt.key === key ? nativeOAuthAttempt.promise : Promise.resolve(nativeOAuthFailure('busy'));
+  let client: SupabaseClient;
+  try { client = getSharedSupabaseClient(config); } catch { return Promise.resolve(nativeOAuthFailure('unavailable')); }
+  const generation = ++nativeAuthGeneration, controller = new AbortController();
+  const promise = (async () => {
+    try {
+      await purgeLegacyInsecureStorage();
+      const { nativeOAuthBrowser } = await import('./nativeOAuthPlatform');
+      return await performNativeOAuth({ client, provider, supabaseUrl: resolved.url, storageKey: authStorageKey(resolved.url),
+        storage: getAuthTokenStorage(authStorageKey(resolved.url)), browser: nativeOAuthBrowser, signal: controller.signal,
+        isCurrent: () => nativeAuthGeneration === generation && sharedClient === client,
+        serialize: action => authOperations.run(action),
+        acceptVerified: async user => { const verified = mapSupabaseUserToAuthUser(user, provider); await saveLocalSessionSummary(verified); return verified; },
+      });
+    } catch { return nativeOAuthFailure('unavailable'); }
+  })().then(result => {
+    if (result.success && (controller.signal.aborted || generation !== nativeAuthGeneration || sharedClient !== client)) return nativeOAuthFailure('stale');
+    if (result.success && nativeOAuthAttempt?.controller === controller && !controller.signal.aborted && generation === nativeAuthGeneration) nativeOAuthAttempt.accepted = true;
+    return result;
+  }).finally(() => { if (nativeOAuthAttempt?.controller === controller) nativeOAuthAttempt = null; })
+    .then(result => result.success && (controller.signal.aborted || generation !== nativeAuthGeneration || sharedClient !== client) ? nativeOAuthFailure('stale') : result);
+  nativeOAuthAttempt = { controller, key, promise, accepted: false };
+  return promise;
+}
+
 export async function signInWithSocialProvider(
   provider: 'google' | 'facebook',
   _profileInput?: { name?: string; email?: string } | SupabaseConfig,
@@ -821,25 +856,29 @@ export function getSupabaseOAuthRedirectUrl(
   const redirectTo =
     typeof window !== 'undefined' && window.location?.origin
       ? window.location.origin + window.location.pathname
-      : 'maliapp://auth-callback';
+      : NATIVE_OAUTH_REDIRECT;
   return `${baseUrl}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(
     redirectTo
   )}`;
 }
 
 export function clearAuthSession(config?: Partial<SupabaseConfig>): Promise<void> {
+  cancelNativeOAuth();
   return authOperations.run(() => clearAuthSessionImpl(config));
 }
 
 export function loginWithEmail(email: string, password: string, config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  cancelNativeOAuth();
   return authOperations.run(() => loginWithEmailImpl(email, password, config));
 }
 
 export function registerWithEmail(name: string, email: string, password: string, phone: string | undefined, config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  cancelNativeOAuth();
   return authOperations.run(() => registerWithEmailImpl(name, email, password, phone, config));
 }
 
 export function startOfflineGuestSession(): Promise<AuthUser> {
+  cancelNativeOAuth();
   return authOperations.run(() => startOfflineGuestSessionImpl());
 }
 
@@ -861,13 +900,16 @@ export function subscribeToAuthIdentity(
   let generation = 0;
   const { data } = client.auth.onAuthStateChange((event, session) => {
     const token = ++generation;
-    if (event === 'SIGNED_OUT') { callback(null); return; }
+    if (event === 'SIGNED_OUT') { if (nativeOAuthAttempt) cancelNativeOAuth(); callback(null); return; }
     if (event !== 'SIGNED_IN' || !session?.user) return;
     const expectedId = session.user.id;
+    const intentGeneration = nativeAuthGeneration;
+    const nativeOwner = nativeOAuthAttempt;
     setTimeout(() => {
       if (!active || token !== generation) return;
       void client.auth.getUser().then(({ data: verified, error }) => {
-        if (active && token === generation && !error && verified.user?.id === expectedId) {
+        if (active && token === generation && intentGeneration === nativeAuthGeneration && (!nativeOwner || nativeOwner.accepted)
+          && !error && verified.user?.id === expectedId) {
           callback(mapSupabaseUserToAuthUser(verified.user));
         }
       });
