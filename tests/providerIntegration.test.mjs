@@ -6,6 +6,7 @@ import { installNativeTestLoader } from './nativeModuleTestLoader.mjs';
 import { fakeSyncScheduler } from './fakeSyncScheduler.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+globalThis.maliTestPlatform={OS:'android'};
 const stored = new Map();
 let read = async key => stored.get(key) ?? null, identityChanged;
 globalThis.maliTestStorage={

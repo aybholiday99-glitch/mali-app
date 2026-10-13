@@ -37,7 +37,7 @@ let api;
 function Probe(){api=useMali();return null;}
 async function mount(clock){let tree;await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,{syncScheduler:clock.scheduler},React.createElement(Probe)));});return tree;}
 async function advance(clock,ms){await act(async()=>{await clock.advance(ms);});}
-function reset(){stored.clear();writeFailure=false;noOpWrite=false;push=async()=>offline;pull=async()=>offline;globalThis.maliTestAppState.currentState='active';}
+function reset(){globalThis.maliTestPlatform.OS='ios';stored.clear();writeFailure=false;noOpWrite=false;push=async()=>offline;pull=async()=>offline;globalThis.maliTestAppState.currentState='active';}
 const cache=async user=>JSON.parse(await financialStorage.getItem(key(user)));
 
 test('actual provider persists latest payload before upload and resumes bounded retries after restart',async()=>{
@@ -101,14 +101,21 @@ test('actual provider prevents network on failed or unverified local writes and 
     await act(async()=>{tree.unmount();});
   }
 });
-test('actual provider pauses timers in background and resumes on foreground or web reconnect',async()=>{
-  reset();const handlers=new Map();globalThis.window={addEventListener:(name,callback)=>handlers.set(name,callback),removeEventListener:name=>handlers.delete(name)};
+for(const os of ['ios','web'])test('actual '+os+' provider pauses in background and reconnects through its platform lifecycle',async()=>{
+  reset();globalThis.maliTestPlatform.OS=os;
+  const lockDescriptor=Object.getOwnPropertyDescriptor(globalThis.navigator,'locks');
+  if(os==='web')Object.defineProperty(globalThis.navigator,'locks',{configurable:true,value:{request:(_key,_options,action)=>action()}});
+  const handlers=new Map();globalThis.window=os==='web'?{addEventListener:(name,callback)=>handlers.set(name,callback),removeEventListener:name=>handlers.delete(name)}:{};
   const clock=fakeSyncScheduler();let calls=0;push=async()=>{calls++;return offline;};
   const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
   await act(async()=>{for(const fn of listeners)fn('background');});await advance(clock,120000);assert.equal(calls,1);
   await act(async()=>{for(const fn of listeners)fn('active');await settle();});assert.equal(calls,2);
-  push=async()=>{calls++;return success(timestamp);};await act(async()=>{handlers.get('online')();await settle();});assert.equal(calls,3);assert.equal(api.state.pendingCloudSync,false);
+  push=async()=>{calls++;return success(timestamp);};
+  await act(async()=>{if(os==='web')handlers.get('online')();else for(const fn of listeners)fn('active');await settle();});
+  assert.equal(calls,3);assert.equal(api.state.pendingCloudSync,false);
   await act(async()=>{tree.unmount();});assert.equal(handlers.size,0);delete globalThis.window;
+  if(lockDescriptor)Object.defineProperty(globalThis.navigator,'locks',lockDescriptor);else delete globalThis.navigator.locks;
+  globalThis.maliTestPlatform.OS='ios';
 });
 test('actual provider cancels prior project upload when configuration changes and requires explicit repair',async()=>{
   reset();const clock=fakeSyncScheduler();let release,signal,calls=0;push=async(_state,_cfg,_user,options)=>{calls++;signal=options.signal;return new Promise(r=>{release=r;});};
