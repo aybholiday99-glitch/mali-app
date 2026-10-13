@@ -198,6 +198,20 @@ BEGIN
     PERFORM mali_validation.require_enum(v_row->'category',ARRAY['cash_lyd','cash_usd','bank_lyd','bank_usd','ewallet'],'account.category');
     IF jsonb_typeof(v_row->'isCash') IS DISTINCT FROM 'boolean' THEN RAISE EXCEPTION 'Invalid cash flag' USING ERRCODE = '22023'; END IF;
     PERFORM mali_validation.require_number(v_row->'balance','account.balance',2,1000000000000,NOT (v_row->>'isCash')::BOOLEAN);
+    -- Overdraft capability must have an explicit positive finite cap.
+    -- Legacy bank balances without overdraft metadata remain readable.
+    IF v_row ? 'allowOverdraft' AND jsonb_typeof(v_row->'allowOverdraft') IS DISTINCT FROM 'boolean' THEN
+      RAISE EXCEPTION 'Invalid overdraft flag' USING ERRCODE = '22023';
+    END IF;
+    IF v_row ? 'overdraftLimit' THEN
+      IF mali_validation.require_number(v_row->'overdraftLimit','account.overdraftLimit') <= 0 THEN
+        RAISE EXCEPTION 'Invalid overdraft limit' USING ERRCODE = '22023';
+      END IF;
+    END IF;
+    IF COALESCE((v_row->>'allowOverdraft')::BOOLEAN,false)
+       AND ((v_row->>'isCash')::BOOLEAN OR NOT (v_row ? 'overdraftLimit')) THEN
+      RAISE EXCEPTION 'Overdraft requires a bank account and an explicit cap' USING ERRCODE = '22023';
+    END IF;
     IF v_row ? 'accountNumber' THEN PERFORM mali_validation.require_text(v_row->'accountNumber','accountNumber'); END IF;
   END LOOP;
   FOR v_row IN SELECT value FROM jsonb_array_elements(p_payload->'contacts') LOOP
@@ -329,6 +343,35 @@ BEGIN
       v_paid := v_paid+v_cost;
       PERFORM mali_validation.require_timestamp(v_installment->'date','installment.date');
       PERFORM mali_validation.require_enum(v_installment->'paymentMethod',v_methods,'installment.paymentMethod');
+
+      -- A modern settlement must declare a consistent cash/non-cash path.
+      -- Historical installments without settlementType remain supported as-is.
+      IF v_installment ? 'isNonCash' AND jsonb_typeof(v_installment->'isNonCash') IS DISTINCT FROM 'boolean' THEN
+        RAISE EXCEPTION 'Invalid non-cash boolean marker' USING ERRCODE = '22023';
+      END IF;
+      IF v_installment ? 'settlementType' THEN
+        v_status := mali_validation.require_enum(
+          v_installment->'settlementType', ARRAY['cash','non_cash'], 'installment.settlementType'
+        );
+        IF v_status = 'non_cash' THEN
+          IF NOT COALESCE((v_installment->>'isNonCash')::BOOLEAN,false)
+             OR v_installment ? 'accountId'
+             OR v_installment ? 'transactionId' THEN
+            RAISE EXCEPTION 'Non-cash settlement cannot reference a treasury or cash journal' USING ERRCODE = '22023';
+          END IF;
+          PERFORM mali_validation.require_text(v_installment->'nonCashReason','installment.nonCashReason',true);
+        ELSE
+          IF COALESCE((v_installment->>'isNonCash')::BOOLEAN,false)
+             OR COALESCE(v_installment->>'accountId','') = ''
+             OR COALESCE(v_installment->>'transactionId','') = ''
+             OR v_installment ? 'nonCashReason' THEN
+            RAISE EXCEPTION 'Cash installment requires a treasury and matching journal' USING ERRCODE = '22023';
+          END IF;
+        END IF;
+      ELSIF COALESCE((v_installment->>'isNonCash')::BOOLEAN,false) THEN
+        RAISE EXCEPTION 'Non-cash settlement type is missing' USING ERRCODE = '22023';
+      END IF;
+
       IF COALESCE(v_installment->>'accountId','') <> '' THEN
         PERFORM mali_validation.require_account(v_accounts,v_installment->'accountId',v_currency);
       END IF;
