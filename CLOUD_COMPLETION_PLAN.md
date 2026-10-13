@@ -1,4 +1,4 @@
-# Mali cloud-only completion plan — 2026-10-13
+# Mali — Android-only cloud completion plan — 2026-10-13
 
 This branch is a **release candidate**, not a production release. The Windows Desktop Commander host is offline. This plan avoids waiting for a local workstation by using isolated GitHub runners.
 
@@ -12,10 +12,13 @@ This branch is a **release candidate**, not a production release. The Windows De
 
 Workflow `.github/workflows/android-acceptance.yml` builds an unsigned debug APK from Expo SDK 57 and launches it on an Ubuntu-hosted Android emulator. See runs 38435753028 and 38438170714; require a successful completed job, a screenshot, and APK artifact before accepting Android. A boot/launch smoke test is **not** a complete financial E2E test. Do not deploy the debug APK as production.
 
-## Cloud iOS alternatives
+## Platform scope: Android only
 
-1. EAS simulator profile: `eas.json` contains `build.ios-simulator.ios.simulator = true`. Connect an Expo account before invoking `eas build --platform ios --profile ios-simulator`. Simulator builds do not need an Apple Developer account. Consult the current EAS quota and pricing before authorizing builds.
-2. Hosted Apple GitHub runner: `.github/workflows/ios-simulator.yml` is **opt-in only**, using `macos-26` and Xcode 26.4+ to compile and launch a simulator app. Start from the Actions tab when supported or explicitly add the PR label `run-ios-cloud-acceptance` to PR #2. macOS jobs may consume billable Actions minutes. A successful simulator build is not equivalent to a signed real-iPhone/TestFlight acceptance.
+The user explicitly excluded iOS on 2026-10-13. Do not run or schedule EAS iOS, macOS Actions, iPhone simulator builds or any iOS-specific test. Previously added iOS configuration is dormant and is **not** an Android release requirement.
+
+## Android build and emulator debugging
+
+An isolated Android debug APK assembled successfully in GitHub Actions run 38438170714; the emulator step initially failed because sdkmanager was not on PATH. A second attempt failed trying to install obsolete SDK package `tools`. The active workflow now locates the SDK tools preinstalled on the runner and invokes the pinned Android emulator action and `scripts/androidSmoke.sh` to start Metro, install and launch the APK, inspect logcat, and capture a screenshot. Follow new run 38441593693; do not claim Android emulator success before it finishes.
 
 ## Supabase data safety
 
@@ -34,8 +37,8 @@ Workflow `.github/workflows/android-acceptance.yml` builds an unsigned debug APK
 ## Acceptance order
 
 1. Obtain passing Android cloud APK and emulator evidence.
-2. Authorize the macOS runner minute usage or connect EAS account; obtain a successful iOS simulator build and launch.
-3. Add crash/force-stop and interruption acceptance cases to Android and iOS where technically possible.
+2. Verify Android APK installation and actual emulator startup, using screenshots and logcat.
+3. Add Android crash/force-stop, background/foreground, offline/reconnect and real financial workflow acceptance cases.
 4. Close supply-chain risk with verified fix or explicitly keep the release gate closed.
 5. Prove independently restorable production backup, compatibility migration rehearsal, safe cutover/rollback and ownership checks.
 6. Obtain explicit production approval, coordinate DB migration and client deployment, smoke-test production. Merge PR #2 only after all required gates are complete.
