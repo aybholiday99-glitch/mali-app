@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AuthUser, SupabaseConfig } from '../types/mali';
 import { useMali } from '../context/MaliContext';
+import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
 import {
   launchSocialOAuthWindow,
   resetUserPasswordLocal,
@@ -518,8 +519,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </Text>
           </TouchableOpacity>
 
-          {/* 1-Tap Quick Entry without typing */}
-          <TouchableOpacity
+          {/* Server-only customer data: guest/offline vaults are disabled. */}
+          {!CENTRAL_SERVER_ONLY ? <TouchableOpacity
             style={[
               styles.quickEntryBtn,
               {
@@ -535,11 +536,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <Text style={[styles.quickEntryText, { color: theme.primary }]}>
               الدخول السريع المباشر إلى خزنتي المحلية
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> : <Text style={[styles.quickEntryText, { color: theme.textSecondary }]}>
+            بيانات العملاء تُحفظ على خادم مالي المركزي، ويلزم حساب واتصال بالإنترنت.
+          </Text>}
         </View>
 
         {/* Bottom Cloud Setup Link */}
-        <TouchableOpacity
+        {!CENTRAL_SERVER_ONLY && <TouchableOpacity
           style={[styles.cloudSetupRow, { borderTopColor: theme.border }]}
           accessibilityRole="button"
           accessibilityLabel="إعدادات الربط السحابي"
@@ -549,7 +552,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           <Text style={[styles.cloudSetupText, { color: theme.primary }]}>
             إعدادات الربط السحابي (Supabase)
           </Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
       </View>
 
       {/* Modal for Google / Facebook OAuth Account Chooser (Mobile / Standalone PWA) */}
