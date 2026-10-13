@@ -163,7 +163,11 @@ try {
     "document.readyState === 'complete' && document.body && document.body.innerText.trim().length > 10"),
   'Mali actual web UI mount');
   console.log('PASS real Chromium renders Mali web app', await evaluate(call, 'document.title'));
-  const guestEntered = await evaluate(call, "(() => { const elements = [...document.querySelectorAll('button,[role=button]')]; const entry = elements.find(el => (el.textContent || '').includes('الدخول السريع المباشر إلى خزنتي المحلية')); if (!entry) return false; entry.click(); return true; })()");
+  const guestEntered = await until(async () => {
+    try {
+      return await evaluate(call, "(() => { const elements = [...document.querySelectorAll('button,[role=button]')]; const entry = elements.find(el => (el.textContent || '').includes('الدخول السريع المباشر إلى خزنتي المحلية')); if (!entry) return false; entry.click(); return true; })()");
+    } catch { return false; }
+  }, 'offline guest entry after provider bootstrap', 60000);
   assert.equal(guestEntered, true, 'The real web UI must expose the offline guest entry button');
   await until(async () => {
     try {
