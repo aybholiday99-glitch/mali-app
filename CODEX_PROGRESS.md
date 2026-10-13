@@ -55,7 +55,16 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   - Expanded capacity bounds for 50,000-record vaults/backups (48 MiB / 100,000 audit entries, 96 MiB chunk max).
   - Cleaned all ESLint warnings (0 errors, 0 warnings across all source and test files).
   - TypeScript typecheck: 0 errors.
-  - All tests passing: npm test **575/575 PASS** (43 new/updated storage & provider tests, 0 failures).
+  - Implemented Debt & Treasury Accounting Integration (الربط المحاسبي الكامل بين الديون والخزائن):
+    - Direction-aware initial debt issuance/receipt (receivable loans deduct cash, payable debts deposit cash/bank).
+    - Excluded debt capital movements from operating expenses and income filters in P&L (`ExpensesScreen.tsx`).
+    - Enforced boundary check: installment amount cannot exceed remaining debt.
+    - Direction-aware installment collection/payment prompts with multi-treasury repayments and balance displays.
+    - Insufficient cash warnings and overpayment alerts in ProceduresDebtsScreen.
+    - Visual treasury badges in debt card headers and exact treasury name on each installment row.
+    - Preserved opening balance mode («تسجيل رصيد دين سابق بدون حركة نقدية في الخزينة»).
+    - Created comprehensive integration test suite `tests/debtTreasuryIntegration.test.mjs` (9/9 pass).
+  - All tests passing: npm test **584/584 PASS** (0 failures across all 54 test files).
   - PostgreSQL 17.11 real instance: 16 RLS + 67 validator + 17 audit checks = **100/100 PASS**,
     plus independent dump & restore rehearsal (10 tables, ACLs, RLS, CAS, 21 originals + 21 archives) PASS.
   - Web production bundle export (npm run build:web) verified: PASS.

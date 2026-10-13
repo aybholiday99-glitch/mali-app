@@ -1017,7 +1017,8 @@ export function settleDebtInstallmentMutation(
   const targetAcc = params.accountId ? state.accounts.find((a) => a.id === params.accountId) : undefined;
   if (params.accountId && (!targetAcc || targetAcc.currency !== debt.currency)) return state;
 
-  const effectiveAmount = roundMoney(Math.min(reqAmount, debt.remainingAmount));
+  if (reqAmount > debt.remainingAmount) return state;
+  const effectiveAmount = reqAmount;
   if (effectiveAmount <= 0) return state;
 
   const now = new Date().toISOString();

@@ -118,12 +118,14 @@ export const ExpensesScreen: React.FC = () => {
     })
   );
 
-  // Totals (Expenses + Cheque Liquidation Fees, excluding USD deal commissions already netted in deal profit)
+  // Totals (Operating expenses + Cheque Liquidation Fees, excluding debt issuances/repayments and USD deal commissions)
   const totalExpensesLyd = state.transactions
     .filter(
       (t) =>
         (t.type === 'expense' || t.type === 'cheque_liquidation') &&
-        t.currency === 'LYD'
+        t.currency === 'LYD' &&
+        !t.debtId &&
+        t.category !== 'ديون وأمانات'
     )
     .reduce(
       (s, t) =>
@@ -137,7 +139,10 @@ export const ExpensesScreen: React.FC = () => {
   const totalIncomeLyd = state.transactions
     .filter(
       (t) =>
-        (t.type === 'income' || t.type === 'deal_sell') && t.currency === 'LYD'
+        (t.type === 'income' || t.type === 'deal_sell') &&
+        t.currency === 'LYD' &&
+        !t.debtId &&
+        t.category !== 'ديون وأمانات'
     )
     .reduce((s, t) => s + t.amount, 0);
 

@@ -59,9 +59,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const [debtCurrency, setDebtCurrency] = useState<Currency>('LYD');
   const [debtAmount, setDebtAmount] = useState('');
   const [debtDueDate, setDebtDueDate] = useState('');
-  const [affectWallet, setAffectWallet] = useState(false);
+  const [affectWallet, setAffectWallet] = useState(true);
   const [selectedWalletId, setSelectedWalletId] = useState(
-    state.accounts[0]?.id || ''
+    state.accounts.find((a) => a.currency === 'LYD')?.id || state.accounts[0]?.id || ''
   );
   const [debtNotes, setDebtNotes] = useState('');
   const [debtError, setDebtError] = useState<string | null>(null);
@@ -100,10 +100,11 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
   const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
     setSubmissionKey(nextSubmissionKey()); setNewDebtModal(false); setActiveDebtForPay(null); setNewProcModal(false); setAddingStageProcId(null);
-    setPersonName(''); setPhone(''); setDebtAmount(''); setDebtNotes(''); setDebtDueDate(''); setDebtError(null); setSelectedWalletId('');
+    setPersonName(''); setPhone(''); setDebtAmount(''); setDebtNotes(''); setDebtDueDate(''); setDebtError(null);
+    setSelectedWalletId(state.accounts.find((a) => a.currency === 'LYD')?.id || state.accounts[0]?.id || '');
     setInstallmentAmt(''); setInstallmentNotes(''); setInstallmentAccId('');
     setProcTitle(''); setProcBank(''); setProcRef(''); setProcAmt(''); setProcNotes(''); setProcDueDate(''); setNewStageTitle('');
-    setAffectWallet(false); setProcStagesText('');
+    setAffectWallet(true); setProcStagesText('');
   });
 
   // Totals for Debts
@@ -147,15 +148,19 @@ export const ProceduresDebtsScreen: React.FC = () => {
     const amt = parseFinancialInput(debtAmount);
     if (!personName.trim()) return reject('أدخل اسم صاحب الدين ثم أعد الحفظ.', 'personName');
     if (amt === null || amt <= 0) return reject('أدخل مبلغ دين صحيحاً أكبر من صفر.', 'debtAmount');
-    const validWallet = state.accounts.find(
-      (a) => a.id === selectedWalletId && a.currency === debtCurrency
-    );
     setDebtError(null);
-    if (affectWallet && !validWallet) {
-      setDebtError('اختر حساباً موجوداً بالعملة نفسها، أو ألغِ تحديث الرصيد لتسجيل دين دون حركة نقدية.');
-      return;
+
+    let chosenWallet = undefined;
+    if (affectWallet) {
+      const validWallet = state.accounts.find(
+        (a) => a.id === selectedWalletId && a.currency === debtCurrency
+      );
+      if (!validWallet) {
+        setDebtError('اختر الخزينة المالية لإتمام الحركة، أو ألغِ تحديث الرصيد لتسجيل رصيد دين سابق.');
+        return reject('اختر الخزينة المالية أو ألغِ تحديث الرصيد لتسجيل دين سابق.', 'selectedWalletId');
+      }
+      chosenWallet = validWallet;
     }
-    const chosenWallet = validWallet;
 
     if (!await submit(() => addDebt({
       idempotencyKey: submissionKey + ":addDebt",
@@ -174,7 +179,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
     setPersonName('');
     setPhone('');
     setDebtAmount('');
+    setDebtDueDate('');
     setDebtNotes('');
+    setAffectWallet(true);
     setNewDebtModal(false);
   };
 
@@ -182,12 +189,28 @@ export const ProceduresDebtsScreen: React.FC = () => {
     if (!activeDebtForPay) return reject('اختر الدين الذي تريد تسجيل الدفعة له.');
     const amt = parseFinancialInput(installmentAmt);
     if (amt === null || amt <= 0) return reject('أدخل مبلغ دفعة صحيحاً أكبر من صفر.', 'installmentAmt');
+    if (amt > activeDebtForPay.remainingAmount) {
+      return reject(`قيمة الدفعة (${formatMoney(amt, activeDebtForPay.currency)}) تتجاوز المبلغ المتبقي (${formatMoney(activeDebtForPay.remainingAmount, activeDebtForPay.currency)}).`, 'installmentAmt');
+    }
+
+    let chosenAccId: string | undefined = undefined;
+    if (installmentAccId) {
+      const chosenAcc = state.accounts.find(
+        (a) => a.id === installmentAccId && a.currency === activeDebtForPay.currency
+      );
+      if (!chosenAcc) {
+        return reject('اختر خزينة صالحة بنفس عملة الدين.', 'installmentAccId');
+      }
+      chosenAccId = chosenAcc.id;
+    } else if (state.accounts.some((a) => a.currency === activeDebtForPay.currency)) {
+      return reject('اختر الخزينة التي تمت من خلالها حركة الدفعة.', 'installmentAccId');
+    }
 
     if (!await submit(() => addDebtInstallment({
       idempotencyKey: submissionKey + ":addDebtInstallment",
       debtId: activeDebtForPay.id,
       amount: amt,
-      accountId: installmentAccId || undefined,
+      accountId: chosenAccId,
       paymentMethod: installmentMethod,
       notes: installmentNotes.trim() || undefined,
     }))) return;
@@ -195,6 +218,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     setActiveDebtForPay(null);
     setInstallmentAmt('');
     setInstallmentNotes('');
+    setInstallmentAccId('');
   };
 
   const handleSaveProcedure = async () => {
@@ -367,7 +391,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
               { backgroundColor: theme.primary },
               styles.touchTarget,
             ]}
-            onPress={() => setNewDebtModal(true)}
+            onPress={() => {
+              const defaultAcc = state.accounts.find((a) => a.currency === debtCurrency);
+              if (defaultAcc) {
+                setSelectedWalletId(defaultAcc.id);
+              }
+              setNewDebtModal(true);
+            }}
           >
             <Ionicons name="add-circle" size={20} color="#FFFFFF" />
             <Text style={styles.primaryActionBtnText}>
@@ -385,6 +415,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   )
                 : 0;
             const isReceivable = debt.direction === 'receivable';
+            const originAccount = debt.accountId
+              ? state.accounts.find((a) => a.id === debt.accountId)
+              : undefined;
 
             return (
               <View
@@ -419,6 +452,57 @@ export const ProceduresDebtsScreen: React.FC = () => {
                             : 'دين / أمانة عليّ للغير'}
                         </Text>
                       </View>
+                      {originAccount ? (
+                        <View
+                          style={[
+                            styles.treasuryBadge,
+                            {
+                              backgroundColor: theme.cardAlt,
+                              borderColor: theme.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name={originAccount.isCash ? 'cash-outline' : 'card-outline'}
+                            size={12}
+                            color={theme.primary}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: theme.textSecondary,
+                            }}
+                          >
+                            {isReceivable
+                              ? `صُرف من: ${originAccount.name}`
+                              : `أُودع في: ${originAccount.name}`}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.treasuryBadge,
+                            {
+                              backgroundColor: theme.cardAlt,
+                              borderColor: theme.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="document-text-outline"
+                            size={12}
+                            color={theme.textMuted}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: theme.textMuted,
+                            }}
+                          >
+                            رصيد سابق (بدون خزينة)
+                          </Text>
+                        </View>
+                      )}
                       {debt.dueDate && (
                         <Text
                           style={[
@@ -521,21 +605,33 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     >
                       دفعات التسديد المسجلة ({debt.installments.length}):
                     </Text>
-                    {<PagedRows items={debt.installments} label="دفعات الدين" disabled={saving} resetKey={debt.id} pageSize={10}>{(inst) => (
-                      <View key={inst.id} style={styles.instRow}>
-                        <Text
-                          style={[
-                            styles.instText,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          • {inst.date}: دفعة بقيمة{' '}
-                          {formatMoney(inst.amount, debt.currency)} (
-                          {getPaymentMethodLabel(inst.paymentMethod)})
-                          {inst.notes ? ` - ${inst.notes}` : ''}
-                        </Text>
-                      </View>
-                    )}</PagedRows>}
+                    {<PagedRows items={debt.installments} label="دفعات الدين" disabled={saving} resetKey={debt.id} pageSize={10}>{(inst) => {
+                      const instAcc = inst.accountId
+                        ? state.accounts.find((a) => a.id === inst.accountId)
+                        : undefined;
+                      return (
+                        <View key={inst.id} style={styles.instRow}>
+                          <Text
+                            style={[
+                              styles.instText,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            • {inst.date}: دفعة بقيمة{' '}
+                            <Text style={{ fontWeight: 'bold', color: theme.text }}>
+                              {formatMoney(inst.amount, debt.currency)}
+                            </Text>
+                            {' '}({getPaymentMethodLabel(inst.paymentMethod)})
+                            {instAcc ? (
+                              <Text style={{ color: theme.primary, fontWeight: '600' }}>
+                                {' '}• {isReceivable ? `أُودعت في: ${instAcc.name}` : `دُفعت من: ${instAcc.name}`}
+                              </Text>
+                            ) : null}
+                            {inst.notes ? ` - ${inst.notes}` : ''}
+                          </Text>
+                        </View>
+                      );
+                    }}</PagedRows>}
                   </View>
                 )}
 
@@ -961,7 +1057,83 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 placeholderTextColor={theme.textMuted}
               />
 
-              <TouchableOpacity aria-checked={affectWallet} accessibilityRole="checkbox" accessibilityState={{ disabled: saving, checked: affectWallet }} accessibilityLabel="تحديث رصيد الحساب عند تسجيل الدين" disabled={saving}
+              {affectWallet ? (
+                <>
+                  <CalmDropdown
+                    disabled={saving}
+                    label={
+                      direction === 'receivable'
+                        ? 'الخزينة التي تم إعطاء المبلغ منها (سيتم الخصم منها):'
+                        : 'الخزينة التي استلمت المبلغ فيها (سيتم الإيداع فيها):'
+                    }
+                    value={selectedWalletId}
+                    options={state.accounts
+                      .filter((a) => a.currency === debtCurrency)
+                      .map((acc) => ({
+                        value: acc.id,
+                        label: acc.name,
+                        subLabel: `الرصيد: ${formatMoney(acc.balance, acc.currency)} • ${
+                          acc.isCash ? 'نقدي كاش' : acc.bankName
+                        }`,
+                        icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                        badgeColor: acc.color,
+                      }))}
+                    onSelect={setSelectedWalletId}
+                  />
+
+                  {(() => {
+                    const amtVal = parseFinancialInput(debtAmount);
+                    const chosenAcc = state.accounts.find((a) => a.id === selectedWalletId);
+                    if (
+                      direction === 'receivable' &&
+                      chosenAcc &&
+                      amtVal !== null &&
+                      amtVal > 0 &&
+                      chosenAcc.balance < amtVal
+                    ) {
+                      return (
+                        <View style={styles.balanceWarningBox}>
+                          <Text style={styles.balanceWarningText}>
+                            ⚠️ تنبيه: رصيد الخزينة ({formatMoney(chosenAcc.balance, debtCurrency)}) أقل من مبلغ الإقراض ({formatMoney(amtVal, debtCurrency)}). سيصبح رصيد الخزينة بالسالب عند الخصم!
+                          </Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
+                </>
+              ) : (
+                <View
+                  style={[
+                    styles.infoBanner,
+                    {
+                      backgroundColor: theme.cardAlt,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color={theme.blue}
+                  />
+                  <Text
+                    style={[
+                      styles.infoBannerText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    وضع الرصيد السابق: لن تتأثر أي خزينة أو حساب مصرفي، وسيتم قيد الدين كإثبات محاسبي فقط.
+                  </Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                aria-checked={affectWallet}
+                accessibilityRole="checkbox"
+                accessibilityState={{ disabled: saving, checked: affectWallet }}
+                accessibilityLabel="تحديث رصيد الحساب عند تسجيل الدين"
+                disabled={saving}
                 style={[styles.checkboxOption, styles.touchTarget]}
                 onPress={() => setAffectWallet(!affectWallet)}
               >
@@ -970,34 +1142,26 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   size={20}
                   color={theme.primary}
                 />
-                <Text
-                  style={[
-                    styles.checkboxLabel,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  تحديث رصيد الخزينة/الحساب فوراً بهذا المبلغ
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.checkboxLabel,
+                      { color: theme.text, fontWeight: '600' },
+                    ]}
+                  >
+                    {affectWallet
+                      ? (direction === 'receivable'
+                          ? 'تحديث رصيد الخزينة فوراً (خصم المبلغ من الخزينة)'
+                          : 'تحديث رصيد الخزينة فوراً (إيداع المبلغ في الخزينة)')
+                      : 'تسجيل رصيد دين سابق (بدون حركة نقدية في الخزينة)'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>
+                    {affectWallet
+                      ? 'ألغِ التحديد لتسجيل رصيد دين سابق/مرحل دون سحب أو إيداع كاش في الخزائن.'
+                      : 'تم تفعيل وضع الرصيد السابق: لن تتأثر أي خزينة أو حساب مصرفي.'}
+                  </Text>
+                </View>
               </TouchableOpacity>
-
-              {affectWallet && (
-                <CalmDropdown disabled={saving}
-                  label="اختر الحساب لتحديث رصيده:"
-                  value={selectedWalletId}
-                  options={state.accounts
-                    .filter((a) => a.currency === debtCurrency)
-                    .map((acc) => ({
-                      value: acc.id,
-                      label: acc.name,
-                      subLabel: `${formatMoney(acc.balance, acc.currency)} • ${
-                        acc.isCash ? 'نقدي كاش' : acc.bankName
-                      }`,
-                      icon: acc.isCash ? 'cash-outline' : 'card-outline',
-                      badgeColor: acc.color,
-                    }))}
-                  onSelect={setSelectedWalletId}
-                />
-              )}
 
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات وتفاصيل الاتفاق
@@ -1102,8 +1266,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
             <CalmDropdown disabled={saving}
               label={
                 activeDebtForPay?.direction === 'receivable'
-                  ? 'إيداع المبلغ المحصل في حساب:'
-                  : 'خصم المبلغ المسدد من حساب:'
+                  ? 'في أي خزينة تم استلام الدفعة؟ (سيتم الإيداع فيها):'
+                  : 'من أي خزينة تم دفع القسط؟ (سيتم الخصم منها):'
               }
               value={installmentAccId}
               options={state.accounts
@@ -1111,7 +1275,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 .map((acc) => ({
                   value: acc.id,
                   label: acc.name,
-                  subLabel: `${formatMoney(acc.balance, acc.currency)} • ${
+                  subLabel: `الرصيد: ${formatMoney(acc.balance, acc.currency)} • ${
                     acc.isCash ? 'نقدي كاش' : acc.bankName
                   }`,
                   icon: acc.isCash ? 'cash-outline' : 'card-outline',
@@ -1119,6 +1283,37 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 }))}
               onSelect={setInstallmentAccId}
             />
+
+            {(() => {
+              if (activeDebtForPay?.direction === 'payable') {
+                const instAmtVal = parseFinancialInput(installmentAmt);
+                const chosenAcc = state.accounts.find((a) => a.id === installmentAccId);
+                if (chosenAcc && instAmtVal !== null && instAmtVal > 0 && chosenAcc.balance < instAmtVal) {
+                  return (
+                    <View style={styles.balanceWarningBox}>
+                      <Text style={styles.balanceWarningText}>
+                        ⚠️ تنبيه: رصيد الخزينة ({formatMoney(chosenAcc.balance, activeDebtForPay.currency)}) أقل من قيمة القسط ({formatMoney(instAmtVal, activeDebtForPay.currency)})!
+                      </Text>
+                    </View>
+                  );
+                }
+              }
+              return null;
+            })()}
+
+            {(() => {
+              const instAmtVal = parseFinancialInput(installmentAmt);
+              if (activeDebtForPay && instAmtVal !== null && instAmtVal > activeDebtForPay.remainingAmount) {
+                return (
+                  <View style={styles.balanceWarningBox}>
+                    <Text style={styles.balanceWarningText}>
+                      ⚠️ تنبيه: قيمة الدفعة تتجاوز المبلغ المتبقي ({formatMoney(activeDebtForPay.remainingAmount, activeDebtForPay.currency)})!
+                    </Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
             <CalmDropdown disabled={saving}
               label="طريقة السداد"
               value={installmentMethod}
@@ -1774,5 +1969,44 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 13,
+  },
+  treasuryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 4,
+  },
+  balanceWarningBox: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#F87171',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  balanceWarningText: {
+    fontSize: 11,
+    color: '#DC2626',
+    textAlign: 'right',
+    fontWeight: '600',
+  },
+  infoBanner: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 6,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  infoBannerText: {
+    fontSize: 11,
+    flex: 1,
+    textAlign: 'right',
   },
 });

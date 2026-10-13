@@ -11,12 +11,15 @@
 
 ## 1. Executive Summary & Project Status
 
-Antigravity has taken over as Lead Engineer following the Codex session to complete the audit, stabilization, hardening, and verification of **Mali App**. All 5 unpushed commits from Codex (`d74a5c7..2309baa`) were verified and integrated. `STORAGE-116` (Web 5MB `localStorage` quota overflow during large 10,000–50,000 record imports) has been completely resolved via a durable IndexedDB storage engine (`mali_financial_vault_v1`) with lossless migration and 50,000-record bounds.
+Antigravity has taken over as Lead Engineer following the Codex session to complete the audit, stabilization, hardening, verification, and feature implementation of **Mali App**. All unpushed commits from Codex (`d74a5c7..2309baa`) were verified and integrated. `STORAGE-116` (Web 5MB `localStorage` quota overflow) was resolved via a durable IndexedDB storage engine (`mali_financial_vault_v1`).
+
+Furthermore, the **Full Debt & Treasury Accounting Integration (الربط المحاسبي الكامل بين الديون والخزائن)** has been designed, implemented, and verified across the core financial engine, context, procedures/debts screen, and test suite.
 
 All code quality and test suites are 100% passing:
-- **Test Suite:** **575 / 575 PASS** (0 failures, 0 skipped, 0 flakiness).
+- **Test Suite:** **584 / 584 PASS** (0 failures, 0 skipped, 0 flakiness across all 54 test files).
 - **TypeScript:** **0 errors** (`tsc --noEmit`).
-- **ESLint:** **0 errors, 0 warnings** (all 13 warnings resolved across screens, context, and tests).
+- **ESLint:** **0 errors, 0 warnings** (flat config clean).
+- **Debt & Treasury Integration Suite:** **9 / 9 PASS** in `tests/debtTreasuryIntegration.test.mjs`.
 - **PostgreSQL 17.11 (Real instance):** **100 / 100 PASS** (16 RLS policies, 67 nested validators, 17 immutable audit checks) + full dump and restore rehearsal PASS.
 - **Dependency Gate:** Local security backports and consumer suites PASS 6/6.
 - **Web Export:** `npm run build:web` exported clean candidate to `dist/`.
@@ -27,20 +30,25 @@ All code quality and test suites are 100% passing:
 
 - **Active Branch:** `codex/mali-production-audit`
 - **Main Branch (`main`):** `ac18b18052e67438c1cb92328831186829f45e0b` (untouched, no premature merges).
-- **Remote Tracking:** Ahead of `origin/codex/mali-production-audit`.
+- **Remote Tracking:** `origin/codex/mali-production-audit` (PR #2).
 - **Integrated Commits from Codex:**
   - `d74a5c7`: Test platform repair and 32 passing mocks
   - `ecfa1f6`: Native PDF copy and verified document export
   - `4cc30c7`: Bounded rendering and 27 passing tests
   - `a68eac5`: Recovery archive reader and inspection panel
   - `2309baa`: Full accessibility semantic controls on 6 screens
-- **New Work Added by Antigravity:**
+- **Work Added by Antigravity:**
   - `src/services/webFinancialStorageBackend.ts`: Durable IndexedDB storage backend with lossless `localStorage` migration and Web Locks synchronization.
   - `src/services/financialStorage.ts`: Dual-platform routing (IndexedDB on Web, `AsyncStorage` on Android/iOS) with getter-based fallback preservation.
   - `src/components/RecoveryArchivePanel.tsx`: Updated to use `financialRecoveryStorage`.
   - Expanded capacity bounds for 50,000-record vaults/backups (48 MiB / 100,000 changes in audit, 96 MiB in chunks).
   - Cleaned all 13 ESLint warnings across screens, context, and test files.
   - `tests/webFinancialStorageBackend.test.mjs`: Comprehensive multi-tier test suite for 1,000, 10,000, and 50,000 records, interrupted migrations, and multi-user isolation.
+  - **Debt & Treasury Integration**:
+    - [src/services/financialEngine.ts](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/services/financialEngine.ts): Added installment remaining amount boundary guard (`if (reqAmount > debt.remainingAmount) return state;`), preserving atomic rollback on deletion.
+    - [src/screens/ExpensesScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/ExpensesScreen.tsx): P&L operating expense/income filters updated to exclude debt capital movements (`!t.debtId && t.category !== 'ديون وأمانات'`).
+    - [src/screens/ProceduresDebtsScreen.tsx](file:///C:/Users/salah/.gemini/antigravity/scratch/mali-app/src/screens/ProceduresDebtsScreen.tsx): Implemented direction-aware treasury selectors, live balance displays, insufficient balance warnings, opening balance toggle («تسجيل رصيد دين سابق بدون حركة نقدية»), installment treasury badges, and debt card origin badges.
+    - `tests/debtTreasuryIntegration.test.mjs`: Complete 8-stage lifecycle integration test suite covering lending deduction, borrowing deposit, multi-treasury installments, completion, rejection of overpayments, opening balances, and atomic reversal.
 
 ---
 
@@ -58,7 +66,8 @@ The following local untracked files have been strictly preserved and excluded fr
 
 | Verification Check | Target / Environment | Command / Suite | Result |
 |---|---|---|---|
-| Unit & Integration Tests | Node.js 24 | `npm test` | **575 / 575 PASS** (0 failures) |
+| Unit & Integration Tests | Node.js 24 | `npm test` | **584 / 584 PASS** (0 failures) |
+| Debt & Treasury Accounting Suite | Node.js 24 | `node --test tests/debtTreasuryIntegration.test.mjs` | **9 / 9 PASS** |
 | TypeScript Types | TypeScript 5.3 | `npm run typecheck` | **0 errors** |
 | Code Quality / Linter | ESLint Flat Config | `npm run lint` | **0 errors, 0 warnings** |
 | Real PostgreSQL 17.11 RLS | Loopback 127.0.0.1:55432 | `node --test tests/database.test.mjs` | **16 / 16 PASS** |
