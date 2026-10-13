@@ -10,6 +10,7 @@ on:
       - 'package-lock.json'
       - 'plugins/**'
       - '.github/workflows/android-acceptance.yml'
+      - 'scripts/androidSmoke.sh'
 permissions:
   contents: read
 jobs:
@@ -32,8 +33,14 @@ jobs:
           java-version: '17'
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Prepare Android SDK command line tools
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Make preinstalled Android SDK tools available
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 4 -type f -name sdkmanager -print -quit)
+          if [ -z "$SDKMANAGER" ]; then echo "Android sdkmanager unavailable"; exit 1; fi
+          SDK_BIN=$(dirname "$SDKMANAGER")
+          echo "$SDK_BIN" >> "$GITHUB_PATH"
+          "$SDKMANAGER" --version
       - name: Generate isolated Android native project
         run: npx expo prebuild --platform android --no-install
       - name: Compile native debug APK
