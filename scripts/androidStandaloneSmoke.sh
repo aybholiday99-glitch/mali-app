@@ -7,7 +7,10 @@ if [[ ! -s "$APK" ]]; then
   echo "FAIL: self-contained Android release candidate is missing"
   exit 1
 fi
-if unzip -Z1 "$APK" | grep -Eq '^assets/index.android.bundle$'; then
+# Materialize the ZIP listing before grep: with pipefail, grep -q can close
+# the pipe early and mark a valid ZIP reader as failed (SIGPIPE).
+APK_LIST="$(unzip -Z1 "$APK")"
+if grep -Fxq 'assets/index.android.bundle' <<< "$APK_LIST"; then
   echo "PASS: production JavaScript bundle is embedded in standalone APK"
 else
   echo "FAIL: no embedded JS bundle; standalone app could depend on Metro"
