@@ -943,3 +943,44 @@ test('non-cash installment with a forged linked transaction cannot be silently r
     tampered,
   );
 });
+
+
+test('whole-debt reversal rejects orphan, mismatched and extra financial journals', () => {
+  let state = createInitialState();
+  state = addDebtRecordMutation(state, {
+    id: 'whole-debt-guard', personName: 'صاحب الذمة', direction: 'receivable',
+    currency: 'LYD', totalAmount: 600, accountId: 'acc-cash-lyd',
+  });
+  state = settleDebtInstallmentMutation(state, {
+    debtId: 'whole-debt-guard', installmentId: 'whole-inst', amount: 100,
+    accountId: 'acc-bank-lyd', paymentMethod: 'transfer',
+  });
+  const debt = state.debts[0];
+  const inst = debt.installments[0];
+  const initial = state.transactions.find(tx => tx.id === debt.initialTransactionId);
+  const payment = state.transactions.find(tx => tx.id === inst.transactionId);
+  assert.ok(initial && payment);
+  const corruptedStates = [
+    { ...state, transactions: state.transactions.filter(tx => tx.id !== initial.id) },
+    { ...state, transactions: state.transactions.filter(tx => tx.id !== payment.id) },
+    { ...state, transactions: state.transactions.map(tx =>
+      tx.id === payment.id ? { ...tx, installmentId: 'mislinked' } : tx) },
+    { ...state, debts: state.debts.map(d => ({ ...d,
+      installments: d.installments.map(i => ({ ...i, transactionId: 'other-transaction' })) })) },
+    { ...state, transactions: [...state.transactions, {
+      ...payment, id: 'forged-extra', installmentId: 'unrelated',
+    }] },
+    { ...state, transactions: state.transactions.map(tx =>
+      tx.id === initial.id ? { ...tx, amount: 500 } : tx) },
+  ];
+  for (const corrupt of corruptedStates) {
+    assert.strictEqual(deleteDebtMutation(corrupt, 'whole-debt-guard'), corrupt);
+  }
+
+  const valid = deleteDebtMutation(state, 'whole-debt-guard');
+  assert.equal(valid.debts.length, 0);
+  assert.equal(valid.transactions.length, 0);
+  assert.equal(valid.accounts.find(a => a.id === 'acc-cash-lyd').balance, 10000);
+  assert.equal(valid.accounts.find(a => a.id === 'acc-bank-lyd').balance, 5000);
+  assert.strictEqual(deleteDebtMutation(valid, 'whole-debt-guard'), valid);
+});
