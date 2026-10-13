@@ -1354,6 +1354,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   function loginUser(user: AuthUser) {
+    // Never let a new owner inherit the previous customer's in-memory vault.
+    if (CENTRAL_SERVER_ONLY) centralSession.current.clear();
     if (CENTRAL_SERVER_ONLY && user.isLocalOnly) {
       setLastSyncMessage('الدخول كضيف غير متاح؛ بيانات العملاء تُحفظ حصرياً على الخادم.');
       return;
