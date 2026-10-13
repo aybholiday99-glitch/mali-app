@@ -1,7 +1,7 @@
 # Mali release gate
 
 **NOT PRODUCTION READY.** Updated 2026-10-13.
-Validated source d4bf8bee57379d7bfce722570ec6b5a8a1d4c596; draft PR2.
+Earlier fully validated source d4bf8bee57379d7bfce722570ec6b5a8a1d4c596; phased integration through5512e12, draft PR2.
 Earlier MALI_FINAL_AUDIT/MALI_RELEASE_READINESS completion claims are superseded.
 
 | Required acceptance | Evidence/state |
@@ -32,3 +32,8 @@ have not been rerun; this document does not inherit green status from earlier so
 Remaining advisories: [braces](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
 [node-forge](https://github.com/advisories/GHSA-86w9-cpqp-85rv).
 Scoped [UUID repair](https://github.com/advisories/GHSA-w5hq-g745-h8pq) is tested through its actual Xcode consumer.
+
+Current: worker independently PASS; chunked cache/journal/verified restore integrated,61focused checks
+PASS. Client mutation success precedes disk commit and is being repaired. Android16 emulator boots;
+APK/native functional tests pending. Linux matcher baseline repaired; new CI pending. Raw forge4high
+unchanged. Braces removed from installed graph; older advisory link above records history only.

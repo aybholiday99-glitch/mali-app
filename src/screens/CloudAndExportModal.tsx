@@ -16,7 +16,7 @@ import {
   exportFileOrShare,
   generateDealsCsv,
   generateTransactionsCsv,
-  printFinancialStatementWeb,
+  printFinancialStatement,
 } from '../utils/exportHelper';
 
 interface CloudModalProps {
@@ -159,12 +159,10 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
                   ]}
-                  onPress={() => {
+                  onPress={async () => {
                     const csv = generateTransactionsCsv(state);
-                    exportFileOrShare('كشف_حساب_الحركات_مالي.csv', csv);
-                    setStatusBanner(
-                      'تم تجهيز وتصدير كشف الحركات المالية بصيغة Excel (CSV).'
-                    );
+                    const ok = await exportFileOrShare('كشف_حساب_الحركات_مالي.csv', csv);
+                    setStatusBanner(ok ? 'تم فتح التنزيل أو المشاركة لكشف الحركات. احفظ الملف في الوجهة التي تختارها.' : 'تعذر تجهيز أو مشاركة كشف الحركات. أعد المحاولة وتحقق من مساحة التخزين.');
                   }}
                 >
                   <Ionicons
@@ -190,12 +188,10 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
                   ]}
-                  onPress={() => {
+                  onPress={async () => {
                     const csv = generateDealsCsv(state);
-                    exportFileOrShare('كشف_صفقات_الدولار_مالي.csv', csv);
-                    setStatusBanner(
-                      'تم تجهيز وتصدير سجل صفقات الدولار بصيغة Excel (CSV).'
-                    );
+                    const ok = await exportFileOrShare('كشف_صفقات_الدولار_مالي.csv', csv);
+                    setStatusBanner(ok ? 'تم فتح التنزيل أو المشاركة لتقرير الدولار. احفظ الملف في الوجهة التي تختارها.' : 'تعذر تجهيز أو مشاركة تقرير الدولار. أعد المحاولة وتحقق من مساحة التخزين.');
                   }}
                 >
                   <Ionicons
@@ -221,12 +217,9 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
                   ]}
-                  onPress={() => {
-                    const ok = printFinancialStatementWeb(state);
-                    if (!ok) {
-                      const csv = generateTransactionsCsv(state);
-                      exportFileOrShare('التقرير_المالي_مالي.csv', csv);
-                    }
+                  onPress={async () => {
+                    const ok = await printFinancialStatement(state);
+                    setStatusBanner(ok ? 'تم فتح الطباعة أو مشاركة PDF. احفظ التقرير في الوجهة التي تختارها.' : 'تعذر تجهيز أو مشاركة PDF. أعد المحاولة وتحقق من مساحة التخزين.');
                   }}
                 >
                   <Ionicons
@@ -252,7 +245,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     styles.exportCardBtn,
                     { backgroundColor: theme.card, borderColor: theme.border },
                   ]}
-                  onPress={() => {
+                  onPress={async () => {
                     const safeBackupPayload = {
                       backupVersion: 2,
                       exportedAt: new Date().toISOString(),
@@ -265,15 +258,14 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                       procedures: state.procedures,
                       budgets: state.budgets,
                       marketRates: state.marketRates,
+                      financialAudit: state.financialAudit,
                     };
-                    exportFileOrShare(
+                    const ok = await exportFileOrShare(
                       'نسخة_احتياطية_مالي.json',
                       JSON.stringify(safeBackupPayload, null, 2),
                       'application/json'
                     );
-                    setStatusBanner(
-                      'تم تصدير النسخة الاحتياطية الكاملة (JSON) بأمان (بدون مفاتيح الاتصال).'
-                    );
+                    setStatusBanner(ok ? 'تم فتح التنزيل أو المشاركة للنسخة الكاملة مع السجل المالي وبدون مفاتيح الاتصال. احفظ الملف ثم تحقق من إمكانية استرجاعه.' : 'تعذر تجهيز أو مشاركة النسخة الاحتياطية. أعد المحاولة وتحقق من مساحة التخزين.');
                   }}
                 >
                   <Ionicons
@@ -545,8 +537,8 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                       styles.pushBtn,
                       { marginTop: 8, backgroundColor: theme.primary },
                     ]}
-                    onPress={() => {
-                      const ok = importStateJson(importJsonText);
+                    onPress={async () => {
+                      const ok = await importStateJson(importJsonText);
                       setStatusBanner(
                         ok
                           ? 'تم استرجاع النسخة الاحتياطية بنجاح!'

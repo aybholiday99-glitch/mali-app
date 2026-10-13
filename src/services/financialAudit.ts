@@ -25,6 +25,19 @@ function canonical(value: unknown, depth = 0): any {
   return result;
 }
 const equal = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+/** Retain submission identity after the corresponding live row has been reversed. */
+export function financialOperationKeys(previous:MaliState,next:MaliState):string[] {
+  const entries=(state:MaliState)=>[
+    ...state.deals.map(row=>({key:'deal:'+row.id,operation:row.idempotencyKey})),
+    ...state.transactions.map(row=>({key:'transaction:'+row.id,operation:row.idempotencyKey})),
+    ...state.debts.map(row=>({key:'debt:'+row.id,operation:row.idempotencyKey})),
+    ...state.deals.flatMap(row=>row.sales.map(sale=>({key:'sale:'+sale.id,operation:sale.idempotencyKey}))),
+    ...state.debts.flatMap(row=>row.installments.map(payment=>({key:'payment:'+payment.id,operation:payment.idempotencyKey}))),
+  ];
+  const old=new Set(entries(previous).map(row=>row.key));
+  return [...new Set(entries(next).filter(row=>!old.has(row.key) && row.operation).map(row=>row.operation!))];
+}
+export const financialOperationId=(previous:MaliState,next:MaliState)=>financialOperationKeys(previous,next)[0];
 function utf8Bytes(value: string) {
   let bytes = 0;
   for (let i = 0; i < value.length; i++) {
@@ -113,6 +126,16 @@ export function appendFinancialAudit(previous: MaliState, next: MaliState, metad
       (metadata.operationId !== undefined && !text(metadata.operationId, 256))) throw invalid();
   const history = validateFinancialAudit(previous.financialAudit ?? [], previous, metadata.ownerId);
   if (metadata.operationId && history.some(event => event.operationId === metadata.operationId)) return previous;
+  const retainedKeys=new Set<string>();
+  for(const event of history) for(const change of event.changes) {
+    if(!['deals','transactions','debts'].includes(change.collection))continue;
+    for(const evidence of [change.before,change.after]) {
+      if(!evidence)continue;
+      const values=[evidence,...(Array.isArray(evidence.sales)?evidence.sales:[]),...(Array.isArray(evidence.installments)?evidence.installments:[])];
+      for(const value of values)if(typeof value?.idempotencyKey==='string')retainedKeys.add(value.idempotencyKey);
+    }
+  }
+  if(financialOperationKeys(previous,next).some(key=>retainedKeys.has(key)))return previous;
   // Candidate mutators/imports cannot supply a replacement for existing history.
   if (next.financialAudit !== undefined && !equal(next.financialAudit, previous.financialAudit ?? [])) throw invalid();
   const before = rows(previous), after = rows(next), changes: FinancialAuditChange[] = [];

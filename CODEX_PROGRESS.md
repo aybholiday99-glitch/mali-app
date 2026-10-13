@@ -1,7 +1,7 @@
 # Mali progress
 
 Updated 2026-10-13. Accepted main baseline: ac18b18052e67438c1cb92328831186829f45e0b.
-Validated source candidate: d4bf8bee57379d7bfce722570ec6b5a8a1d4c596.
+Earlier fully validated source: d4bf8bee57379d7bfce722570ec6b5a8a1d4c596; current phased integration follows below.
 
 ## Live safeguards
 
@@ -82,3 +82,17 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   no Android application build/test has been claimed. PRODUCT-101 native picker/export candidate in progress.
 - Current integration HEAD4e403852bc1d61a2b2ad1ae680e034c094b37289; root-owned storage/CI/rehearsal/continuity
   changes remain uncommitted until scoped validation. Production/main/Pages remain untouched.
+
+### Journal/cache/native checkpoint
+
+- Worker repair independently56checks/probes PASS. Chunked storage integrated into owner cache/recovery;
+  dual-slot verified commits, enrollment fence, tail pruning and cold recovery copies preserve corrupt
+  originals and complete supplied backup evidence. Client journal accompanies mutations/cloud/JSON.
+- Compatible same-owner imports retain exact deleted history; divergent/foreign journals archived before
+  rebasing. All retained compound keys reject replay. Independent four actual-provider repair probes PASS.
+- Focused native/journal/cache/provider61tests PASS; typecheck PASS; scoped lint0errors/3existingwarnings.
+- Native receipt/files/PDF5512e12 integrated; awaited export feedback reports share/download initiation.
+- Android16 AVD boot complete; ADB emulator-5554 ready. Actual APK/native acceptance next.
+- GitHub2f61437 PG17 SQL/full real restore and SAST PASS. Linux Metro baseline correctedc5079a5;
+  mandatory audit remains FAIL4high. New Router/native dependencies being qualified.
+- Further review exposed pre-durability success: async mutation/uncertain retry/form preservation OPEN.

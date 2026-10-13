@@ -2,18 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDurableSyncWorker,retryDelay } from '../src/services/durableSyncWorker.ts';
 import { fakeSyncScheduler,settle } from './fakeSyncScheduler.mjs';
-import { assertNativeCacheSize } from '../src/services/cacheSizeLimit.ts';
-import { Buffer } from 'node:buffer';
 
 const stamp='2026-10-13T00:01:00.123456+00:00';
 const saved={ok:true,success:true,updatedAt:stamp,message:'saved'};
 const offline={ok:false,success:false,failureKind:'transient',message:'offline'};
-test('native cache limit counts UTF-8 bytes correctly before the storage boundary',()=>{
-  for(const text of ['ascii','عربي','😀','\ud800']){
-    const raw=JSON.stringify(text),size=Buffer.byteLength(raw,'utf8');assert.doesNotThrow(()=>assertNativeCacheSize(raw,size));assert.throws(()=>assertNativeCacheSize(raw,size-1));
-  }
-  assert.throws(()=>assertNativeCacheSize('x'.repeat(1800001)),/سعة الحفظ الآمن/);
-});
 function fixture(initial){
   const clock=fakeSyncScheduler(),history=[],calls=[],statuses=[];let disk=initial,result=async()=>saved,fail=false;
   const deps={ownerId:'A',initial,scheduler:clock.scheduler,withBaseline:(payload,baseline)=>({...payload,baseline}),

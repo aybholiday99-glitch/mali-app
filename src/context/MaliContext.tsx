@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
 import {
   Account,
   AuthUser,
@@ -19,7 +18,9 @@ import { SerialQueue } from '../services/serialQueue';
 import { createDurableSyncWorker, type CloudSyncStatus, type SyncOutbox, type SyncScheduler } from '../services/durableSyncWorker';
 import { subscribeSyncLifecycle } from '../services/syncLifecycle';
 import { syncConfigIdentity, validateSyncOutbox } from '../services/syncOutboxValidation';
-import { assertNativeCacheSize } from '../services/cacheSizeLimit';
+import { financialStorage } from '../services/financialStorage';
+import { appendFinancialAudit, financialOperationId } from '../services/financialAudit';
+import type { FinancialAuditMetadata } from '../types/financialAudit';
 import { financialDate } from '../services/financialDate';
 import {
   pullStateFromSupabase,
@@ -223,7 +224,7 @@ interface MaliContextValue {
   updateSupabaseConfig: (cfg: Partial<SupabaseConfig>) => Promise<boolean>;
   syncToCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
   pullFromCloud: (overrideCfg?: SupabaseConfig) => Promise<SyncResult>;
-  importStateJson: (jsonStr: string) => boolean;
+  importStateJson: (jsonStr: string) => Promise<boolean>;
 }
 
 const MaliContext = createContext<MaliContextValue | undefined>(undefined);
@@ -231,6 +232,7 @@ const MaliContext = createContext<MaliContextValue | undefined>(undefined);
 function mergePartialCloudState(base: MaliState, cloud: Partial<MaliState>, updatedAt?: string, snapshotUpdatedAt?: string | null): MaliState {
   return {
     ...base,
+    financialAudit: cloud.financialAudit,
     accounts: Array.isArray(cloud.accounts) ? cloud.accounts : base.accounts,
     contacts: Array.isArray(cloud.contacts) ? cloud.contacts : base.contacts,
     transactions: Array.isArray(cloud.transactions) ? cloud.transactions : base.transactions,
@@ -277,7 +279,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const saveCache = (next: MaliState, ownerId?: string | null, retained?: SyncOutbox<MaliState> | null) => {
     const record = retained === undefined ? syncWorker.current?.getRecord() : retained;
     const raw = JSON.stringify({ ...next, cloudOutbox: record?.ownerId === ownerId ? record : undefined });
-    return storageQueue.current.run(() => { if (Platform?.OS !== 'web') assertNativeCacheSize(raw); return AsyncStorage.setItem(getStorageKeyForUser(ownerId), raw); });
+    return storageQueue.current.run(() => financialStorage.setItem(getStorageKeyForUser(ownerId), raw));
   };
 
   function activateWorker() {
@@ -297,10 +299,9 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           pendingCloudSync: !!record.pending || (record.acknowledgedRevision !== undefined && localRevision.current > record.acknowledgedRevision),
           supabaseConfig: sameConfig ? { ...before.supabaseConfig, lastSyncedAt: record.syncedAt } : before.supabaseConfig };
         const raw = JSON.stringify({ ...next, cloudOutbox: record });
-        if (Platform?.OS !== 'web') assertNativeCacheSize(raw);
         const key = getStorageKeyForUser(user.id);
-        await AsyncStorage.setItem(key, raw);
-        if (await AsyncStorage.getItem(key) !== raw) throw new Error('Unverified outbox write.');
+        await financialStorage.setItem(key, raw);
+        if (await financialStorage.getItem(key) !== raw) throw new Error('Unverified outbox write.');
         if (scope.current.isCurrent(token) && stateRef.current === before) applyState(next);
       }),
       send: (payload, signal) => syncQueue.current.run(async () => {
@@ -352,10 +353,19 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     });
   };
 
-  const persistState = (updater: (prev: MaliState) => MaliState) => {
+  const persistState = (updater: (prev: MaliState) => MaliState, metadata?: Partial<Omit<FinancialAuditMetadata,'ownerId'>>) => {
     if (!scope.current.isCurrent(mutationSession) || hydrating.current || recoveryRequired.current) return false;
     const prev = stateRef.current;
-    const mutation = updater(prev);
+    let mutation: MaliState;
+    try {
+      const candidate=updater(prev);
+      mutation = appendFinancialAudit(prev,candidate,{
+        ownerId:userRef.current?.id || 'anonymous',action:metadata?.action || 'financial_update',
+        reason:metadata?.reason || 'عملية مالية معتمدة من هذا الجهاز.',operationId:metadata?.operationId || financialOperationId(prev,candidate),
+      });
+    } catch {
+      setLastSyncMessage('تعذر حفظ دليل العملية المالي. لم يتم تغيير الخزنة.');return false;
+    }
     if (mutation === prev) {
       setLastSyncMessage('لم يتم تسجيل العملية. راجع الحساب والعملة والرصيد والمبلغ ثم حاول مجدداً.');
       return false;
@@ -484,7 +494,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const updateAccountBalance = (accountId: string, newBalance: number) => {
-    return persistState((prev) => updateAccountBalanceMutation(prev, accountId, newBalance));
+    return persistState((prev) => updateAccountBalanceMutation(prev, accountId, newBalance),{action:'balance_correction',reason:'تصحيح يدوي لرصيد الحساب '+accountId});
   };
 
   const deleteAccount = (accountId: string) => {
@@ -661,7 +671,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const deleteUsdDeal = (dealId: string) => {
-    return persistState((prev) => deleteUsdDealMutation(prev, dealId));
+    return persistState((prev) => deleteUsdDealMutation(prev, dealId),{action:'deal_reversal',reason:'عكس صفقة الدولار '+dealId});
   };
 
   const addTransaction = (input: AddTransactionInput) => {
@@ -707,7 +717,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const deleteTransaction = (txId: string) => {
-    return persistState((prev) => deleteTransactionMutation(prev, txId));
+    return persistState((prev) => deleteTransactionMutation(prev, txId),{action:'transaction_reversal',reason:'عكس الحركة المالية '+txId});
   };
 
   const updateCategoryBudget = (category: string, monthlyLimitLyd: number) => {
@@ -784,7 +794,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const deleteDebt = (debtId: string) => {
-    return persistState((prev) => deleteDebtMutation(prev, debtId));
+    return persistState((prev) => deleteDebtMutation(prev, debtId),{action:'debt_reversal',reason:'عكس الدين '+debtId});
   };
 
   const addProcedure = (input: AddProcedureInput) => {
@@ -972,12 +982,41 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     });
   };
 
-  const importStateJson = (jsonStr: string): boolean => {
+  const importStateJson = async (jsonStr: string): Promise<boolean> => {
     if (!scope.current.isCurrent(mutationSession) || hydrating.current) return false;
     const validation = validateAndSanitizeBackupPayload(jsonStr, stateRef.current);
     if (!validation.valid || !validation.state) return false;
-    recoveryRequired.current = false;
-    return persistState(() => validation.state!);
+    const token=scope.current.capture(),user=userRef.current,before=stateRef.current;
+    const {financialAudit:sourceHistory,...imported}=validation.state;
+    const ownerId=user?.id||'anonymous';
+    const existingHistory=before.financialAudit||[];
+    const preserveSourceHistory=!!sourceHistory?.length && sourceHistory.every(event=>event.ownerId===ownerId) &&
+      JSON.stringify(sourceHistory.slice(0,existingHistory.length))===JSON.stringify(existingHistory);
+    let replacement:MaliState;
+    try {replacement=preserveSourceHistory?validation.state:appendFinancialAudit(before,imported,{ownerId,action:'backup_import',reason:'استعادة نسخة احتياطية اختارها المستخدم على هذا الجهاز.'});}
+    catch {setLastSyncMessage('تعذر اعتماد النسخة مع السجل المالي الحالي.');return false;}
+    const retained=syncWorker.current?.getRecord();
+    syncWorker.current?.dispose();syncWorker.current=null;hydrating.current=true;
+    const revision=localRevision.current+1;
+    const next={...touchState(replacement),localRevision:revision,pendingCloudSync:!!user && !user.isLocalOnly};
+    const {supabaseConfig:_sourceConfig,...sourceEvidence}=validation.state;
+    try {
+      await storageQueue.current.run(()=>financialStorage.recoverItem(getStorageKeyForUser(user?.id),JSON.stringify({...next,cloudOutbox:retained}),JSON.stringify(sourceEvidence)));
+      if(!scope.current.isCurrent(token) || stateRef.current!==before)return false;
+      localRevision.current=revision;recoveryRequired.current=false;applyState(next);
+      if(user && !user.isLocalOnly) {
+        const worker=startSyncWorker(user,token,retained||undefined);
+        await worker.enqueue(next,revision,syncConfigIdentity(next.supabaseConfig),next.supabaseConfig.lastSyncedAt);
+      }
+      return scope.current.isCurrent(token);
+    } catch {if(scope.current.isCurrent(token))setLastSyncMessage('تعذر حفظ أدلة الاستعادة. تم الاحتفاظ بنسخ الاسترجاع.');return false;}
+    finally {
+      if(scope.current.isCurrent(token)) {
+        hydrating.current=false;
+        if(!recoveryRequired.current && user && !user.isLocalOnly && !syncWorker.current)startSyncWorker(user,token,retained||undefined);
+        activateWorker();
+      }
+    }
   };
 
   function loginUser(user: AuthUser) {
@@ -1005,13 +1044,13 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
       let identityVerified = false;
       let outbox: SyncOutbox<MaliState> | null = null;
       try {
-        const cachedRaw = await storageQueue.current.run(() => AsyncStorage.getItem(key));
+        const cachedRaw = await storageQueue.current.run(() => financialStorage.getItem(key));
         if (!scope.current.isCurrent(token)) return;
         if (cachedRaw) {
           const validation = validateAndSanitizeBackupPayload(cachedRaw, userState);
           if (!validation.valid || !validation.state) {
             recoveryRequired.current = true;
-            await storageQueue.current.run(() => AsyncStorage.setItem(key + '_recovery', cachedRaw));
+            await storageQueue.current.run(() => financialStorage.setItem(key + '_recovery', cachedRaw));
             setLastSyncMessage('النسخة المحلية تحتاج مراجعة. تم الاحتفاظ بها دون رفع أو استبدال.');
             return;
           }
@@ -1019,7 +1058,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           try { outbox = validateSyncOutbox(parsed.cloudOutbox, user.id, raw => validateAndSanitizeBackupPayload(raw, userState).valid); }
           catch {
             recoveryRequired.current = true;
-            await storageQueue.current.run(() => AsyncStorage.setItem(key + '_recovery', cachedRaw));
+            await storageQueue.current.run(() => financialStorage.setItem(key + '_recovery', cachedRaw));
             setLastSyncMessage('قائمة الرفع المحلية تحتاج مراجعة. تم الاحتفاظ بها دون رفع أو استبدال.');
             return;
           }
@@ -1027,7 +1066,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           localRevision.current = Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
           if (outbox?.pending && outbox.pending.revision > localRevision.current) {
             recoveryRequired.current = true;
-            await storageQueue.current.run(() => AsyncStorage.setItem(key + '_recovery', cachedRaw));
+            await storageQueue.current.run(() => financialStorage.setItem(key + '_recovery', cachedRaw));
             return;
           }
           const pending = typeof parsed.pendingCloudSync === 'boolean' ? parsed.pendingCloudSync :

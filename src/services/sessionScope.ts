@@ -20,5 +20,5 @@ export function emptyFinancialState<T extends {
   debts: unknown[]; procedures: unknown[]; lastModifiedAt?: string;
 }>(base: T): T {
   return { ...base, accounts: [], contacts: [], transactions: [], deals: [], debts: [],
-    procedures: [], lastModifiedAt: undefined };
+    procedures: [], financialAudit: undefined, lastModifiedAt: undefined };
 }

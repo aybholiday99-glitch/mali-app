@@ -9,7 +9,7 @@ function fixture(){
   const backend={getItem:async key=>values.get(key)??null,setItem:async(key,value)=>{
     writes++;if(writes===failAt) throw new Error('simulated disk failure');
     assert.ok(Buffer.byteLength(value)<200_000);values.set(key,value);
-  },removeItem:async key=>values.delete(key)};
+  },removeItem:async key=>values.delete(key),getAllKeys:async()=>[...values.keys()]};
   return {values,backend,store:createChunkedFinancialStorage(backend),failAfter:n=>{failAt=writes+n;}};
 }
 test('Arabic and supplementary characters in a vault over2MiB survive chunking and restart',async()=>{
@@ -84,4 +84,27 @@ test('two adapters sharing the native backend serialize acknowledged commits',as
   const other=createChunkedFinancialStorage(f.backend);
   await Promise.all([f.store.setItem(KEY,'from A'),other.setItem(KEY,'from B')]);
   assert.equal(await f.store.getItem(KEY),'from B');
+});
+test('inactive large chunk tails are pruned while the current and prior vault stay intact',async()=>{
+  const f=fixture();await f.store.setItem(KEY,'L'.repeat(1024*1024));
+  await f.store.setItem(KEY,'small');await f.store.setItem(KEY,'tiny');
+  const parts=[...f.values].filter(([key])=>/:[01]:\d+$/.test(key));
+  assert.equal(parts.reduce((sum,[,value])=>sum+value.length,0),9);assert.equal(await f.store.getItem(KEY),'tiny');
+});
+test('explicit recovery preserves corrupt owned evidence before replacing metadata',async()=>{
+  const f=fixture();await f.store.setItem(KEY,'original');
+  const headKey=[...f.values.keys()].find(key=>key.endsWith(':head'));f.values.set(headKey,'corrupt original head');
+  f.values.set('unrelated-auth-token','never touch');
+  const evidenceKey=await f.store.recoverItem(KEY,'validated replacement');
+  assert.equal(await f.store.getItem(KEY),'validated replacement');
+  const evidence=JSON.parse(await f.store.getItem(evidenceKey));
+  assert.ok(evidence.originals.some(row=>row.key===headKey && row.value==='corrupt original head'));
+  assert.equal(evidence.originals.some(row=>row.key==='unrelated-auth-token'),false);assert.equal(f.values.get('unrelated-auth-token'),'never touch');
+});
+test('failed recovery evidence write cannot overwrite any corrupt original key',async()=>{
+  const f=fixture();await f.store.setItem(KEY,'original');
+  const headKey=[...f.values.keys()].find(key=>key.endsWith(':head'));f.values.set(headKey,'corrupt original head');
+  const old=new Map(f.values);f.failAfter(1);
+  await assert.rejects(f.store.recoverItem(KEY,'validated replacement'));
+  for(const [key,value] of old)assert.equal(f.values.get(key),value);
 });

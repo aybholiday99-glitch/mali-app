@@ -86,6 +86,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
     if (!isObject(value.marketRates) || (value.lastModifiedAt !== undefined && !validTimestamp(value.lastModifiedAt))) throw new Error('أسعار السوق أو تاريخ النسخة غير صالح.');
     const checked = deps.validateBackup(JSON.stringify(value), deps.fallbackState);
     if (!checked.valid || !checked.state) throw new Error(checked.error || 'النسخة المالية غير صالحة.');
+    if(checked.state.financialAudit?.some(event=>event.ownerId!==userId)) throw new SyncFailure('مالك سجل التدقيق المالي لا يطابق الحساب.','validation');
     for (const collection of COLLECTIONS) {
       if (checked.state[collection].length !== value[collection].length) throw new Error(`تحتوي النسخة على سجلات تالفة في ${collection}.`);
     }
@@ -98,6 +99,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       transactions: checked.transactions, deals: checked.deals, debts: checked.debts,
       procedures: checked.procedures, budgets: checked.budgets, marketRates: checked.marketRates,
       lastModifiedAt: checked.lastModifiedAt || new Date().toISOString(),
+      ...(checked.financialAudit!==undefined?{financialAudit:checked.financialAudit}:{}),
     };
   }
   async function testSupabaseConnection(config: SupabaseConfig, currentUser?: AuthUser | null) {

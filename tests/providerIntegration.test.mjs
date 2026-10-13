@@ -11,6 +11,7 @@ let read = async key => stored.get(key) ?? null, identityChanged;
 globalThis.maliTestStorage={
   getItem: key=>read(key),
   setItem: async (key,value)=>{stored.set(key,value);},
+  getAllKeys:async()=>[...stored.keys()],removeItem:async key=>stored.delete(key),
 };
 globalThis.maliProviderAuth={
   clearAuthSession:async()=>{},consumeOAuthRedirectIfPresent:async()=>null,
@@ -21,12 +22,63 @@ let pull=async()=>({ok:false,success:false,isEmpty:true,message:'empty'});
 globalThis.maliProviderSync={pull:(...args)=>pull(...args),push:async()=>({ok:true,success:true,updatedAt:'2026-10-12T22:00:00.000Z',message:'saved'})};
 installNativeTestLoader({provider:true});
 const { MaliProvider,useMali } = await import('../src/context/MaliContext.tsx');
+const {financialStorage}=await import('../src/services/financialStorage.ts');
 const guest={id:'local-offline-guest',isLocalOnly:true,name:'Test',email:'test@local.invalid',provider:'email',createdAt:'2026-10-12'};
 const cloud={...guest,id:'cloud-A',isLocalOnly:false};
 let api;
 function Probe(){api=useMali();return null;}
 async function mount(clock){let tree;await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,{syncScheduler:clock?.scheduler},React.createElement(Probe)));});return tree;}
 const account={name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'};
+
+test('actual provider retains reversed evidence and blocks the original submission after reversal',async()=>{
+  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{assert.equal(api.addAccount(account),true);});
+  const accountId=api.state.accounts[0].id;
+  const input={title:'Immutable expense',type:'expense',amount:10,currency:'LYD',category:'test',accountId,paymentMethod:'cash',idempotencyKey:'immutable-submission'};
+  await act(async()=>{assert.equal(api.addTransaction(input),true);});
+  const transactionId=api.state.transactions[0].id;
+  const prefix=JSON.stringify(api.state.financialAudit);
+  await act(async()=>{assert.equal(api.deleteTransaction(transactionId),true);});
+  assert.equal(api.state.accounts[0].balance,100);assert.equal(api.state.transactions.length,0);
+  assert.ok(api.state.financialAudit.some(event=>event.action==='transaction_reversal' && event.changes.some(change=>change.before?.title==='Immutable expense' && change.after===null)));
+  assert.equal(JSON.stringify(api.state.financialAudit.slice(0,-1)),prefix);
+  const revision=api.state.localRevision;
+  await act(async()=>{assert.equal(api.addTransaction(input),false);});
+  assert.equal(api.state.localRevision,revision);assert.equal(api.state.accounts[0].balance,100);
+  await act(async()=>{tree.unmount();});
+});
+
+test('actual provider explicit restore retains corrupt chunks and previous financial audit before durable replacement',async()=>{
+  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{assert.equal(api.addAccount(account),true);});
+  const before=api.state,oldPrefix=JSON.stringify(before.financialAudit);
+  const key='@mali_app_state_v2_'+guest.id;
+  const physicalHead=[...stored.keys()].find(name=>name.includes(encodeURIComponent(key)) && name.endsWith(':head'));
+  stored.set(physicalHead,'corrupt original head');
+  const {financialAudit:_oldAudit,...restored}=before;
+  restored.accounts=restored.accounts.map(row=>({...row,balance:125}));
+  await act(async()=>{assert.equal(await api.importStateJson(JSON.stringify(restored)),true);});
+  assert.equal(api.state.accounts[0].balance,125);assert.equal(JSON.stringify(api.state.financialAudit.slice(0,-1)),oldPrefix);
+  assert.equal(api.state.financialAudit.at(-1).action,'backup_import');
+  const recoveryPhysical=[...stored.keys()].filter(name=>name.includes('_recovery_') && name.endsWith(':head'));
+  assert.ok(recoveryPhysical.length>0);
+  const {createChunkedFinancialStorage}=await import('../src/services/chunkedFinancialStorage.ts');
+  const reader=createChunkedFinancialStorage(globalThis.maliTestStorage);
+  const recoveryKey=decodeURIComponent(recoveryPhysical[0].slice('@mali_financial_chunks_v1:'.length,-':head'.length));
+  const evidence=JSON.parse(await reader.getItem(recoveryKey));
+  assert.ok(evidence.originals.some(row=>row.value==='corrupt original head'));
+  assert.equal(JSON.parse(await financialStorage.getItem(key)).accounts[0].balance,125);
+  await act(async()=>{tree.unmount();});
+});
+test('actual provider restores original deleted source history into a fresh same-owner vault',async()=>{
+  stored.clear();let tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{api.addAccount(account);});
+  const input={title:'Original deleted source evidence',type:'expense',amount:5,currency:'LYD',category:'test',accountId:api.state.accounts[0].id,paymentMethod:'cash',idempotencyKey:'source-history-once'};
+  await act(async()=>{api.addTransaction(input);});await act(async()=>{api.deleteTransaction(api.state.transactions[0].id);});
+  const raw=JSON.stringify(api.state),journal=JSON.stringify(api.state.financialAudit);
+  await act(async()=>{tree.unmount();});stored.clear();tree=await mount();await act(async()=>{api.loginUser(guest);});
+  await act(async()=>{assert.equal(await api.importStateJson(raw),true);});
+  assert.equal(JSON.stringify(api.state.financialAudit),journal);assert.ok(JSON.stringify(api.state).includes('Original deleted source evidence'));
+  assert.equal(api.state.transactions.length,0);assert.equal(api.state.accounts[0].balance,100);
+  await act(async()=>{tree.unmount();});
+});
 
 test('real provider ignores a cache result arriving after logout and blocks hydration writes',async()=>{
   stored.clear();
@@ -126,7 +178,7 @@ test('corrupt owner cache remains recoverable and cannot be overwritten by new b
   await act(async()=>{api.loginUser(guest);});
   await act(async()=>{assert.equal(api.addAccount(account),false);});
   assert.equal(stored.get(key),corrupt);
-  assert.equal(stored.get(key+'_recovery'),corrupt);
+  assert.equal(await financialStorage.getItem(key+'_recovery'),corrupt);
   await act(async()=>{assert.equal(await api.updateSupabaseConfig({autoSync:false}),false);});
   await act(async()=>{assert.equal((await api.pullFromCloud()).ok,false);});
   assert.equal(stored.get(key),corrupt);
@@ -164,7 +216,7 @@ test('malformed JSON and unreadable owner caches cannot be silently replaced',as
   await act(async()=>{api.loginUser(guest);});
   await act(async()=>{assert.equal(api.addAccount(account),false);});
   assert.equal(stored.get(key),'{malformed JSON');
-  assert.equal(stored.get(key+'_recovery'),'{malformed JSON');
+  assert.equal(await financialStorage.getItem(key+'_recovery'),'{malformed JSON');
   read=async()=>{throw new Error('device storage unavailable');};
   await act(async()=>{api.loginUser({...cloud,id:'unreadable'});});
   await act(async()=>{assert.equal(api.addAccount(account),false);});

@@ -2,6 +2,7 @@ export interface FinancialStorageBackend {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
   removeItem?(key: string): Promise<void>;
+  getAllKeys?(): Promise<readonly string[]>;
 }
 interface Head { version: 1; slot: 0 | 1; count: number; length: number; checksum: string }
 const CHUNK_CHARACTERS = 65_536; // <=192KiB UTF-8, below Android CursorWindow limits.
@@ -65,16 +66,23 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
     }
     return readParts(key,parseHead(rawHead));
   }
-  return {
-    getItem:(key: string)=>serialize(key,()=>read(key)),
-    setItem:(key: string,value: string)=>serialize(key,async()=>{
+  async function write(key: string,value: string,recovery=false) {
       if(typeof value!=='string' || value.length>MAX_CHARACTERS) throw new Error('Financial cache exceeds the supported storage bound.');
       const priorRaw=await backend.getItem(headKey(key));
-      if(priorRaw===null && await backend.getItem(enrollmentKey(key))!==null) throw new Error('Missing enrolled financial cache; recovery is required.');
-      const prior=priorRaw===null?null:parseHead(priorRaw);
+      if(!recovery && priorRaw===null && await backend.getItem(enrollmentKey(key))!==null) throw new Error('Missing enrolled financial cache; recovery is required.');
+      let prior:Head|null=null;
+      try {prior=priorRaw===null?null:parseHead(priorRaw);} catch(error){if(!recovery)throw error;}
       // Verify current bytes before replacing anything. A corrupt vault remains recoverable.
-      if(prior) await readParts(key,prior);
+      if(prior && !recovery) await readParts(key,prior);
       const slot=prior?.slot===0?1:0;
+      // The inactive slot is uncommitted; pruning it before replacement releases
+      // stale large tails without touching the current acknowledged vault.
+      if(backend.getAllKeys && backend.removeItem) {
+        const prefix=namespace(key)+':'+slot+':';
+        for(const part of await backend.getAllKeys()) {
+          if(part.startsWith(prefix) && /^\d+$/.test(part.slice(prefix.length))) await backend.removeItem(part);
+        }
+      }
       const parts:string[]=[];
       for(let start=0;start<value.length;) {
         let end=Math.min(value.length,start+CHUNK_CHARACTERS);
@@ -109,6 +117,30 @@ export function createChunkedFinancialStorage(backend: FinancialStorageBackend,
       // Remove plaintext legacy duplication only after the replacement is fully verified.
       // Cleanup failure never invalidates a verified commit; the legacy value stays preserved.
       if(priorRaw===null && backend.removeItem) { try { await backend.removeItem(key); } catch {} }
+  }
+  let recoverySequence=0;
+  return {
+    getItem:(key: string)=>serialize(key,()=>read(key)),
+    setItem:(key: string,value: string)=>serialize(key,()=>write(key,value)),
+    /** Caller validates imported financial/owner evidence before requesting recovery.
+     * Raw owned physical keys are copied and verified before replacing corrupt metadata.
+     * Authentication/theme keys are neither read nor modified.
+     */
+    recoverItem:(key: string,value: string,sourceEvidence?: string)=>serialize(key,async()=>{
+      if(!backend.getAllKeys)throw new Error('Financial recovery requires a complete owned-key inventory.');
+      const prefix=namespace(key)+':';
+      const keys=(await backend.getAllKeys()).filter(name=>name===key || (name.startsWith(prefix) &&
+        /^(head|enrolled|[01]:\d+)$/.test(name.slice(prefix.length))));
+      const originals:{key:string;value:string}[]=[];
+      for(const originalKey of keys) { const raw=await backend.getItem(originalKey);if(raw!==null)originals.push({key:originalKey,value:raw}); }
+      const evidence=JSON.stringify({version:1,originalKey:key,capturedAt:new Date().toISOString(),originals,incoming:value,sourceEvidence});
+      let evidenceKey:string;
+      do { evidenceKey=key+'_recovery_'+Date.now()+'_'+(++recoverySequence); }
+      while(await backend.getItem(headKey(evidenceKey))!==null || await backend.getItem(enrollmentKey(evidenceKey))!==null || await backend.getItem(evidenceKey)!==null);
+      await serialize(evidenceKey,()=>write(evidenceKey,evidence));
+      if(await read(evidenceKey)!==evidence)throw new Error('Unverified financial recovery evidence.');
+      await write(key,value,true);
+      return evidenceKey;
     }),
   };
 }
