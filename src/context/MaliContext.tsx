@@ -22,6 +22,7 @@ import { financialStorage } from '../services/financialStorage';
 import { appendFinancialAudit, financialOperationId } from '../services/financialAudit';
 import type { FinancialAuditMetadata } from '../types/financialAudit';
 import { financialDate } from '../services/financialDate';
+import { snapshotFinancialInput } from '../services/financialInputSnapshot';
 import {
   pullStateFromSupabase,
   pushStateToSupabase,
@@ -534,11 +535,21 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     };
   };
 
+  function captureFinancialInput<T extends object>(input: T, kind: 'object' | 'array' = 'object') {
+    if (!scope.current.isCurrent(mutationSession)) return null;
+    try { return snapshotFinancialInput(input, kind); }
+    catch { setLastSyncMessage('لم يتم تسجيل العملية. استخدم بيانات مالية بسيطة وصحيحة.'); return null; }
+  }
+
   const updateMarketRates = (rates: Partial<MarketRates>) => {
-    return persistState((prev) => updateMarketRatesMutation(prev, rates), undefined, 'rates:' + JSON.stringify(rates));
+    const snapshot = captureFinancialInput(rates); if (!snapshot) return Promise.resolve(false);
+    rates = snapshot.value;
+    return persistState((prev) => updateMarketRatesMutation(prev, rates), undefined, 'rates:' + snapshot.fingerprint);
   };
 
   const addContact = async (input: AddContactInput): Promise<ContactPerson | null> => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return null;
+    input = snapshot.value;
     const saved = await persistState((prev) => {
       const newContact: ContactPerson = {
       id: generateId('cnt'),
@@ -553,12 +564,14 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
       ...prev,
       contacts: [newContact, ...prev.contacts],
       });
-    }, undefined, 'contact:add:' + JSON.stringify(input));
+    }, undefined, 'contact:add:' + snapshot.fingerprint);
     return saved ? stateRef.current.contacts[0] : null;
   };
 
   const updateContact = (contactId: string, partial: Partial<ContactPerson>) => {
-    return persistState(prev => updateContactMutation(prev, contactId, partial), undefined, 'contact:update:' + JSON.stringify([contactId, partial]));
+    const snapshot = captureFinancialInput(partial); if (!snapshot) return Promise.resolve(false);
+    partial = snapshot.value;
+    return persistState(prev => updateContactMutation(prev, contactId, partial), undefined, 'contact:update:' + JSON.stringify(contactId) + ':' + snapshot.fingerprint);
   };
 
   const deleteContact = (contactId: string) => {
@@ -566,7 +579,9 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const addAccount = (acc: Omit<Account, 'id' | 'updatedAt'>) => {
-    return persistState((prev) => createAccountMutation(prev, acc), undefined, 'account:add:' + JSON.stringify(acc));
+    const snapshot = captureFinancialInput(acc); if (!snapshot) return Promise.resolve(false);
+    acc = snapshot.value;
+    return persistState((prev) => createAccountMutation(prev, acc), undefined, 'account:add:' + snapshot.fingerprint);
   };
 
   const updateAccountBalance = (accountId: string, newBalance: number) => {
@@ -582,6 +597,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const liquidateChequeToCash = (input: ChequeLiquidationInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) =>
       liquidateChequeToCashMutation(prev, {
         idempotencyKey: input.idempotencyKey,
@@ -592,11 +609,13 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         discountPercent: input.discountPercent,
         notes: input.notes,
         date: todayStr(),
-      }), undefined, 'cheque:' + JSON.stringify(input)
+      }), undefined, 'cheque:' + snapshot.fingerprint
     );
   };
 
   const createUsdDeal = (input: CreateDealInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) => {
       const sellerRes = ensureContactInList(
         prev.contacts,
@@ -665,10 +684,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
       }
 
       return nextState;
-    }, undefined, 'deal:add:' + JSON.stringify(input));
+    }, undefined, 'deal:add:' + snapshot.fingerprint);
   };
 
   const recordDealSale = (input: RecordDealSaleInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) => {
       if (input.isPersonalTake) {
         return takePersonalFromUsdDealMutation(prev, {
@@ -711,10 +732,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         }
       );
       return candidate === prepared ? prev : candidate;
-    }, undefined, 'deal:sell:' + JSON.stringify(input));
+    }, undefined, 'deal:sell:' + snapshot.fingerprint);
   };
 
   const updateDealBuyReceipts = (dealId: string, images: string[]) => {
+    const snapshot = captureFinancialInput(images, 'array'); if (!snapshot) return Promise.resolve(false);
+    images = snapshot.value;
     return persistState((prev) => ({
       ...prev,
       deals: prev.deals.map((d) =>
@@ -722,7 +745,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           ? { ...d, buyReceiptImages: images.length > 0 ? images : undefined }
           : d
       ),
-    }), undefined, 'deal:buy-receipts:' + JSON.stringify([dealId, images]));
+    }), undefined, 'deal:buy-receipts:' + JSON.stringify(dealId) + ':' + snapshot.fingerprint);
   };
 
   const updateDealSaleReceipts = (
@@ -730,6 +753,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     saleId: string,
     images: string[]
   ) => {
+    const snapshot = captureFinancialInput(images, 'array'); if (!snapshot) return Promise.resolve(false);
+    images = snapshot.value;
     return persistState((prev) => ({
       ...prev,
       deals: prev.deals.map((d) =>
@@ -747,7 +772,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
             }
           : d
       ),
-    }), undefined, 'deal:sale-receipts:' + JSON.stringify([dealId, saleId, images]));
+    }), undefined, 'deal:sale-receipts:' + JSON.stringify([dealId, saleId]) + ':' + snapshot.fingerprint);
   };
 
   const deleteUsdDeal = (dealId: string) => {
@@ -755,6 +780,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const addTransaction = (input: AddTransactionInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) => {
       if (input.type === 'transfer') {
         if (!input.targetAccountId) return prev;
@@ -793,7 +820,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         notes: input.notes,
         date: input.date || todayStr(),
       });
-    }, undefined, 'transaction:add:' + JSON.stringify(input));
+    }, undefined, 'transaction:add:' + snapshot.fingerprint);
   };
 
   const deleteTransaction = (txId: string) => {
@@ -828,6 +855,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const addDebt = (input: AddDebtInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) => {
       const personRes = ensureContactInList(
         prev.contacts,
@@ -856,10 +885,12 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         }
       );
       return candidate === prepared ? prev : candidate;
-    }, undefined, 'debt:add:' + JSON.stringify(input));
+    }, undefined, 'debt:add:' + snapshot.fingerprint);
   };
 
   const addDebtInstallment = (input: AddDebtInstallmentInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) => {
       return settleDebtInstallmentMutation(prev, {
         idempotencyKey: input.idempotencyKey,
@@ -870,7 +901,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         notes: input.notes,
         date: todayStr(),
       });
-    }, undefined, 'debt:installment:' + JSON.stringify(input));
+    }, undefined, 'debt:installment:' + snapshot.fingerprint);
   };
 
   const deleteDebt = (debtId: string) => {
@@ -878,6 +909,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   };
 
   const addProcedure = (input: AddProcedureInput) => {
+    const snapshot = captureFinancialInput(input); if (!snapshot) return Promise.resolve(false);
+    input = snapshot.value;
     return persistState((prev) => {
     const newProc: FinancialProcedure = {
       id: generateId('proc'),
@@ -922,7 +955,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
       ...prev,
       procedures: [newProc, ...prev.procedures],
     };
-    }, undefined, 'procedure:add:' + JSON.stringify(input));
+    }, undefined, 'procedure:add:' + snapshot.fingerprint);
   };
 
   const toggleProcedureStage = (procedureId: string, stageId: string) => {
@@ -979,6 +1012,8 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
   const updateSupabaseConfig = async (cfg: Partial<SupabaseConfig>) => {
     const token = mutationSession;
     if (!scope.current.isCurrent(token) || hydrating.current || recoveryRequired.current || isFinancialMutationLocked() || configurationSaving.current) return false;
+    const snapshot = captureFinancialInput(cfg); if (!snapshot) return false;
+    cfg = snapshot.value;
     configurationSaving.current = true; activateWorker();
     return mutationQueue.current.run(async () => {
       try {

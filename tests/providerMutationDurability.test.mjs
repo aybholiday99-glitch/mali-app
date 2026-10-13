@@ -186,3 +186,116 @@ test('successful cloud replacement and its CAS baseline publish together only af
   assert.equal(saved.supabaseConfig.lastSyncedAt, timestamp); assert.equal(saved.cloudOutbox.syncedAt, timestamp);
   await act(async () => { tree.unmount(); });
 });
+
+test('queued transaction uses invocation-time amount and receipt array even when caller mutates both immediately', async () => {
+  const { tree } = await mount(); const input = { ...expense(), receiptImages: ['original-receipt'] }; let result;
+  await act(async () => { result = api.addTransaction(input); input.amount = 30; input.title = 'Changed later'; input.receiptImages.push('later-receipt'); assert.equal(await result, true); });
+  assert.equal(api.state.accounts[0].balance, 95); assert.equal(api.state.transactions[0].amount, 5);
+  assert.equal(api.state.transactions[0].title, 'Expense'); assert.deepEqual(api.state.transactions[0].receiptImages, ['original-receipt']);
+  await act(async () => { tree.unmount(); });
+});
+
+test('held queue binds original input to its retry key, then write failure reuses exact candidate despite caller mutation', async () => {
+  const { tree } = await mount(), gate = holdNextWrite(); let first, second, original;
+  const input = expense(5, 'detached-retry');
+  await act(async () => { first = api.addTransaction(expense(1, 'queue-first')); await gate.started; second = api.addTransaction(input); input.amount = 30; });
+  // Let the first commit finish; fail only the queued original five-unit submission.
+  write = async (key, value) => { if (value.includes('detached-retry')) { original = JSON.parse(value); throw new Error('unavailable'); } stored.set(key, value); };
+  await act(async () => { gate.release(); assert.equal(await first, true); assert.equal(await second, false); });
+  assert.equal(api.state.accounts[0].balance, 99); assert.equal(original.transactions[0].amount, 5);
+  const retry = { ...expense(5, 'detached-retry') }; write = async (key, value) => stored.set(key, value);
+  let saved; await act(async () => { saved = api.addTransaction(retry); retry.amount = 80; assert.equal(await saved, true); });
+  const committed = await disk(guest); assert.equal(committed.accounts[0].balance, 94);
+  assert.deepEqual(committed.transactions, original.transactions); assert.deepEqual(committed.financialAudit, original.financialAudit); assert.equal(committed.localRevision, original.localRevision);
+  await act(async () => { tree.unmount(); });
+});
+
+test('explicit undefined contact clears survive snapshot and cannot be confused with an absent-property retry', async () => {
+  const { tree } = await mount(); let contact;
+  await act(async () => { contact = await api.addContact({ name: 'Clear contact', phone: '091', role: 'شريك تجاري', bankDetails: 'Original bank', notes: 'Original notes' }); });
+  const before = api.state, clear = { bankDetails: undefined, notes: undefined }; let original, result;
+  write = async (_key, value) => { if (value.includes('Clear contact')) original = JSON.parse(value); throw new Error('unavailable'); };
+  await act(async () => { result = api.updateContact(contact.id, clear); clear.bankDetails = 'Later bank'; clear.notes = 'Later notes'; assert.equal(await result, false); });
+  assert.equal(api.state, before); assert.equal(original.contacts[0].bankDetails, undefined); assert.equal(original.contacts[0].notes, undefined);
+  write = async (key, value) => stored.set(key, value);
+  await act(async () => { assert.equal(await api.updateContact(contact.id, {}), false); });
+  assert.equal(api.state, before); assert.equal(api.mutationStatus.phase, 'storage-error');
+  await act(async () => { assert.equal(await api.updateContact(contact.id, { notes: undefined, bankDetails: undefined }), true); });
+  assert.equal(api.state.contacts[0].bankDetails, undefined); assert.equal(api.state.contacts[0].notes, undefined);
+  assert.deepEqual((await disk(guest)).financialAudit, original.financialAudit);
+  await act(async () => { tree.unmount(); });
+});
+
+test('rates, accounts, contacts and configuration are detached before their queued state computation', async () => {
+  const { tree } = await mount(); let result;
+  const rates = { cashUsdToLyd: 6.1234 };
+  await act(async () => { result = api.updateMarketRates(rates); rates.cashUsdToLyd = 8; assert.equal(await result, true); });
+  assert.equal(api.state.marketRates.cashUsdToLyd, 6.1234);
+  const account = { ...cash, name: 'Original account', balance: 20 };
+  await act(async () => { result = api.addAccount(account); account.name = 'Changed account'; account.balance = 80; assert.equal(await result, true); });
+  assert.equal(api.state.accounts.find(row => row.name === 'Original account').balance, 20);
+  const contact = { name: 'Original contact', phone: '091', role: 'شريك تجاري' }; let saved;
+  await act(async () => { result = api.addContact(contact); contact.name = 'Changed contact'; saved = await result; });
+  assert.equal(saved.name, 'Original contact');
+  const partial = { phone: '092' };
+  await act(async () => { result = api.updateContact(saved.id, partial); partial.phone = '099'; assert.equal(await result, true); });
+  assert.equal(api.state.contacts[0].phone, '092');
+  const config = { autoSync: false };
+  await act(async () => { result = api.updateSupabaseConfig(config); config.autoSync = true; assert.equal(await result, true); });
+  assert.equal(api.state.supabaseConfig.autoSync, false);
+  await act(async () => { tree.unmount(); });
+});
+
+test('compound buy, sale, and both public receipt-update arrays retain their original nested inputs', async () => {
+  const { tree } = await mount();
+  await act(async () => { assert.equal(await api.addAccount({ ...cash, name: 'USD', currency: 'USD', category: 'cash_usd', balance: 0 }), true); });
+  const lyd = api.state.accounts.find(row => row.currency === 'LYD').id, usd = api.state.accounts.find(row => row.currency === 'USD').id;
+  const image = 'data:image/jpeg;base64,/9j/2Q==';
+  const input = { title: 'Original deal', totalUsdBought: 10, buyRate: 6, buyCommissionLyd: 0, buyPaymentMethod: 'cash', sourceLydAccountId: lyd, usdHoldingAccountId: usd,
+    buyReceiptImages: [image], immediateSale: { usdAmount: 2, sellRate: 7, commissionLyd: 0, paymentMethod: 'cash', targetLydAccountId: lyd, buyerName: 'Original buyer', receiptImages: [image] } };
+  let result; await act(async () => { result = api.createUsdDeal(input); input.totalUsdBought = 20; input.immediateSale.sellRate = 20; input.immediateSale.buyerName = 'Changed buyer'; input.immediateSale.receiptImages.push('later'); assert.equal(await result, true); });
+  assert.equal(api.state.accounts.find(row => row.id === lyd).balance, 54); assert.equal(api.state.accounts.find(row => row.id === usd).balance, 8);
+  const dealId = api.state.deals[0].id;
+  assert.equal(api.state.deals[0].sales[0].sellRate, 7); assert.equal(api.state.deals[0].sales[0].buyerName, 'Original buyer'); assert.deepEqual(api.state.deals[0].sales[0].receiptImages, [image]);
+  const sale = { dealId, usdAmount: 1, sellRate: 7, commissionLyd: 0, paymentMethod: 'cash', targetLydAccountId: lyd, sourceUsdAccountId: usd, receiptImages: [image] };
+  await act(async () => { result = api.recordDealSale(sale); sale.usdAmount = 3; sale.commissionLyd = 1; sale.receiptImages.push('later'); assert.equal(await result, true); });
+  assert.equal(api.state.accounts.find(row => row.id === lyd).balance, 61); assert.equal(api.state.deals[0].sales[0].usdAmount, 1);
+  const buyImages = [];
+  await act(async () => { result = api.updateDealBuyReceipts(dealId, buyImages); buyImages.push('later'); assert.equal(await result, true); });
+  assert.equal(api.state.deals[0].buyReceiptImages, undefined);
+  const saleId = api.state.deals[0].sales[0].id, saleImages = [];
+  await act(async () => { result = api.updateDealSaleReceipts(dealId, saleId, saleImages); saleImages.push('later'); assert.equal(await result, true); });
+  assert.equal(api.state.deals[0].sales[0].receiptImages, undefined);
+  await act(async () => { tree.unmount(); });
+});
+
+test('cheque, debt, installment and procedure arrays use invocation-time values', async () => {
+  const { tree } = await mount();
+  const cashId = api.state.accounts[0].id;
+  await act(async () => { assert.equal(await api.addAccount({ ...cash, name: 'Bank', category: 'bank_lyd', isCash: false, balance: 1000 }), true); });
+  const bankId = api.state.accounts.find(row => row.name === 'Bank').id, cheque = { sourceBankAccountId: bankId, targetCashAccountId: cashId, chequeAmountLyd: 100, discountPercent: 1 };
+  let result; await act(async () => { result = api.liquidateChequeToCash(cheque); cheque.chequeAmountLyd = 200; cheque.discountPercent = 50; assert.equal(await result, true); });
+  assert.equal(api.state.accounts.find(row => row.id === bankId).balance, 900); assert.equal(api.state.accounts.find(row => row.id === cashId).balance, 199);
+  const debt = { personName: 'Original debtor', direction: 'receivable', currency: 'LYD', totalAmount: 10, affectAccountId: cashId, paymentMethod: 'cash' };
+  await act(async () => { result = api.addDebt(debt); debt.totalAmount = 20; debt.personName = 'Changed debtor'; assert.equal(await result, true); });
+  assert.equal(api.state.debts[0].totalAmount, 10); assert.equal(api.state.debts[0].personName, 'Original debtor');
+  const payment = { debtId: api.state.debts[0].id, amount: 5, accountId: cashId, paymentMethod: 'cash' };
+  await act(async () => { result = api.addDebtInstallment(payment); payment.amount = 9; assert.equal(await result, true); });
+  assert.equal(api.state.debts[0].remainingAmount, 5); assert.equal(api.state.accounts.find(row => row.id === cashId).balance, 194);
+  const procedure = { title: 'Original procedure', procedureType: 'إجراء مصرفي عام', bankOrEntity: 'Bank', amount: 5, stages: ['Original stage'] };
+  await act(async () => { result = api.addProcedure(procedure); procedure.title = 'Changed procedure'; procedure.amount = 30; procedure.stages.push('Later stage'); assert.equal(await result, true); });
+  assert.equal(api.state.procedures[0].title, 'Original procedure'); assert.equal(api.state.procedures[0].amount, 5); assert.equal(api.state.procedures[0].stages.length, 1);
+  await act(async () => { tree.unmount(); });
+});
+
+test('invalid numbers, accessors, cycles and unsupported objects resolve failure without executing user code or writing', async () => {
+  const { tree } = await mount(), before = api.state; let writes = 0, executed = 0;
+  write = async () => { writes++; throw new Error('must not write'); };
+  for (const amount of [NaN, Infinity, -Infinity]) await act(async () => { assert.equal(await api.addTransaction({ ...expense(), amount }), false); });
+  const accessor = Object.defineProperty({ ...expense() }, 'amount', { enumerable: true, get() { executed++; return 5; } });
+  const toJSON = { ...expense(), toJSON() { executed++; return expense(); } };
+  const cycle = { ...expense() }; cycle.child = cycle;
+  for (const input of [accessor, toJSON, cycle, { ...expense(), custom: 1n }, new Date(), { ...expense(), custom: () => 5 }]) await act(async () => { assert.equal(await api.addTransaction(input), false); });
+  assert.equal(executed, 0); assert.equal(writes, 0); assert.equal(api.state, before); assert.equal(api.mutationStatus.phase, 'idle');
+  await act(async () => { tree.unmount(); });
+});
