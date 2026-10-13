@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
 import type { MaliState } from '../types/mali';
 import { generateFinancialStatementHtml } from './exportCore';
 import { createFileExportService, prepareTextExport } from './fileExportCore';
@@ -22,7 +23,7 @@ export async function exportFileOrShare(
   canContinue: () => boolean = () => true
 ): Promise<boolean> {
   try {
-    if (!canContinue()) return false;
+    if (CENTRAL_SERVER_ONLY || !canContinue()) return false;
     if (Platform.OS === 'web') {
       if (typeof window === 'undefined' || typeof document === 'undefined') return false;
       const file=prepareTextExport(filename,content,mimeType);
@@ -43,6 +44,7 @@ export async function exportFileOrShare(
 }
 
 export function printFinancialStatementWeb(state: MaliState): boolean {
+  if (CENTRAL_SERVER_ONLY) return false;
   if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
   const printWin = window.open('', '_blank', 'width=960,height=720');
   if (!printWin) return false;
@@ -56,6 +58,7 @@ export function printFinancialStatementWeb(state: MaliState): boolean {
 
 /** True means printing/sharing was initiated, not that another app saved the file. */
 export async function printFinancialStatement(state: MaliState): Promise<boolean> {
+  if (CENTRAL_SERVER_ONLY) return false;
   try {
     if (Platform.OS === 'web') return printFinancialStatementWeb(state);
     return await createFileExportService(await nativeExportPorts()).pdf(generateFinancialStatementHtml(state));
