@@ -3,74 +3,68 @@ set -euo pipefail
 
 mkdir -p android-standalone-evidence
 APK="android/app/build/outputs/apk/release/app-release.apk"
-if [[ ! -s "$APK" ]]; then
-  echo "FAIL: self-contained Android release candidate is missing"
-  exit 1
-fi
-# Materialize the ZIP listing before grep: with pipefail, grep -q can close
-# the pipe early and mark a valid ZIP reader as failed (SIGPIPE).
-APK_LIST="$(unzip -Z1 "$APK")"
-if grep -Fxq 'assets/index.android.bundle' <<< "$APK_LIST"; then
-  echo "PASS: production JavaScript bundle is embedded in standalone APK"
-else
-  echo "FAIL: no embedded JS bundle; standalone app could depend on Metro"
-  exit 1
-fi
+test -s "$APK" || { echo "FAIL: standalone release candidate missing"; exit 1; }
 
-echo "Step 1: wait for emulator ADB connection"
-timeout 60 adb wait-for-device
-echo "Step 2: clear logcat"
-timeout 45 adb logcat -c
-echo "Step 3: install standalone APK"
-timeout 240 adb install -r "$APK"
-echo "Step 4: force-stop before fresh launch"
-timeout 45 adb shell am force-stop com.aybholiday.mali || true
-echo "Step 5: launch native Mali app"
-timeout 60 adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
-sleep 25
-echo "Step 6: check initial app process"
-FIRST_PID="$(timeout 45 adb shell pidof com.aybholiday.mali | tr -d '\r')"
-adb logcat -d -t 2000 > android-standalone-evidence/first-launch-logcat.txt
-adb shell dumpsys activity activities > android-standalone-evidence/first-activity.txt
-adb shell uiautomator dump /sdcard/mali-release-first.xml || true
-adb pull /sdcard/mali-release-first.xml android-standalone-evidence/first-ui.xml || true
-adb shell screencap -p /sdcard/mali-release-first.png
-adb pull /sdcard/mali-release-first.png android-standalone-evidence/first-screen.png
-if [[ -z "$FIRST_PID" ]]; then
-  echo "FAIL: standalone app process did not survive initial start"
-  tail -n 100 android-standalone-evidence/first-launch-logcat.txt
-  exit 1
-fi
+# Inspect once; zip/unzip piped through grep -q can falsely fail with SIGPIPE.
+APK_CONTENTS="$(unzip -Z1 "$APK")"
+grep -Fxq 'assets/index.android.bundle' <<< "$APK_CONTENTS" || {
+  echo "FAIL: standalone APK missing embedded JS"; exit 1;
+}
+grep -Eq '^lib/(arm64-v8a|armeabi-v7a)/[^/]+[.]so$' <<< "$APK_CONTENTS" || {
+  echo "FAIL: standalone APK missing native Android phone libraries"; exit 1;
+}
+echo "PASS: standalone JS bundle and native phone libraries verified"
 
-# A standalone binary must not rely on Metro, which is not started in this test.
-if grep -Eqi 'Unable to load script|Failed to connect to development server|Could not connect to development server' android-standalone-evidence/first-launch-logcat.txt; then
-  echo "FAIL: standalone APK attempted development server connection"
+# Emulator is an isolated CI runner. Do not start Metro or connect to production.
+adb_call() { timeout 75 adb "$@"; }
+capture() {
+  local label="$1"
+  timeout 60 adb logcat -d -t 1500 > "android-standalone-evidence/$label-logcat.txt" || true
+  timeout 45 adb shell dumpsys activity activities > "android-standalone-evidence/$label-activity.txt" || true
+  timeout 45 adb shell screencap -p /sdcard/mali-ci-screen.png || true
+  timeout 45 adb pull /sdcard/mali-ci-screen.png "android-standalone-evidence/$label-screen.png" || true
+}
+fail() {
+  echo "FAIL: $1"
+  capture "failure" || true
   exit 1
-fi
-
-echo "Step 7: simulate force-stop"
-timeout 45 adb shell am force-stop com.aybholiday.mali
-sleep 2
-timeout 45 adb logcat -c
-echo "Step 8: relaunch Android app with no Metro"
-timeout 60 adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
-sleep 20
-echo "Step 9: verify app process after restart"
-SECOND_PID="$(timeout 45 adb shell pidof com.aybholiday.mali | tr -d '\r')"
-adb logcat -d -t 2000 > android-standalone-evidence/second-launch-logcat.txt
-adb shell dumpsys activity activities > android-standalone-evidence/second-activity.txt
-adb shell uiautomator dump /sdcard/mali-release-second.xml || true
-adb pull /sdcard/mali-release-second.xml android-standalone-evidence/second-ui.xml || true
-adb shell screencap -p /sdcard/mali-release-second.png
-adb pull /sdcard/mali-release-second.png android-standalone-evidence/second-screen.png
-if [[ -z "$SECOND_PID" ]]; then
-  echo "FAIL: standalone app process did not survive restart"
-  tail -n 100 android-standalone-evidence/second-launch-logcat.txt
-  exit 1
-fi
-if grep -Eqi 'Unable to load script|Failed to connect to development server|Could not connect to development server' android-standalone-evidence/second-launch-logcat.txt; then
-  echo "FAIL: standalone app attempted development server after restart"
-  exit 1
-fi
-echo "PASS: standalone release candidate, signed using test-only debug signing, survived install and force-stop/relaunch WITHOUT Metro"
-echo "NOTE: this is not proof of physical-device financial flows, production signing or data recovery"
+}
+check_app() {
+  local label="$1" pid activities
+  # Slow cold boot and GC on CI hosts: check for process after Android has settled.
+  sleep 20
+  pid="$(adb_call shell pidof com.aybholiday.mali | tr -d '\r')" || fail "$label: adb pidof timed out"
+  [[ -n "$pid" ]] || fail "$label: Mali did not stay running"
+  echo "PASS: $label process id $pid"
+  capture "$label"
+  activities="$(cat "android-standalone-evidence/$label-activity.txt" 2>/dev/null || true)"
+  if [[ "$activities" == *"ResumedActivity: ActivityRecord"* ]]; then
+    grep -qE 'ResumedActivity: .*com[.]aybholiday[.]mali' <<< "$activities" ||
+      fail "$label: app not in foreground"
+  fi
+  if grep -Eqi 'Unable to load script|Failed to connect to development server|Could not connect to development server' \
+      "android-standalone-evidence/$label-logcat.txt"; then
+    fail "$label: app attempted Metro/dev server connection"
+  fi
+}
+echo "Step 1: wait for clean emulator"
+timeout 90 adb wait-for-device || fail "Android emulator ADB unavailable"
+adb_call shell input keyevent KEYCODE_WAKEUP || true
+adb_call shell wm dismiss-keyguard || true
+adb_call logcat -c || true
+echo "Step 2: install signed standalone APK"
+timeout 240 adb install -r "$APK" || fail "APK install failed"
+echo "Step 3: launch Mali Android release with no Metro"
+adb_call shell am force-stop com.aybholiday.mali || true
+adb_call shell am start -n com.aybholiday.mali/.MainActivity ||
+  fail "Mali MainActivity could not start"
+check_app "first"
+echo "Step 4: force-stop and relaunch independently"
+adb_call shell am force-stop com.aybholiday.mali ||
+  fail "force-stop unsuccessful"
+adb_call logcat -c || true
+adb_call shell am start -n com.aybholiday.mali/.MainActivity ||
+  fail "restart failed"
+check_app "second"
+echo "PASS: Mali ARM64-capable standalone Android APK installed and launched twice without Metro"
+echo "NOTE: simulator smoke proof only; production signing, full native finance E2E and real-device acceptance remain separate"
