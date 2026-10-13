@@ -223,6 +223,84 @@ test('RPC rejects malformed financial snapshots before any write', async t => {
   } finally { await db.close(); }
 });
 
+test('PostgreSQL validates explicit non-cash settlements and overdraft metadata before writing', async t => {
+  const db = await fixtureDatabase();
+  try {
+    let state = fixture('personal');
+    state = engine.settleDebtInstallmentMutation(state, {
+      debtId: 'debt', installmentId: 'sql-noncash', amount: 10,
+      settlementType: 'non_cash', isNonCash: true,
+      nonCashReason: 'مقاصة بمستند موثق',
+    });
+    const original = payload(state);
+    const noncash = s => s.debts[0].installments.find(i => i.id === 'sql-noncash');
+    assert.ok(noncash(original), 'The financial engine must actually create the non-cash installment');
+    const accepted = await invoke(db, null, original);
+    assert.equal(accepted.ok, true);
+    const revision = accepted.updatedAt;
+    const saved = (await db.query('SELECT payload FROM public.mali_vault_snapshots')).rows[0].payload;
+    assert.deepEqual(saved, original);
+
+    const variants = [
+      ['non-cash with treasury', s => { noncash(s).accountId = 'bank'; }],
+      ['non-cash with journal identity', s => { noncash(s).transactionId = 'forged'; }],
+      ['non-cash false boolean marker', s => { noncash(s).isNonCash = false; }],
+      ['non-cash missing boolean marker', s => { delete noncash(s).isNonCash; }],
+      ['non-cash invalid boolean marker', s => { noncash(s).isNonCash = 'yes'; }],
+      ['non-cash missing settlement type', s => { delete noncash(s).settlementType; }],
+      ['non-cash invalid type', s => { noncash(s).settlementType = 'gift'; }],
+      ['non-cash declared cash', s => { noncash(s).settlementType = 'cash'; }],
+      ['non-cash missing reason', s => { delete noncash(s).nonCashReason; }],
+      ['non-cash whitespace reason', s => { noncash(s).nonCashReason = '   '; }],
+      ['non-cash object reason', s => { noncash(s).nonCashReason = { forged: true }; }],
+      ['cash marked non-cash', s => {
+        const cash = s.debts[0].installments.find(i => i.id === 'installment');
+        cash.settlementType = 'cash'; cash.isNonCash = true;
+      }],
+      ['cash explicit without treasury', s => {
+        const cash = s.debts[0].installments.find(i => i.id === 'installment');
+        cash.settlementType = 'cash'; cash.isNonCash = false;
+        delete cash.accountId;
+      }],
+      ['cash explicit without transaction', s => {
+        const cash = s.debts[0].installments.find(i => i.id === 'installment');
+        cash.settlementType = 'cash'; cash.isNonCash = false;
+        delete cash.transactionId;
+      }],
+      ['unbounded overdraft flag', s => { s.accounts.find(a => a.id === 'bank').allowOverdraft = true; }],
+      ['overdraft invalid limit', s => {
+        const bank = s.accounts.find(a => a.id === 'bank');
+        bank.allowOverdraft = true; bank.overdraftLimit = 0;
+      }],
+      ['overdraft on physical cash', s => {
+        const cash = s.accounts.find(a => a.id === 'cash');
+        cash.allowOverdraft = true; cash.overdraftLimit = 100;
+      }],
+      ['overdraft flag of wrong type', s => { s.accounts.find(a => a.id === 'bank').allowOverdraft = 'true'; }],
+    ];
+    for (const [name, mutate] of variants) {
+      await t.test(name, async () => {
+        const invalid = structuredClone(original);
+        mutate(invalid);
+        await assert.rejects(invoke(db, revision, invalid, true), err => err.code === '22023');
+        const stillSaved = (await db.query('SELECT payload FROM public.mali_vault_snapshots')).rows[0].payload;
+        assert.deepEqual(stillSaved, original);
+      });
+    }
+
+    await t.test('bounded bank overdraft metadata is accepted intact', async () => {
+      const valid = structuredClone(original);
+      const bank = valid.accounts.find(a => a.id === 'bank');
+      bank.allowOverdraft = true;
+      bank.overdraftLimit = 250;
+      const result = await invoke(db, revision, valid, true);
+      assert.equal(result.ok, true);
+    });
+  } finally {
+    await db.close();
+  }
+});
+
 test('engine-generated personal allocations and exact cost/profit survive RPC round trips', async t => {
   const db=await fixtureDatabase();
   try {
