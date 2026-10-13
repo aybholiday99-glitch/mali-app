@@ -31,24 +31,24 @@ async function mount(clock){let tree;await act(async()=>{tree=renderer.create(Re
 const account={name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'};
 
 test('actual provider retains reversed evidence and blocks the original submission after reversal',async()=>{
-  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{assert.equal(api.addAccount(account),true);});
+  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{assert.equal(await api.addAccount(account),true);});
   const accountId=api.state.accounts[0].id;
   const input={title:'Immutable expense',type:'expense',amount:10,currency:'LYD',category:'test',accountId,paymentMethod:'cash',idempotencyKey:'immutable-submission'};
-  await act(async()=>{assert.equal(api.addTransaction(input),true);});
+  await act(async()=>{assert.equal(await api.addTransaction(input),true);});
   const transactionId=api.state.transactions[0].id;
   const prefix=JSON.stringify(api.state.financialAudit);
-  await act(async()=>{assert.equal(api.deleteTransaction(transactionId),true);});
+  await act(async()=>{assert.equal(await api.deleteTransaction(transactionId),true);});
   assert.equal(api.state.accounts[0].balance,100);assert.equal(api.state.transactions.length,0);
   assert.ok(api.state.financialAudit.some(event=>event.action==='transaction_reversal' && event.changes.some(change=>change.before?.title==='Immutable expense' && change.after===null)));
   assert.equal(JSON.stringify(api.state.financialAudit.slice(0,-1)),prefix);
   const revision=api.state.localRevision;
-  await act(async()=>{assert.equal(api.addTransaction(input),false);});
+  await act(async()=>{assert.equal(await api.addTransaction(input),false);});
   assert.equal(api.state.localRevision,revision);assert.equal(api.state.accounts[0].balance,100);
   await act(async()=>{tree.unmount();});
 });
 
 test('actual provider explicit restore retains corrupt chunks and previous financial audit before durable replacement',async()=>{
-  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{assert.equal(api.addAccount(account),true);});
+  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{assert.equal(await api.addAccount(account),true);});
   const before=api.state,oldPrefix=JSON.stringify(before.financialAudit);
   const key='@mali_app_state_v2_'+guest.id;
   const physicalHead=[...stored.keys()].find(name=>name.includes(encodeURIComponent(key)) && name.endsWith(':head'));
@@ -69,9 +69,9 @@ test('actual provider explicit restore retains corrupt chunks and previous finan
   await act(async()=>{tree.unmount();});
 });
 test('actual provider restores original deleted source history into a fresh same-owner vault',async()=>{
-  stored.clear();let tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{api.addAccount(account);});
+  stored.clear();let tree=await mount();await act(async()=>{api.loginUser(guest);});await act(async()=>{await api.addAccount(account);});
   const input={title:'Original deleted source evidence',type:'expense',amount:5,currency:'LYD',category:'test',accountId:api.state.accounts[0].id,paymentMethod:'cash',idempotencyKey:'source-history-once'};
-  await act(async()=>{api.addTransaction(input);});await act(async()=>{api.deleteTransaction(api.state.transactions[0].id);});
+  await act(async()=>{await api.addTransaction(input);});await act(async()=>{await api.deleteTransaction(api.state.transactions[0].id);});
   const raw=JSON.stringify(api.state),journal=JSON.stringify(api.state.financialAudit);
   await act(async()=>{tree.unmount();});stored.clear();tree=await mount();await act(async()=>{api.loginUser(guest);});
   await act(async()=>{assert.equal(await api.importStateJson(raw),true);});
@@ -88,7 +88,7 @@ test('real provider ignores a cache result arriving after logout and blocks hydr
   read=key=>key.includes(guest.id)?pending:Promise.resolve(null);
   await act(async()=>{api.loginUser(guest);});
   assert.equal(api.isLoading,true);
-  await act(async()=>{api.addAccount(account);api.logoutUser();});
+  await act(async()=>{await api.addAccount(account);api.logoutUser();});
   await act(async()=>{release(null);});
   assert.equal(api.currentUser,null);
   assert.equal(api.state.accounts.length,0);
@@ -108,7 +108,7 @@ test('real provider preserves local mutation during a delayed pull, including sa
   pull=()=>pending;
   let result;
   await act(async()=>{result=api.pullFromCloud();await Promise.resolve();});
-  await act(async()=>{api.addAccount(account);});
+  await act(async()=>{await api.addAccount(account);});
   await act(async()=>{release({ok:true,success:true,state:{accounts:[]},updatedAt:'2026-10-12T22:00:00Z',message:'loaded'});await result;});
   assert.equal(api.state.accounts.length,1);
   assert.equal((await result).conflictDetected,true);
@@ -135,10 +135,10 @@ test('real provider rejects compound immediate-sale failure without any purchase
   stored.clear();
   const tree=await mount();
   await act(async()=>{api.loginUser(guest);});
-  await act(async()=>{assert.equal(api.addAccount(account),true); assert.equal(api.addAccount({...account,name:'USD',category:'cash_usd',currency:'USD',balance:0}),true);});
+  await act(async()=>{assert.equal(await api.addAccount(account),true); assert.equal(await api.addAccount({...account,name:'USD',category:'cash_usd',currency:'USD',balance:0}),true);});
   const before=api.state;
   let result;
-  await act(async()=>{result=api.createUsdDeal({
+  await act(async()=>{result=await api.createUsdDeal({
     title:'Compound',counterparty:'Seller',totalUsdBought:5,buyRate:6,buyCommissionLyd:0,
     buyPaymentMethod:'cash',sourceLydAccountId:before.accounts.find(a=>a.currency==='LYD').id,
     usdHoldingAccountId:before.accounts.find(a=>a.currency==='USD').id,
@@ -149,7 +149,7 @@ test('real provider rejects compound immediate-sale failure without any purchase
   assert.equal(api.state.deals.length,0);
   assert.equal(api.state.transactions.length,0);
   assert.equal(api.state.contacts.length,0);
-  await act(async()=>{assert.equal(api.addTransaction({title:'Too much',type:'expense',amount:500,currency:'LYD',category:'test',accountId:before.accounts.find(a=>a.currency==='LYD').id,paymentMethod:'cash'}),false);});
+  await act(async()=>{assert.equal(await api.addTransaction({title:'Too much',type:'expense',amount:500,currency:'LYD',category:'test',accountId:before.accounts.find(a=>a.currency==='LYD').id,paymentMethod:'cash'}),false);});
   assert.equal(api.state,before);
   await act(async()=>{tree.unmount();});
 });
@@ -161,10 +161,10 @@ test('stale mutation callbacks cannot act across A to B to A session generations
   await act(async()=>{api.loginUser(cloud);});
   const staleAdd=api.addAccount;
   await act(async()=>{api.loginUser({...cloud,id:'cloud-B'});});
-  await act(async()=>{assert.equal(staleAdd(account),false);});
+  await act(async()=>{assert.equal(await staleAdd(account),false);});
   assert.equal(api.state.accounts.length,0);
   await act(async()=>{api.loginUser(cloud);});
-  await act(async()=>{assert.equal(staleAdd(account),false);});
+  await act(async()=>{assert.equal(await staleAdd(account),false);});
   assert.equal(api.state.accounts.length,0);
   await act(async()=>{tree.unmount();});
 });
@@ -176,7 +176,7 @@ test('corrupt owner cache remains recoverable and cannot be overwritten by new b
   stored.set(key,corrupt);
   const tree=await mount();
   await act(async()=>{api.loginUser(guest);});
-  await act(async()=>{assert.equal(api.addAccount(account),false);});
+  await act(async()=>{assert.equal(await api.addAccount(account),false);});
   assert.equal(stored.get(key),corrupt);
   assert.equal(await financialStorage.getItem(key+'_recovery'),corrupt);
   await act(async()=>{assert.equal(await api.updateSupabaseConfig({autoSync:false}),false);});
@@ -214,12 +214,12 @@ test('malformed JSON and unreadable owner caches cannot be silently replaced',as
   stored.set(key,'{malformed JSON');
   const tree=await mount();
   await act(async()=>{api.loginUser(guest);});
-  await act(async()=>{assert.equal(api.addAccount(account),false);});
+  await act(async()=>{assert.equal(await api.addAccount(account),false);});
   assert.equal(stored.get(key),'{malformed JSON');
   assert.equal(await financialStorage.getItem(key+'_recovery'),'{malformed JSON');
   read=async()=>{throw new Error('device storage unavailable');};
   await act(async()=>{api.loginUser({...cloud,id:'unreadable'});});
-  await act(async()=>{assert.equal(api.addAccount(account),false);});
+  await act(async()=>{assert.equal(await api.addAccount(account),false);});
   read=async key=>stored.get(key)??null;
   await act(async()=>{tree.unmount();});
 });
@@ -245,8 +245,8 @@ test('an older upload acknowledgement cannot mark newer local edits clean or dis
   };
   const tree=await mount(clock);
   await act(async()=>{api.loginUser(cloud);});
-  await act(async()=>{api.addAccount({...account,name:'First'});await clock.advance(0);});
-  await act(async()=>{api.addAccount({...account,name:'Second'});});
+  await act(async()=>{await api.addAccount({...account,name:'First'});await clock.advance(0);});
+  await act(async()=>{await api.addAccount({...account,name:'Second'});});
   await act(async()=>{releasePush({ok:true,success:true,message:'saved',updatedAt:'2030-01-01T00:00:00.000Z'});await storageStarted;});
   assert.equal(api.state.accounts.length,2);
   assert.equal(api.state.pendingCloudSync,true);
@@ -264,21 +264,21 @@ test('an older upload acknowledgement cannot mark newer local edits clean or dis
 test('real provider rejects invalid fees/commissions and combines independently rounded minor units',async()=>{
   stored.clear();
   const tree=await mount();
-  await act(async()=>{api.loginUser(guest);api.addAccount(account);});
+  await act(async()=>{api.loginUser(guest);await api.addAccount(account);});
   // The hydration fence intentionally rejects the above early mutation.
-  await act(async()=>{api.addAccount(account);});
+  await act(async()=>{await api.addAccount(account);});
   const cash=api.state.accounts[0];
   const before=api.state;
   for(const fee of [Infinity,NaN,-1]) {
-    await act(async()=>{assert.equal(api.addTransaction({title:'Invalid fee',type:'expense',amount:10,currency:'LYD',category:'test',accountId:cash.id,paymentMethod:'cash',feeAmount:fee}),false);});
+    await act(async()=>{assert.equal(await api.addTransaction({title:'Invalid fee',type:'expense',amount:10,currency:'LYD',category:'test',accountId:cash.id,paymentMethod:'cash',feeAmount:fee}),false);});
     assert.equal(api.state,before);
   }
-  await act(async()=>{assert.equal(api.addTransaction({title:'Exact fee',type:'expense',amount:10.075,currency:'LYD',category:'test',accountId:cash.id,paymentMethod:'cash',feeAmount:0.01}),true);});
+  await act(async()=>{assert.equal(await api.addTransaction({title:'Exact fee',type:'expense',amount:10.075,currency:'LYD',category:'test',accountId:cash.id,paymentMethod:'cash',feeAmount:0.01}),true);});
   assert.equal(api.state.transactions[0].amount,10.09);
   assert.equal(api.state.accounts[0].balance,89.91);
-  await act(async()=>{api.addAccount({...account,name:'USD',category:'cash_usd',currency:'USD',balance:0});});
+  await act(async()=>{await api.addAccount({...account,name:'USD',category:'cash_usd',currency:'USD',balance:0});});
   const snapshot=api.state;
-  await act(async()=>{assert.equal(api.createUsdDeal({title:'Invalid commission',counterparty:'Test',totalUsdBought:1,buyRate:6,buyCommissionLyd:NaN,buyPaymentMethod:'cash',sourceLydAccountId:cash.id,usdHoldingAccountId:snapshot.accounts.find(a=>a.currency==='USD').id}),false);});
+  await act(async()=>{assert.equal(await api.createUsdDeal({title:'Invalid commission',counterparty:'Test',totalUsdBought:1,buyRate:6,buyCommissionLyd:NaN,buyPaymentMethod:'cash',sourceLydAccountId:cash.id,usdHoldingAccountId:snapshot.accounts.find(a=>a.currency==='USD').id}),false);});
   assert.equal(api.state,snapshot);
   await act(async()=>{tree.unmount();});
 });

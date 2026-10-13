@@ -1,3 +1,4 @@
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import { financialDate } from '../services/financialDate';
@@ -35,6 +36,7 @@ export const ExpensesScreen: React.FC = () => {
     deleteTransaction,
     updateCategoryBudget,
   } = useMali();
+
 
   const [subTab, setSubTab] = useState<'ledger' | 'budgets'>('ledger');
   const [typeFilter, setTypeFilter] = useState<
@@ -74,6 +76,12 @@ export const ExpensesScreen: React.FC = () => {
   // Edit Budget Modal
   const [editingBudgetCat, setEditingBudgetCat] = useState<string | null>(null);
   const [budgetLimitInput, setBudgetLimitInput] = useState('');
+
+  const { submit, saving } = useFinancialSubmission(() => {
+    setSubmissionKey(nextSubmissionKey()); setQuickAmount(''); setQuickCustomDetail(''); setQuickSavedMessage(null);
+    setOtherTxModal(false); setTxTitle(''); setTxAmount(''); setEditingBudgetCat(null); setBudgetLimitInput('');
+    setQuickAccountId(''); setTxAccountId(''); setTxTargetAccountId(''); setSearchQuery('');
+  });
 
   const accountMap = new Map(state.accounts.map((a) => [a.id, a]));
   const selectedQuickAccount =
@@ -163,7 +171,7 @@ export const ExpensesScreen: React.FC = () => {
   });
 
   // 1-Tap Save Quick Expense
-  const handleQuickExpenseSubmit = () => {
+  const handleQuickExpenseSubmit = async () => {
     const amt = quickAmountValue;
     const acc = selectedQuickAccount;
     if (amt === null || amt <= 0 || !acc) return;
@@ -179,7 +187,7 @@ export const ExpensesScreen: React.FC = () => {
 
     const method: PaymentMethodType = acc.isCash ? 'cash' : 'card';
 
-    if (!addTransaction({
+    if (!await submit(() => addTransaction({
       idempotencyKey: submissionKey + ":addTransaction",
       title: finalTitle,
       type: 'expense',
@@ -189,7 +197,7 @@ export const ExpensesScreen: React.FC = () => {
       accountId: acc.id,
       paymentMethod: method,
       notes: detail ? `الغرض: ${detail} — سحب من ${acc.name}` : undefined,
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
 
     setQuickAmount('');
@@ -204,7 +212,7 @@ export const ExpensesScreen: React.FC = () => {
     }, 4500);
   };
 
-  const handleSaveOtherTransaction = () => {
+  const handleSaveOtherTransaction = async () => {
     const amt = parseFinancialInput(txAmount);
     if (amt === null || amt <= 0 || !txAccountId) return;
     const selectedAcc = accountMap.get(txAccountId);
@@ -221,7 +229,7 @@ export const ExpensesScreen: React.FC = () => {
       }
     }
 
-    if (!addTransaction({
+    if (!await submit(() => addTransaction({
       idempotencyKey: submissionKey + ":addTransaction",
       title:
         txTitle.trim() ||
@@ -235,7 +243,7 @@ export const ExpensesScreen: React.FC = () => {
       accountId: txAccountId,
       targetAccountId: txType === 'transfer' ? txTargetAccountId : undefined,
       paymentMethod: selectedAcc?.isCash ? 'cash' : 'transfer',
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
 
     setTxTitle('');
@@ -248,6 +256,7 @@ export const ExpensesScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice />
       {/* ================================================================
           1. FAST & CONCISE EXPENSE CARD (إضافة مصروف سريعة بقوائم منسدلة غير مزدحمة)
          ================================================================ */}
@@ -291,7 +300,7 @@ export const ExpensesScreen: React.FC = () => {
         <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
           1. القيمة المسحوبة ({selectedQuickAccount?.currency || 'LYD'})
         </Text>
-        <TextInput
+        <TextInput editable={!saving}
           style={[
             styles.amountInput,
             {
@@ -329,7 +338,7 @@ export const ExpensesScreen: React.FC = () => {
         </View>
 
         {/* تفصيل اختياري */}
-        <TextInput
+        <TextInput editable={!saving}
           style={[
             styles.noteInput,
             {
@@ -363,7 +372,7 @@ export const ExpensesScreen: React.FC = () => {
         ) : null}
 
         {/* Submit Button */}
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.submitQuickBtn,
             {
@@ -389,7 +398,7 @@ export const ExpensesScreen: React.FC = () => {
 
       {/* Secondary Action Bar: Record Income / Transfer / Export */}
       <View style={styles.secondaryActionRow}>
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.secondaryActionBtn,
             { backgroundColor: theme.card, borderColor: theme.border },
@@ -414,7 +423,7 @@ export const ExpensesScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.exportBtn,
             { backgroundColor: theme.blueSoft, borderColor: theme.blue },
@@ -474,7 +483,7 @@ export const ExpensesScreen: React.FC = () => {
           { backgroundColor: theme.cardAlt, borderColor: theme.border },
         ]}
       >
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.subTab,
             subTab === 'ledger' && {
@@ -506,7 +515,7 @@ export const ExpensesScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.subTab,
             subTab === 'budgets' && {
@@ -554,7 +563,7 @@ export const ExpensesScreen: React.FC = () => {
                 size={16}
                 color={theme.textMuted}
               />
-              <TextInput
+              <TextInput editable={!saving}
                 style={[styles.searchInput, { color: theme.text }]}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -731,12 +740,12 @@ export const ExpensesScreen: React.FC = () => {
                   >
                     {tx.notes || `حركة مسجلة على ${acc?.name || 'الحساب'}`}
                   </Text>
-                  <TouchableOpacity
+                  <TouchableOpacity disabled={saving}
                     style={[
                       styles.deleteSmallBtn,
                       { backgroundColor: theme.dangerSoft },
                     ]}
-                    onPress={() => deleteTransaction(tx.id)}
+                    onPress={async () => await submit(() => deleteTransaction(tx.id))}
                   >
                     <Ionicons
                       name="trash-outline"
@@ -814,7 +823,7 @@ export const ExpensesScreen: React.FC = () => {
                       {b.category}
                     </Text>
                   </View>
-                  <TouchableOpacity
+                  <TouchableOpacity disabled={saving}
                     style={[
                       styles.editBudgetBtn,
                       {
@@ -894,6 +903,7 @@ export const ExpensesScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               تسجيل إيراد وارد أو تحويل بين حساباتك
             </Text>
@@ -977,7 +987,7 @@ export const ExpensesScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               المبلغ
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -996,7 +1006,7 @@ export const ExpensesScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظة مختصرة (اختياري)
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1012,7 +1022,7 @@ export const ExpensesScreen: React.FC = () => {
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -1031,7 +1041,7 @@ export const ExpensesScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={handleSaveOtherTransaction}
               >
@@ -1058,13 +1068,14 @@ export const ExpensesScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               تحديد السقف الشهري لغرض: {editingBudgetCat}
             </Text>
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               الميزانية الشهرية بالدينار الليبي
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1078,7 +1089,7 @@ export const ExpensesScreen: React.FC = () => {
               onChangeText={setBudgetLimitInput}
             />
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -1097,13 +1108,13 @@ export const ExpensesScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                onPress={() => {
+                onPress={async () => {
                   if (editingBudgetCat) {
                     const val = parseFinancialInput(budgetLimitInput);
                     if (val === null || val < 0) return;
-                    updateCategoryBudget(editingBudgetCat, val);
+                    if (!await submit(() => updateCategoryBudget(editingBudgetCat, val))) return;
                     setEditingBudgetCat(null);
                   }
                 }}

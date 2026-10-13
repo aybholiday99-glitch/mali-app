@@ -43,7 +43,7 @@ const cache=async user=>JSON.parse(await financialStorage.getItem(key(user)));
 test('actual provider persists latest payload before upload and resumes bounded retries after restart',async()=>{
   reset();const clock=fakeSyncScheduler();let calls=0;
   push=async state=>{calls++;const disk=await cache(cloud);assert.equal(disk.cloudOutbox.pending.revision,state.localRevision);assert.equal(disk.cloudOutbox.attempts,calls);return calls===1?offline:success(timestamp);};
-  let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{assert.equal(api.addAccount(cash),true);});
+  let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{assert.equal(await api.addAccount(cash),true);});
   assert.equal((await cache(cloud)).cloudOutbox.pending.payload.accounts.length,1);assert.equal(calls,0);
   await advance(clock,0);assert.equal(calls,1);assert.equal(api.cloudSyncStatus.phase,'retrying');
   const due=(await cache(cloud)).cloudOutbox.nextAttemptAt;await act(async()=>{tree.unmount();});assert.equal(clock.size(),0);
@@ -55,9 +55,9 @@ test('actual provider persists latest payload before upload and resumes bounded 
 test('actual provider uploads newer edits serially using the preceding server acknowledgement',async()=>{
   reset();const clock=fakeSyncScheduler();let release,secondRelease;const calls=[];
   push=async(state,cfg)=>{calls.push({state,cfg});return new Promise(resolve=>{if(calls.length===1)release=resolve;else secondRelease=resolve;});};
-  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);api.addAccount(cash);});
-  await act(async()=>{api.addAccount({...cash,name:'First'});});await advance(clock,0);
-  await act(async()=>{api.addAccount({...cash,name:'Second'});});assert.equal(calls.length,1);assert.equal((await cache(cloud)).cloudOutbox.pending.revision,2);
+  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);await api.addAccount(cash);});
+  await act(async()=>{await api.addAccount({...cash,name:'First'});});await advance(clock,0);
+  await act(async()=>{await api.addAccount({...cash,name:'Second'});});assert.equal(calls.length,1);assert.equal((await cache(cloud)).cloudOutbox.pending.revision,2);
   await act(async()=>{release(success(timestamp));await settle();});assert.equal(api.state.pendingCloudSync,true);assert.equal(api.state.accounts.length,2);
   await advance(clock,0);assert.equal(calls.length,2);assert.equal(calls[1].state.accounts.length,2);assert.equal(calls[1].cfg.lastSyncedAt,timestamp);
   await act(async()=>{secondRelease(success('2026-10-13T00:02:00.987654+00:00'));await settle();});assert.equal(api.state.pendingCloudSync,false);
@@ -66,8 +66,8 @@ test('actual provider uploads newer edits serially using the preceding server ac
 test('actual provider persists CAS stop and both versions across edits, ordinary push, config change and restart',async()=>{
   reset();const clock=fakeSyncScheduler();let calls=0,remote;
   push=async state=>{calls++;remote=appendFinancialAudit(state,{...state,accounts:state.accounts.map(a=>({...a,name:'Remote'}))},{ownerId:cloud.id,action:'remote_edit',reason:'synthetic remote rename'});return{...offline,conflictDetected:true,cloudState:remote,updatedAt:timestamp};};
-  let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);
-  const attempted=(await cache(cloud)).cloudOutbox.stop.attempted.payload;await act(async()=>{api.addAccount({...cash,name:'Newer local'});});
+  let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
+  const attempted=(await cache(cloud)).cloudOutbox.stop.attempted.payload;await act(async()=>{await api.addAccount({...cash,name:'Newer local'});});
   assert.equal(api.cloudSyncStatus.phase,'blocked');assert.equal((await cache(cloud)).cloudOutbox.pending.payload.accounts.length,2);assert.deepEqual((await cache(cloud)).cloudOutbox.stop.attempted.payload,attempted);
   await act(async()=>{assert.equal((await api.syncToCloud()).conflictDetected,true);await api.updateSupabaseConfig({url:'https://other-project.example.invalid'});});
   await advance(clock,120000);assert.equal(calls,1);assert.equal((await cache(cloud)).cloudOutbox.stop.reason,'conflict');assert.deepEqual((await cache(cloud)).cloudOutbox.stop.result.cloudState,JSON.parse(JSON.stringify(remote)));
@@ -78,7 +78,7 @@ test('actual provider persists CAS stop and both versions across edits, ordinary
 test('actual provider cancels upload on logout and cannot adopt an old acknowledgement in another owner',async()=>{
   reset();const clock=fakeSyncScheduler();let release,signal,calls=0;
   push=async(_state,_cfg,_user,options)=>{calls++;signal=options.signal;return new Promise(r=>{release=r;});};
-  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);
+  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
   await act(async()=>{await api.logoutUser();});assert.equal(signal.aborted,true);assert.equal(clock.size(),0);
   await act(async()=>{api.loginUser(other);release(success(timestamp));await settle();});assert.equal(api.state.accounts.length,0);assert.equal(api.state.supabaseConfig.lastSyncedAt,undefined);
   assert.equal((await cache(cloud)).pendingCloudSync,true);assert.equal((await cache(cloud)).cloudOutbox.syncedAt,undefined);assert.equal(calls,1);
@@ -86,7 +86,7 @@ test('actual provider cancels upload on logout and cannot adopt an old acknowled
 });
 test('actual provider blocks retries after expiry until a fresh login, including foreground recovery',async()=>{
   reset();const clock=fakeSyncScheduler();let calls=0;push=async()=>{calls++;return{...offline,failureKind:'session'};};
-  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);
+  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
   assert.equal((await cache(cloud)).cloudOutbox.stop.reason,'session');await advance(clock,120000);await act(async()=>{await api.syncToCloud();for(const fn of listeners)fn('active');await settle();});assert.equal(calls,1);
   await act(async()=>{identityChanged(null);});assert.equal(api.currentUser,null);
   push=async()=>{calls++;return success(timestamp);};pull=async()=>({...offline,isEmpty:true,identityVerified:true});await act(async()=>{api.loginUser(cloud);});await advance(clock,0);assert.equal(calls,2);assert.equal(api.state.pendingCloudSync,false);
@@ -96,15 +96,15 @@ test('actual provider prevents network on failed or unverified local writes and 
   for(const failure of ['throw','no-op']){
     reset();const clock=fakeSyncScheduler();let calls=0;push=async()=>{calls++;return success(timestamp);};
     const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});writeFailure=failure==='throw';noOpWrite=failure==='no-op';
-    await act(async()=>{api.addAccount(cash);});await advance(clock,120000);assert.equal(calls,0);assert.equal(api.state.accounts.length,1);assert.equal(api.cloudSyncStatus.phase,'storage-error');
-    writeFailure=false;noOpWrite=false;await act(async()=>{assert.equal((await api.syncToCloud()).ok,true);});assert.equal(calls,1);assert.equal((await cache(cloud)).accounts.length,1);assert.equal(api.state.pendingCloudSync,false);
+    await act(async()=>{assert.equal(await api.addAccount(cash),false);});await advance(clock,120000);assert.equal(calls,0);assert.equal(api.state.accounts.length,0);assert.equal(api.cloudSyncStatus.phase,'storage-error');
+    writeFailure=false;noOpWrite=false;await act(async()=>{assert.equal(await api.retryPendingMutation(),true);assert.equal((await api.syncToCloud()).ok,true);});assert.equal(calls,1);assert.equal((await cache(cloud)).accounts.length,1);assert.equal(api.state.pendingCloudSync,false);
     await act(async()=>{tree.unmount();});
   }
 });
 test('actual provider pauses timers in background and resumes on foreground or web reconnect',async()=>{
   reset();const handlers=new Map();globalThis.window={addEventListener:(name,callback)=>handlers.set(name,callback),removeEventListener:name=>handlers.delete(name)};
   const clock=fakeSyncScheduler();let calls=0;push=async()=>{calls++;return offline;};
-  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);
+  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
   await act(async()=>{for(const fn of listeners)fn('background');});await advance(clock,120000);assert.equal(calls,1);
   await act(async()=>{for(const fn of listeners)fn('active');await settle();});assert.equal(calls,2);
   push=async()=>{calls++;return success(timestamp);};await act(async()=>{handlers.get('online')();await settle();});assert.equal(calls,3);assert.equal(api.state.pendingCloudSync,false);
@@ -112,31 +112,34 @@ test('actual provider pauses timers in background and resumes on foreground or w
 });
 test('actual provider cancels prior project upload when configuration changes and requires explicit repair',async()=>{
   reset();const clock=fakeSyncScheduler();let release,signal,calls=0;push=async(_state,_cfg,_user,options)=>{calls++;signal=options.signal;return new Promise(r=>{release=r;});};
-  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);
+  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
   await act(async()=>{await api.updateSupabaseConfig({url:'https://new-project.example.invalid'});});assert.equal(signal.aborted,true);assert.equal((await cache(cloud)).cloudOutbox.stop.reason,'configuration');
   await act(async()=>{release(success(timestamp));await settle();await api.syncToCloud();});assert.equal(calls,1);assert.equal(api.state.pendingCloudSync,true);assert.equal(api.state.supabaseConfig.lastSyncedAt,undefined);
   await act(async()=>{tree.unmount();});
 });
 test('corrupt or foreign owner outbox cannot replace preserved cache or reach the network',async()=>{
-  reset();const clock=fakeSyncScheduler();let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await act(async()=>{tree.unmount();});
+  reset();const clock=fakeSyncScheduler();let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await act(async()=>{tree.unmount();});
   const invalid=(await cache(cloud));invalid.cloudOutbox.ownerId=other.id;const raw=JSON.stringify(invalid);await financialStorage.setItem(key(cloud),raw);
-  let calls=0;push=async()=>{calls++;return success(timestamp);};tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{assert.equal(api.addAccount(cash),false);});
+  let calls=0;push=async()=>{calls++;return success(timestamp);};tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{assert.equal(await api.addAccount(cash),false);});
   await advance(clock,120000);assert.equal(calls,0);assert.equal(await financialStorage.getItem(key(cloud)),raw);assert.equal(await financialStorage.getItem(key(cloud)+'_recovery'),raw);await act(async()=>{tree.unmount();});
 });
 
-test('restart reconciles newer durable cache revision with an interrupted older outbox enqueue',async()=>{
+test('restart retains candidate and outbox at the same revision when storage acknowledgement is interrupted',async()=>{
   reset();const clock=fakeSyncScheduler();const originalSet=globalThis.maliTestStorage.setItem;
   let release,entered;const held=new Promise(r=>{release=r;}),started=new Promise(r=>{entered=r;});let once=false,lastPayload;
   globalThis.maliTestStorage.setItem=async(name,value)=>{
     stored.set(name,value);let parsed;try{parsed=JSON.parse(value);}catch{parsed={};}
-    if(parsed.localRevision===2&&parsed.cloudOutbox?.pending?.revision===1)lastPayload=parsed;
+    if(parsed.localRevision===2&&parsed.cloudOutbox?.pending?.revision===2)lastPayload=parsed;
     if(!once&&name.endsWith(':head')&&lastPayload){once=true;entered();await held;}
   };
   let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});
-  await act(async()=>{api.addAccount({...cash,name:'First'});api.addAccount({...cash,name:'Second'});await started;});
+  await act(async()=>{assert.equal(await api.addAccount({...cash,name:'First'}),true);});
+  let pending;await act(async()=>{pending=api.addAccount({...cash,name:'Second'});await started;});
+  assert.equal(api.state.accounts.length,1);
   const crashedRead=createChunkedFinancialStorage({getItem:async name=>stored.get(name)??null,setItem:async()=>{throw new Error('crashed runtime is read-only');}});
-  const crashed=JSON.parse(await crashedRead.getItem(key(cloud)));assert.equal(crashed.localRevision,2);assert.equal(crashed.cloudOutbox.pending.revision,1);
-  await act(async()=>{tree.unmount();release();await settle();});globalThis.maliTestStorage.setItem=originalSet;
+  const crashed=JSON.parse(await crashedRead.getItem(key(cloud)));assert.equal(crashed.localRevision,2);assert.equal(crashed.cloudOutbox.pending.revision,2);
+  await act(async()=>{tree.unmount();});
+  await act(async()=>{release();assert.equal(await pending,false);await settle();});globalThis.maliTestStorage.setItem=originalSet;
   const uploads=[];push=async state=>{uploads.push(state);return success(timestamp);};tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});
   assert.equal(api.state.accounts.length,2);assert.equal((await cache(cloud)).cloudOutbox.pending.revision,2);
   await advance(clock,0);assert.equal(uploads.length,1);assert.equal(uploads[0].accounts.length,2);assert.equal(uploads[0].localRevision,2);
@@ -144,9 +147,26 @@ test('restart reconciles newer durable cache revision with an interrupted older 
   await act(async()=>{tree.unmount();});
 });
 
+test('restart still reconciles a legacy cache whose latest financial revision is newer than its saved outbox',async()=>{
+  reset();const clock=fakeSyncScheduler();let tree=await mount(clock);
+  await act(async()=>{api.loginUser(cloud);});await act(async()=>{assert.equal(await api.addAccount({...cash,name:'First'}),true);});
+  const older=(await cache(cloud)).cloudOutbox;
+  await act(async()=>{assert.equal(await api.addAccount({...cash,name:'Second'}),true);});
+  const latest=await cache(cloud),history=JSON.stringify(latest.financialAudit);
+  await act(async()=>{tree.unmount();});
+  await financialStorage.setItem(key(cloud),JSON.stringify({...latest,cloudOutbox:older}));
+  const uploads=[];push=async state=>{uploads.push(state);return success(timestamp);};
+  tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});
+  assert.equal(api.state.accounts.length,2);assert.equal((await cache(cloud)).cloudOutbox.pending.revision,2);
+  assert.equal(JSON.stringify(api.state.financialAudit),history);
+  await advance(clock,0);assert.equal(uploads.length,1);assert.equal(uploads[0].accounts.length,2);assert.equal(uploads[0].localRevision,2);
+  assert.equal((await cache(cloud)).pendingCloudSync,false);
+  await act(async()=>{tree.unmount();});
+});
+
 test('failed login pull and externally supplied identity cannot clear a persisted expired-session stop',async()=>{
   reset();const clock=fakeSyncScheduler();let calls=0;push=async()=>{calls++;return{...offline,failureKind:'session'};};
-  let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);assert.equal(calls,1);
+  let tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);assert.equal(calls,1);
   await act(async()=>{tree.unmount();});
   for(const failureKind of ['transient','session']){
     pull=async()=>({...offline,failureKind});tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await advance(clock,120000);
@@ -156,7 +176,7 @@ test('failed login pull and externally supplied identity cannot clear a persiste
 
 test('actual provider retries failed acknowledgement storage without committing another cloud upload',async()=>{
   reset();const clock=fakeSyncScheduler();let release,calls=0;push=async()=>{calls++;return new Promise(r=>{release=r;});};
-  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{api.addAccount(cash);});await advance(clock,0);
+  const tree=await mount(clock);await act(async()=>{api.loginUser(cloud);});await act(async()=>{await api.addAccount(cash);});await advance(clock,0);
   writeFailure=true;await act(async()=>{release(success(timestamp));await settle();});assert.equal(api.cloudSyncStatus.phase,'storage-error');assert.equal(api.state.pendingCloudSync,true);
   writeFailure=false;await act(async()=>{assert.equal((await api.syncToCloud()).ok,true);});assert.equal(calls,1);assert.equal(api.state.pendingCloudSync,false);assert.equal((await cache(cloud)).cloudOutbox.pending,null);
   await act(async()=>{tree.unmount();});

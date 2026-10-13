@@ -16,28 +16,51 @@ import { MAX_RECEIPTS, type ReceiptSource } from '../utils/receiptCore';
 export { pickReceiptImagesFromDevice } from '../utils/receiptPicker';
 const EMPTY_RECEIPTS: string[] = [];
 
-function useReceiptSelection(images: string[], onChange?: (images: string[]) => void | boolean) {
+function useReceiptSelection(images: string[], onChange?: (images: string[]) => void | boolean | Promise<void | boolean>) {
+  const { mutationSessionGeneration } = useMali();
   const mounted=useRef(true), locked=useRef(false), latestImages=useRef(images), imagesVersion=useRef(0);
+  const generation=useRef(mutationSessionGeneration), pendingImages=useRef<string[] | null>(null);
   const [isPicking,setIsPicking]=useState(false);
   const [message,setMessage]=useState<string | null>(null);
   useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   useEffect(()=>{if (latestImages.current !== images) imagesVersion.current++;latestImages.current=images;},[images]);
+  useEffect(()=>{
+    generation.current=mutationSessionGeneration;pendingImages.current=null;locked.current=false;
+    queueMicrotask(()=>{if(mounted.current && generation.current===mutationSessionGeneration){setIsPicking(false);setMessage(null);}});
+  },[mutationSessionGeneration]);
+  const accept=async(next: string[],token: number) => {
+    pendingImages.current=next;
+    const result=await onChange?.(next);
+    if(!mounted.current || generation.current!==token)return false;
+    if(result===false) {setMessage('تعذر حفظ الصور بالخزنة. أعد المحاولة لحفظ الصور المختارة نفسها.');return false;}
+    pendingImages.current=null;setMessage(null);return true;
+  };
+  const commit=async(next: string[])=>{
+    if(!onChange || locked.current)return false;
+    const token=generation.current;
+    locked.current=true;setIsPicking(true);setMessage(null);
+    try{return await accept(pendingImages.current || next,token);}
+    catch{if(mounted.current && generation.current===token)setMessage('تعذر حفظ الصور بالخزنة. أعد المحاولة لحفظ الصور المختارة نفسها.');return false;}
+    finally{if(generation.current===token){locked.current=false;if(mounted.current)setIsPicking(false);}}
+  };
   const pick=async (source: ReceiptSource) => {
     if (!onChange || locked.current) return;
+    if(pendingImages.current) {await commit(pendingImages.current);return;}
+    const token=generation.current;
     locked.current=true;setIsPicking(true);setMessage(null);
     const before=[...images], version=imagesVersion.current;
     try {
       const result=await pickReceiptImagesFromDevice(before.length,source);
-      if (!mounted.current) return;
+      if (!mounted.current || generation.current!==token) return;
       if (result.status !== 'selected') { setMessage(result.message || 'تعذر اختيار الصور.');return; }
       if (imagesVersion.current !== version || latestImages.current.length !== before.length || latestImages.current.some((image,index)=>image !== before[index])) {
         setMessage('تغيّرت الصور أثناء الاختيار. أعد إرفاق الصور المطلوبة.');return;
       }
-      if (onChange([...before,...result.images]) === false) setMessage('تعذر إرفاق الصور بالخزنة. حاول مجدداً.');
-    } catch { if (mounted.current) setMessage('تعذر إرفاق الصور بالخزنة. حاول مجدداً.');
-    } finally { locked.current=false;if (mounted.current) setIsPicking(false); }
+      await accept([...before,...result.images],token);
+    } catch { if (mounted.current && generation.current===token) setMessage('تعذر إرفاق الصور بالخزنة. حاول مجدداً.');
+    } finally { if(generation.current===token){locked.current=false;if (mounted.current) setIsPicking(false);} }
   };
-  return {pick,isPicking,message,disabled:isPicking || images.length >= MAX_RECEIPTS};
+  return {pick,commit,isPicking,message,disabled:isPicking || images.length >= MAX_RECEIPTS};
 }
 
 interface ReceiptAttachmentFieldProps {
@@ -161,7 +184,7 @@ export const ReceiptAttachmentField: React.FC<ReceiptAttachmentFieldProps> = ({
 interface ReceiptInlineStripProps {
   images?: string[];
   title: string;
-  onUpdateImages?: (nextImages: string[]) => void | boolean;
+  onUpdateImages?: (nextImages: string[]) => void | boolean | Promise<void | boolean>;
   accentColor?: string;
   compactLabel?: string;
 }
@@ -287,10 +310,9 @@ export const ReceiptInlineStrip: React.FC<ReceiptInlineStripProps> = ({
         onAddMore={onUpdateImages && !selection.disabled ? handleQuickAdd : undefined}
         onDeleteImage={
           onUpdateImages
-            ? (idx) => {
+            ? async (idx) => {
                 const next = images.filter((_, i) => i !== idx);
-                onUpdateImages(next);
-                if (next.length === 0) setViewerIndex(null);
+                if(await selection.commit(next) && next.length === 0)setViewerIndex(null);
               }
             : undefined
         }

@@ -1,3 +1,4 @@
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import { proportionalMoney, addMoney } from '../services/financialEngine';
@@ -33,6 +34,7 @@ export const AccountsScreen: React.FC = () => {
     liquidateChequeToCash,
     addTransaction,
   } = useMali();
+
 
   const [filterType, setFilterType] = useState<'all' | 'cash' | 'bank'>('all');
 
@@ -78,6 +80,13 @@ export const AccountsScreen: React.FC = () => {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newBalanceStr, setNewBalanceStr] = useState('');
 
+  const { submit, saving } = useFinancialSubmission(() => {
+    setSubmissionKey(nextSubmissionKey()); setAddModalVisible(false); setLiqModalVisible(false); setTransferModalVisible(false); setEditingAccount(null);
+    setAccName(''); setInitialBalance(''); setAccountNumber(''); setAccNotes(''); setLiqNotes(''); setTrNotes(''); setNewBalanceStr('');
+    setSourceBankId(''); setTargetCashId(''); setTrFromId(''); setTrToId('');
+    setChequeAmount(''); setDiscountPct(''); setTrAmountStr('');
+  });
+
   const filteredAccounts = state.accounts.filter((a) => {
     if (filterType === 'cash') return a.isCash;
     if (filterType === 'bank') return !a.isCash;
@@ -101,7 +110,7 @@ export const AccountsScreen: React.FC = () => {
   const calculatedFee = financialPreview(proportionalMoney(parsedChequeAmt, discountValue ?? 0, 100));
   const calculatedNetCash = financialPreview(addMoney(parsedChequeAmt, -calculatedFee));
 
-  const handleCreateAccount = () => {
+  const handleCreateAccount = async () => {
     if (!accName.trim()) return;
     const bal = parseFinancialInput(initialBalance);
     if (bal === null) return;
@@ -115,7 +124,7 @@ export const AccountsScreen: React.FC = () => {
     ];
     const randomColor = colors[state.accounts.length % colors.length];
 
-    if (!addAccount({
+    if (!await submit(() => addAccount({
       name: accName.trim(),
       bankName: isCashAcc ? 'خزينة نقدية (كاش)' : selectedBank,
       category: isCashAcc
@@ -131,7 +140,7 @@ export const AccountsScreen: React.FC = () => {
       accountNumber: accountNumber.trim() || undefined,
       color: randomColor,
       notes: accNotes.trim() || undefined,
-    })) return;
+    }))) return;
 
     setAccName('');
     setInitialBalance('');
@@ -140,29 +149,29 @@ export const AccountsScreen: React.FC = () => {
     setAddModalVisible(false);
   };
 
-  const handleLiquidateCheque = () => {
+  const handleLiquidateCheque = async () => {
     if (!sourceBankId || !targetCashId || chequeValue === null || discountValue === null || chequeValue <= 0) return;
-    if (!liquidateChequeToCash({
+    if (!await submit(() => liquidateChequeToCash({
       idempotencyKey: submissionKey + ":liquidateChequeToCash",
       sourceBankAccountId: sourceBankId,
       targetCashAccountId: targetCashId,
       chequeAmountLyd: chequeValue,
       discountPercent: discountValue,
       notes: liqNotes.trim() || undefined,
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
     setLiqModalVisible(false);
     setLiqNotes('');
   };
 
-  const handleDirectTransfer = () => {
+  const handleDirectTransfer = async () => {
     const amt = parseFinancialInput(trAmountStr);
     if (!trFromId || !trToId || trFromId === trToId || amt === null || amt <= 0) return;
     const fromAcc = state.accounts.find((a) => a.id === trFromId);
     const toAcc = state.accounts.find((a) => a.id === trToId);
     if (!fromAcc || !toAcc) return;
 
-    if (!addTransaction({
+    if (!await submit(() => addTransaction({
       idempotencyKey: submissionKey + ":addTransaction",
       title: `تحويل من ${fromAcc.name} إلى ${toAcc.name}`,
       category: 'transfer',
@@ -173,7 +182,7 @@ export const AccountsScreen: React.FC = () => {
       accountId: trFromId,
       targetAccountId: trToId,
       notes: trNotes.trim() || undefined,
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
     setTransferModalVisible(false);
     setTrNotes('');
@@ -194,6 +203,7 @@ export const AccountsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice />
       {/* Compact Summary Header Strip */}
       <View
         style={[
@@ -244,7 +254,7 @@ export const AccountsScreen: React.FC = () => {
 
       {/* Top Action & Filter Bar */}
       <View style={styles.topActionRow}>
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
           onPress={() => setAddModalVisible(true)}
         >
@@ -252,7 +262,7 @@ export const AccountsScreen: React.FC = () => {
           <Text style={styles.primaryBtnText}>+ حساب</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.secondaryBtn,
             {
@@ -280,7 +290,7 @@ export const AccountsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.secondaryBtn,
             {
@@ -420,7 +430,7 @@ export const AccountsScreen: React.FC = () => {
                 {txCount} حركات
               </Text>
               <View style={styles.accActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.accActionBtn,
                     {
@@ -445,7 +455,7 @@ export const AccountsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.accActionBtn,
                     {
@@ -471,7 +481,7 @@ export const AccountsScreen: React.FC = () => {
                 </TouchableOpacity>
 
                 {state.accounts.length > 2 && (
-                  <TouchableOpacity
+                  <TouchableOpacity disabled={saving}
                     style={[
                       styles.accActionBtn,
                       {
@@ -479,7 +489,7 @@ export const AccountsScreen: React.FC = () => {
                         borderColor: theme.danger,
                       },
                     ]}
-                    onPress={() => deleteAccount(acc.id)}
+                    onPress={async () => await submit(() => deleteAccount(acc.id))}
                   >
                     <Ionicons
                       name="trash-outline"
@@ -510,6 +520,7 @@ export const AccountsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               تحويل مباشر بين حساباتي
             </Text>
@@ -563,7 +574,7 @@ export const AccountsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               المبلغ المراد تحويله ({fromAccObj?.currency || 'LYD'})
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -580,7 +591,7 @@ export const AccountsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظة (اختياري)
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -596,7 +607,7 @@ export const AccountsScreen: React.FC = () => {
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -615,7 +626,7 @@ export const AccountsScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={handleDirectTransfer}
               >
@@ -642,6 +653,7 @@ export const AccountsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               تسييل صك مصرفي / تحويل رصيد مصرفي إلى كاش
             </Text>
@@ -682,7 +694,7 @@ export const AccountsScreen: React.FC = () => {
                 >
                   قيمة الصك / الحوالة (د.ل)
                 </Text>
-                <TextInput
+                <TextInput editable={!saving}
                   style={[
                     styles.input,
                     {
@@ -702,7 +714,7 @@ export const AccountsScreen: React.FC = () => {
                 >
                   نسبة الخصم / العمولة (%)
                 </Text>
-                <TextInput
+                <TextInput editable={!saving}
                   style={[
                     styles.input,
                     {
@@ -768,7 +780,7 @@ export const AccountsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظات (رقم الصك / مكتب التسييل)
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -784,7 +796,7 @@ export const AccountsScreen: React.FC = () => {
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -803,7 +815,7 @@ export const AccountsScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={handleLiquidateCheque}
               >
@@ -835,6 +847,7 @@ export const AccountsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
+              <FinancialSaveNotice />
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 إضافة حساب مصرفي أو خزينة نقدية
               </Text>
@@ -906,7 +919,7 @@ export const AccountsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 اسم الحساب المميز
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -928,7 +941,7 @@ export const AccountsScreen: React.FC = () => {
                   >
                     الرصيد الافتتاحي
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -950,7 +963,7 @@ export const AccountsScreen: React.FC = () => {
                   >
                     رقم الحساب / البطاقة (اختياري)
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -970,7 +983,7 @@ export const AccountsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -986,7 +999,7 @@ export const AccountsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
@@ -1005,7 +1018,7 @@ export const AccountsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleCreateAccount}
                 >
@@ -1033,13 +1046,14 @@ export const AccountsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               تعديل ومطابقة رصيد: {editingAccount?.name}
             </Text>
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               الرصيد الفعلي الحالي ({editingAccount?.currency})
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1053,7 +1067,7 @@ export const AccountsScreen: React.FC = () => {
               onChangeText={setNewBalanceStr}
             />
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -1072,13 +1086,13 @@ export const AccountsScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                onPress={() => {
+                onPress={async () => {
                   if (editingAccount) {
                     const val = parseFinancialInput(newBalanceStr);
                     if (val === null) return;
-                    if (!updateAccountBalance(editingAccount.id, val)) return;
+                    if (!await submit(() => updateAccountBalance(editingAccount.id, val))) return;
                     setEditingAccount(null);
                   }
                 }}

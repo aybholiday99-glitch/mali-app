@@ -1,3 +1,4 @@
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
@@ -43,6 +44,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     addProcedureStage,
     deleteProcedure,
   } = useMali();
+
 
   const [activeTab, setActiveTab] = useState<'debts' | 'procedures'>('debts');
 
@@ -95,6 +97,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
   );
   const [newStageTitle, setNewStageTitle] = useState('');
 
+  const { submit, saving } = useFinancialSubmission(() => {
+    setSubmissionKey(nextSubmissionKey()); setNewDebtModal(false); setActiveDebtForPay(null); setNewProcModal(false); setAddingStageProcId(null);
+    setPersonName(''); setPhone(''); setDebtAmount(''); setDebtNotes(''); setDebtDueDate(''); setDebtError(null); setSelectedWalletId('');
+    setInstallmentAmt(''); setInstallmentNotes(''); setInstallmentAccId('');
+    setProcTitle(''); setProcBank(''); setProcRef(''); setProcAmt(''); setProcNotes(''); setProcDueDate(''); setNewStageTitle('');
+    setAffectWallet(false); setProcStagesText('');
+  });
+
   // Totals for Debts
   const receivableLyd = state.debts
     .filter(
@@ -132,7 +142,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     )
     .reduce((s, d) => s + d.remainingAmount, 0);
 
-  const handleSaveDebt = () => {
+  const handleSaveDebt = async () => {
     const amt = parseFinancialInput(debtAmount);
     if (!personName.trim() || amt === null || amt <= 0) return;
     const validWallet = state.accounts.find(
@@ -145,7 +155,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
     }
     const chosenWallet = validWallet;
 
-    if (!addDebt({
+    if (!await submit(() => addDebt({
       idempotencyKey: submissionKey + ":addDebt",
       personName: personName.trim(),
       phone: phone.trim() || undefined,
@@ -157,7 +167,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       affectAccountId:
         affectWallet && chosenWallet ? chosenWallet.id : undefined,
       paymentMethod: chosenWallet?.isCash === false ? 'transfer' : 'cash',
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
     setPersonName('');
     setPhone('');
@@ -166,26 +176,26 @@ export const ProceduresDebtsScreen: React.FC = () => {
     setNewDebtModal(false);
   };
 
-  const handleSaveInstallment = () => {
+  const handleSaveInstallment = async () => {
     if (!activeDebtForPay) return;
     const amt = parseFinancialInput(installmentAmt);
     if (amt === null || amt <= 0) return;
 
-    if (!addDebtInstallment({
+    if (!await submit(() => addDebtInstallment({
       idempotencyKey: submissionKey + ":addDebtInstallment",
       debtId: activeDebtForPay.id,
       amount: amt,
       accountId: installmentAccId || undefined,
       paymentMethod: installmentMethod,
       notes: installmentNotes.trim() || undefined,
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
     setActiveDebtForPay(null);
     setInstallmentAmt('');
     setInstallmentNotes('');
   };
 
-  const handleSaveProcedure = () => {
+  const handleSaveProcedure = async () => {
     if (!procTitle.trim()) return;
     const amt = procAmt.trim() ? parseFinancialInput(procAmt) : undefined;
     if (amt === null) return;
@@ -194,7 +204,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    addProcedure({
+    if (!await submit(() => addProcedure({
       title: procTitle.trim(),
       procedureType: procType,
       bankOrEntity: procBank.trim() || 'مصرف / جهة مالية',
@@ -204,7 +214,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       dueDate: procDueDate.trim() || undefined,
       stages,
       notes: procNotes.trim() || undefined,
-    });
+    }))) return;
 
     setProcTitle('');
     setProcBank('');
@@ -219,6 +229,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice />
       {/* Sub-navigation Tabs */}
       <View
         style={[
@@ -226,7 +237,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
           { backgroundColor: theme.cardAlt, borderColor: theme.border },
         ]}
       >
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.subTab,
             activeTab === 'debts' && {
@@ -260,7 +271,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.subTab,
             activeTab === 'procedures' && {
@@ -346,7 +357,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             </View>
           </View>
 
-          <TouchableOpacity
+          <TouchableOpacity disabled={saving}
             style={[
               styles.primaryActionBtn,
               { backgroundColor: theme.primary },
@@ -525,7 +536,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
                 <View style={styles.cardActions}>
                   {debt.remainingAmount > 0 && (
-                    <TouchableOpacity
+                    <TouchableOpacity disabled={saving}
                       style={[
                         styles.payInstallmentBtn,
                         { backgroundColor: theme.primary },
@@ -551,8 +562,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       </Text>
                     </TouchableOpacity>
                   )}
-
-                  <TouchableOpacity
+                  <TouchableOpacity disabled={saving}
                     style={[
                       styles.deleteBtn,
                       {
@@ -560,7 +570,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.danger,
                       },
                     ]}
-                    onPress={() => deleteDebt(debt.id)}
+                    onPress={async () => await submit(() => deleteDebt(debt.id))}
                   >
                     <Ionicons
                       name="trash-outline"
@@ -576,7 +586,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       ) : (
         /* Financial Procedures Tab */
         <>
-          <TouchableOpacity
+          <TouchableOpacity disabled={saving}
             style={[
               styles.primaryActionBtn,
               { backgroundColor: theme.primary },
@@ -700,13 +710,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   </View>
 
                   {proc.stages.map((st) => (
-                    <TouchableOpacity
+                    <TouchableOpacity disabled={saving}
                       key={st.id}
                       style={[
                         styles.stageRow,
                         { borderBottomColor: theme.border },
                       ]}
-                      onPress={() => toggleProcedureStage(proc.id, st.id)}
+                      onPress={async () => await submit(() => toggleProcedureStage(proc.id, st.id))}
                     >
                       <Ionicons
                         name={st.completed ? 'checkbox' : 'square-outline'}
@@ -739,7 +749,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
                   {addingStageProcId === proc.id ? (
                     <View style={styles.addStageInline}>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -755,13 +765,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         placeholder="اكتب اسم المرحلة الجديدة..."
                         placeholderTextColor={theme.textMuted}
                       />
-                      <TouchableOpacity
+                      <TouchableOpacity disabled={saving}
                         style={[
                           styles.inlineSaveBtn,
                           { backgroundColor: theme.primary },
                         ]}
-                        onPress={() => {
-                          addProcedureStage(proc.id, newStageTitle);
+                        onPress={async () => {
+                          if (!await submit(() => addProcedureStage(proc.id, newStageTitle))) return;
                           setNewStageTitle('');
                           setAddingStageProcId(null);
                         }}
@@ -771,7 +781,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     </View>
                   ) : (
                     <View style={styles.procFooterRow}>
-                      <TouchableOpacity
+                      <TouchableOpacity disabled={saving}
                         onPress={() => setAddingStageProcId(proc.id)}
                       >
                         <Text
@@ -780,8 +790,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                           + إضافة خطوة أو مرحلة جديدة
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => deleteProcedure(proc.id)}
+                      <TouchableOpacity disabled={saving}
+                        onPress={async () => await submit(() => deleteProcedure(proc.id))}
                       >
                         <Ionicons
                           name="trash-outline"
@@ -817,6 +827,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
+              <FinancialSaveNotice />
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 تسجيل دين جديد أو أمانة مالية
               </Text>
@@ -846,7 +857,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 اسم الشخص أو الجهة
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -869,7 +880,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المبلغ الكلي
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -920,7 +931,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 تاريخ الاستحقاق / التذكير
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -935,7 +946,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 placeholderTextColor={theme.textMuted}
               />
 
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={styles.checkboxOption}
                 onPress={() => setAffectWallet(!affectWallet)}
               >
@@ -976,7 +987,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات وتفاصيل الاتفاق
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -992,7 +1003,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
@@ -1011,7 +1022,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleSaveDebt}
                 >
@@ -1039,6 +1050,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.text }]}>
               {activeDebtForPay?.direction === 'receivable'
                 ? `تحصيل دفعة من: ${activeDebtForPay?.personName}`
@@ -1055,7 +1067,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               قيمة الدفعة المسددة الآن
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1104,7 +1116,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظات الدفعة
             </Text>
-            <TextInput
+            <TextInput editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1120,7 +1132,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -1139,7 +1151,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                 onPress={handleSaveInstallment}
               >
@@ -1171,6 +1183,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
+              <FinancialSaveNotice />
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 إضافة إجراء مالي أو معاملة مصرفية بمراحل
               </Text>
@@ -1192,7 +1205,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 عنوان الإجراء / المعاملة
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1214,7 +1227,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المصرف / الجهة
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1235,7 +1248,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     رقم الصك / الإشارة
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1259,7 +1272,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المبلغ المرتبط (اختياري)
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1281,7 +1294,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     تاريخ المتابعة
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1299,7 +1312,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 خطوات ومراحل الإجراء (كل مرحلة في سطر جديد):
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1317,7 +1330,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات إضافية
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1333,7 +1346,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
@@ -1352,7 +1365,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleSaveProcedure}
                 >

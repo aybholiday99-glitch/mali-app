@@ -61,7 +61,7 @@ registerHooks({resolve(specifier,context,next){
   if(source)return{url:'data:text/javascript,'+encodeURIComponent(source),shortCircuit:true};return next(specifier,context);
 }});
 const {pickReceiptImagesFromDevice}=await import('../src/utils/receiptPicker.ts');
-const {ReceiptAttachmentField}=await import('../src/components/ReceiptImageAttachment.tsx');
+const {ReceiptAttachmentField,ReceiptInlineStrip}=await import('../src/components/ReceiptImageAttachment.tsx');
 const {exportFileOrShare,printFinancialStatement}=await import('../src/utils/exportHelper.ts');
 function reset(){memory.clear();memory.set('file:///cache',{directory:true});memory.set(asset.uri,{size:1000});for(const key of Object.keys(calls)){if(Array.isArray(calls[key]))calls[key].length=0;else calls[key]=0;}pickerResult={canceled:false,assets:[asset]};cameraAllowed=true;sharingAvailable=true;shareError=false;writeTruncated=false;pdfOversized=false;globalThis.maliTestPlatform.OS='android';}
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
@@ -106,6 +106,22 @@ test('actual receipt field preserves reset fields and surfaces storage rejection
   assert.ok(tree.root.findAllByType('Text').some(n=>n.props.accessibilityRole==='alert'&&n.children.some(t=>typeof t==='string'&&t.includes('تغيّرت'))));
   reset();await act(async()=>{gallery().props.onPress();await flush();});assert.equal(updates,1);
   assert.ok(tree.root.findAllByType('Text').some(n=>n.props.accessibilityRole==='alert'&&n.children.some(t=>typeof t==='string'&&t.includes('بالخزنة'))));
+  await act(async()=>tree.unmount());
+});
+test('inline receipt waits for durable acknowledgement and retries the same selected images without reopening the picker',async()=>{
+  reset();let resolveSave,tree;const attempts=[];
+  function Host(){const [images,setImages]=React.useState(['original']);return React.createElement(ReceiptInlineStrip,{images,title:'Transfer',onUpdateImages:async next=>{
+    attempts.push(next);if(attempts.length===1)return new Promise(resolve=>{resolveSave=resolve;});setImages(next);return true;
+  }});}
+  await act(async()=>{tree=renderer.create(React.createElement(Host));});
+  const gallery=()=>tree.root.findAllByType('TouchableOpacity').find(node=>node.props.accessibilityLabel?.includes('صور إيصال من المعرض'));
+  await act(async()=>{gallery().props.onPress();gallery().props.onPress();await flush();});
+  assert.equal(attempts.length,1);assert.equal(calls.library.length,1);assert.equal(gallery().props.disabled,true);
+  await act(async()=>{resolveSave(false);await flush();});
+  assert.ok(tree.root.findAllByType('Text').some(node=>node.props.accessibilityRole==='alert'&&node.children.some(value=>typeof value==='string'&&value.includes('تعذر حفظ'))));
+  await act(async()=>{await gallery().props.onPress();await flush();});
+  assert.equal(attempts.length,2);assert.deepEqual(attempts[1],attempts[0]);assert.equal(calls.library.length,1);
+  assert.equal(attempts[1][0],'original');assert.equal(attempts[1][1],'data:image/jpeg;base64,'+jpeg);
   await act(async()=>tree.unmount());
 });
 test('actual native exporter writes UTF8 CSV/unchanged JSON files and shares with correct MIME, returning false on failure',async()=>{

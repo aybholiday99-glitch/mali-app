@@ -22,7 +22,7 @@ test('actual expense form preserves rejection and deduplicates repeated press be
   let tree;
   await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,null,React.createElement(Probe)));});
   await act(async()=>{api.loginUser({id:'form-guest',isLocalOnly:true,name:'Test',email:'test@local.invalid',provider:'email',createdAt:'2026-10-12'});});
-  await act(async()=>{api.addAccount({name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'});});
+  await act(async()=>{await api.addAccount({name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'});});
   const amountInput=()=>tree.root.findAllByType('TextInput').find(node=>node.props.placeholder?.startsWith('أدخل المبلغ المسحوب'));
   const saveButton=()=>tree.root.findAllByType('TouchableOpacity').find(node=>node.props.onPress?.name==='handleQuickExpenseSubmit');
   await act(async()=>{amountInput().props.onChangeText('200');});
@@ -51,6 +51,50 @@ test('actual expense form preserves rejection and deduplicates repeated press be
   assert.equal(api.state.accounts[0].balance,90);
   assert.notEqual(api.state.transactions[0].idempotencyKey,api.state.transactions[1].idempotencyKey);
   await act(async()=>{tree.unmount();});
+});
+
+test('actual expense form retains fields until durable success and retries a failed candidate once',async()=>{
+  storage.clear();let tree,release,entered;
+  const held=new Promise(resolve=>{release=resolve;}),started=new Promise(resolve=>{entered=resolve;});
+  await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,null,React.createElement(Probe)));});
+  await act(async()=>{api.loginUser({id:'durable-form',isLocalOnly:true,name:'Test',email:'test@local.invalid',provider:'email',createdAt:'2026-10-13'});});
+  await act(async()=>{await api.addAccount({name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'});});
+  const amount=()=>tree.root.findAllByType('TextInput').find(node=>node.props.placeholder?.startsWith('أدخل المبلغ المسحوب'));
+  const button=()=>tree.root.findAllByType('TouchableOpacity').find(node=>node.props.onPress?.name==='handleQuickExpenseSubmit');
+  await act(async()=>{amount().props.onChangeText('5');});
+  const originalSet=globalThis.maliTestStorage.setItem;let once=true;
+  globalThis.maliTestStorage.setItem=async()=>{if(once){once=false;entered();await held;}throw new Error('storage unavailable');};
+  let first;const doublePress=button().props.onPress;
+  await act(async()=>{first=doublePress();doublePress();await started;});
+  assert.equal(amount().props.value,'5');assert.equal(amount().props.editable,false);assert.equal(button().props.disabled,true);
+  assert.equal(api.state.accounts[0].balance,100);assert.equal(api.state.transactions.length,0);
+  await act(async()=>{release();await first;});
+  assert.equal(amount().props.value,'5');assert.equal(api.mutationStatus.phase,'storage-error');
+  assert.ok(tree.root.findAllByType('Text').some(node=>node.props.accessibilityRole==='alert'&&node.children.some(value=>typeof value==='string'&&value.includes('تعذر'))));
+  globalThis.maliTestStorage.setItem=originalSet;
+  await act(async()=>{await button().props.onPress();});
+  assert.equal(amount().props.value,'');assert.equal(api.state.transactions.length,1);assert.equal(api.state.accounts[0].balance,95);
+  await act(async()=>{tree.unmount();});
+});
+
+test('a late old-owner save cannot clear fields entered in a new session on the same mounted screen',async()=>{
+  storage.clear();let tree,release,entered;
+  const held=new Promise(resolve=>{release=resolve;}),started=new Promise(resolve=>{entered=resolve;});
+  function MountedProbe(){api=useMali();return React.createElement(ExpensesScreen);}
+  await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,null,React.createElement(MountedProbe)));});
+  const user={id:'form-owner-A',isLocalOnly:true,name:'Test',email:'test@local.invalid',provider:'email',createdAt:'2026-10-13'};
+  await act(async()=>{api.loginUser(user);});await act(async()=>{await api.addAccount({name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'});});
+  const amount=()=>tree.root.findAllByType('TextInput').find(node=>node.props.placeholder?.startsWith('أدخل المبلغ المسحوب'));
+  const button=()=>tree.root.findAllByType('TouchableOpacity').find(node=>node.props.onPress?.name==='handleQuickExpenseSubmit');
+  await act(async()=>{amount().props.onChangeText('5');});
+  const originalSet=globalThis.maliTestStorage.setItem;let once=true;
+  globalThis.maliTestStorage.setItem=async(key,value)=>{if(once){once=false;entered();await held;}return originalSet(key,value);};
+  let first;await act(async()=>{first=button().props.onPress();await started;});
+  await act(async()=>{await api.logoutUser();api.loginUser({...user,id:'form-owner-B'});});
+  assert.equal(amount().props.value,'');
+  await act(async()=>{amount().props.onChangeText('9');release();await first;});
+  assert.equal(api.currentUser.id,'form-owner-B');assert.equal(amount().props.value,'9');assert.equal(api.state.transactions.length,0);
+  globalThis.maliTestStorage.setItem=originalSet;await act(async()=>{tree.unmount();});
 });
 
 test('actual cloud Pull control restores a clean vault without marking configuration as financial edits',async()=>{

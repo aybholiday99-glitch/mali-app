@@ -1,3 +1,4 @@
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import React, { useState } from 'react';
 import {
   View,
@@ -42,6 +43,7 @@ export const ContactsScreen: React.FC = () => {
     updateDealSaleReceipts,
   } = useMali();
 
+
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
 
@@ -60,6 +62,11 @@ export const ContactsScreen: React.FC = () => {
   const [selectedPerson, setSelectedPerson] = useState<ContactPerson | null>(
     null
   );
+
+  const { submit, saving } = useFinancialSubmission(() => {
+    setModalVisible(false); setEditingContact(null); setSelectedPerson(null);
+    setNameInput(''); setPhoneInput(''); setBankInput(''); setNotesInput(''); setSearchQuery('');
+  });
 
   const accountMap = new Map(state.accounts.map((a) => [a.id, a]));
 
@@ -197,24 +204,24 @@ export const ContactsScreen: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleSaveContact = () => {
+  const handleSaveContact = async () => {
     if (!nameInput.trim()) return;
     if (editingContact) {
-      if (!updateContact(editingContact.id, {
+      if (!await submit(() => updateContact(editingContact.id, {
         name: nameInput.trim(),
         phone: phoneInput.trim(),
         role: roleInput,
         bankDetails: bankInput.trim() || undefined,
         notes: notesInput.trim() || undefined,
-      })) return;
+      }))) return;
     } else {
-      if (!addContact({
+      if (!await submit(() => addContact({
         name: nameInput.trim(),
         phone: phoneInput.trim(),
         role: roleInput,
         bankDetails: bankInput.trim() || undefined,
         notes: notesInput.trim() || undefined,
-      })) return;
+      }))) return;
     }
     setModalVisible(false);
   };
@@ -251,6 +258,7 @@ export const ContactsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice />
       {/* Compact Top Summary Strip */}
       <View
         style={[
@@ -301,7 +309,7 @@ export const ContactsScreen: React.FC = () => {
 
       {/* Search, Filter Dropdown & Add Person Row */}
       <View style={styles.searchAndAddRow}>
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[styles.addPersonBtn, { backgroundColor: theme.primary }]}
           onPress={handleOpenAddModal}
         >
@@ -338,7 +346,7 @@ export const ContactsScreen: React.FC = () => {
           ]}
         >
           <Ionicons name="search-outline" size={16} color={theme.textMuted} />
-          <TextInput
+          <TextInput editable={!saving}
             style={[styles.searchInput, { color: theme.text }]}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -426,7 +434,7 @@ export const ContactsScreen: React.FC = () => {
               <View style={styles.quickContactActions}>
                 {person.phone ? (
                   <>
-                    <TouchableOpacity
+                    <TouchableOpacity disabled={saving}
                       style={[
                         styles.iconCircleBtn,
                         {
@@ -438,7 +446,7 @@ export const ContactsScreen: React.FC = () => {
                     >
                       <Ionicons name="call" size={15} color={theme.primary} />
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity disabled={saving}
                       style={[
                         styles.iconCircleBtn,
                         {
@@ -456,7 +464,7 @@ export const ContactsScreen: React.FC = () => {
                     </TouchableOpacity>
                   </>
                 ) : null}
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.iconCircleBtn,
                     {
@@ -591,7 +599,7 @@ export const ContactsScreen: React.FC = () => {
 
             {/* Footer: View Full Ledger & Export */}
             <View style={styles.cardFooter}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.ledgerBtn,
                   { backgroundColor: theme.primarySoft, borderWidth: 1, borderColor: theme.primary },
@@ -608,7 +616,7 @@ export const ContactsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.excelBtn,
                   {
@@ -657,6 +665,7 @@ export const ContactsScreen: React.FC = () => {
               },
             ]}
           >
+            <FinancialSaveNotice />
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.modalTitle, { color: theme.text }]}>
@@ -670,7 +679,7 @@ export const ContactsScreen: React.FC = () => {
                     : ''}
                 </Text>
               </View>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.closeIconBtn,
                   { backgroundColor: theme.cardAlt },
@@ -959,7 +968,7 @@ export const ContactsScreen: React.FC = () => {
             </ScrollView>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
@@ -979,7 +988,7 @@ export const ContactsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
               {selectedPerson && (
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={() => {
                     const csv = generateContactStatementCsv(
@@ -1021,6 +1030,7 @@ export const ContactsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
+              <FinancialSaveNotice />
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {editingContact
                   ? `تعديل بيانات: ${editingContact.name}`
@@ -1030,7 +1040,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 الاسم الكامل / اسم المكتب أو الشركة
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1048,7 +1058,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 رقم الهاتف (للاتصال والواتساب)
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1079,7 +1089,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 المصرف المعتاد / رقم حسابه أو طريقة التعامل
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1097,7 +1107,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات إضافية
               </Text>
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1113,7 +1123,7 @@ export const ContactsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
@@ -1133,7 +1143,7 @@ export const ContactsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
                 {editingContact && (
-                  <TouchableOpacity
+                  <TouchableOpacity disabled={saving}
                     style={[
                       styles.cancelBtn,
                       {
@@ -1141,8 +1151,8 @@ export const ContactsScreen: React.FC = () => {
                         borderColor: theme.danger,
                       },
                     ]}
-                    onPress={() => {
-                      if (!deleteContact(editingContact.id)) return;
+                    onPress={async () => {
+                      if (!await submit(() => deleteContact(editingContact.id))) return;
                       setModalVisible(false);
                     }}
                   >
@@ -1153,7 +1163,7 @@ export const ContactsScreen: React.FC = () => {
                     </Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleSaveContact}
                 >

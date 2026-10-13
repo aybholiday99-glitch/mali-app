@@ -1,3 +1,4 @@
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
@@ -38,6 +39,7 @@ export const UsdDealsScreen: React.FC = () => {
     updateDealSaleReceipts,
     deleteUsdDeal,
   } = useMali();
+
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed'>(
     'all'
@@ -118,6 +120,17 @@ export const UsdDealsScreen: React.FC = () => {
 
   // Deal Delete Confirmation Modal
   const [dealToDelete, setDealToDelete] = useState<UsdDeal | null>(null);
+
+  const { submit, saving } = useFinancialSubmission(() => {
+    setSubmissionKey(nextSubmissionKey()); setNewDealModal(false); setActiveDealForSale(null); setDealToDelete(null);
+    setDealTitle(''); setCounterparty(''); setCounterpartyPhone(''); setDealNotes(''); setBuyReceiptImages([]); setImmSellReceiptImages([]);
+    setSellerContactId(undefined); setImmBuyerContactId(undefined); setBuyerContactId(undefined); setImmBuyerName(''); setImmBuyerPhone('');
+    setBuyerName(''); setBuyerPhone(''); setSaleNotes(''); setSaleReceiptImages([]); setSourceLydId(''); setTargetUsdId('');
+    setSaleTargetLydId(''); setPersonalUsdAccountId(''); setSearchQuery('');
+    setUsdBoughtStr(''); setBuyRateStr(String(state.marketRates.cashUsdToLyd)); setBuyCommStr('0');
+    setImmSellUsdStr(''); setImmSellRateStr(String(state.marketRates.chequeUsdToLyd)); setImmSellCommStr('0'); setIncludeImmediateSell(false);
+    setSaleUsdStr(''); setSaleRateStr(''); setSaleCommStr('0');
+  });
 
   // KPIs
   const totalRealizedProfit = state.deals.reduce(
@@ -277,7 +290,7 @@ export const UsdDealsScreen: React.FC = () => {
     setNewDealModal(true);
   };
 
-  const handleCreateDeal = () => {
+  const handleCreateDeal = async () => {
     if (
       buyUsdValue === null || buyUsdValue <= 0 ||
       buyRateValue === null || buyRateValue <= 0 ||
@@ -291,7 +304,7 @@ export const UsdDealsScreen: React.FC = () => {
       immSellRateValue === null || immSellRateValue <= 0 || immSellCommValue === null)) return;
 
     const srcAcc = accountMap.get(sourceLydId);
-    if (!createUsdDeal({
+    if (!await submit(() => createUsdDeal({
       idempotencyKey: submissionKey + ":createUsdDeal",
       title:
         dealTitle.trim() ||
@@ -327,7 +340,7 @@ export const UsdDealsScreen: React.FC = () => {
                   : undefined,
             }
           : undefined,
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
 
     setDealTitle('');
@@ -369,13 +382,13 @@ export const UsdDealsScreen: React.FC = () => {
     setSaleReceiptImages([]);
   };
 
-  const handleConfirmSale = () => {
+  const handleConfirmSale = async () => {
     if (!activeDealForSale || saleUsdValue === null || saleUsdValue <= 0 ||
       saleRateValue === null || saleCommValue === null) return;
     const targetId = isPersonalTakeMode ? personalUsdAccountId : saleTargetLydId;
     const target = accountMap.get(targetId);
     if (!target || target.currency !== (isPersonalTakeMode ? 'USD' : 'LYD')) return;
-    if (!recordDealSale({
+    if (!await submit(() => recordDealSale({
       idempotencyKey: submissionKey + ":recordDealSale",
       dealId: activeDealForSale.id,
       usdAmount: saleUsdValue,
@@ -391,7 +404,7 @@ export const UsdDealsScreen: React.FC = () => {
       receiptImages:
         saleReceiptImages.length > 0 ? saleReceiptImages : undefined,
       notes: saleNotes.trim() || undefined,
-    })) return;
+    }))) return;
     setSubmissionKey(nextSubmissionKey());
     setSaleReceiptImages([]);
     setActiveDealForSale(null);
@@ -429,6 +442,7 @@ export const UsdDealsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice />
       {/* Live Market Reference Banner: Cash Rate vs Bank Transfer Rate */}
       <View
         style={[
@@ -524,7 +538,7 @@ export const UsdDealsScreen: React.FC = () => {
 
       {/* Action Buttons */}
       <View style={styles.actionRow}>
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[styles.newDealBtn, { backgroundColor: theme.primary }]}
           onPress={handleOpenNewDealModal}
         >
@@ -534,7 +548,7 @@ export const UsdDealsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity disabled={saving}
           style={[
             styles.exportDealsBtn,
             {
@@ -575,7 +589,7 @@ export const UsdDealsScreen: React.FC = () => {
           ]}
         >
           <Ionicons name="search-outline" size={17} color={theme.textMuted} />
-          <TextInput
+          <TextInput editable={!saving}
             style={[styles.searchInput, { color: theme.text }]}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -760,7 +774,7 @@ export const UsdDealsScreen: React.FC = () => {
                   </Text>
                 </View>
 
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.deleteDealSmallBtn,
                     {
@@ -967,7 +981,7 @@ export const UsdDealsScreen: React.FC = () => {
             {/* Action Buttons if Deal still has Remaining USD */}
             {deal.remainingUsd > 0 && (
               <View style={styles.dealActionsRow}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.sellActionBtn,
                     { backgroundColor: theme.primary },
@@ -980,7 +994,7 @@ export const UsdDealsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.personalTakeBtn,
                     {
@@ -1030,6 +1044,7 @@ export const UsdDealsScreen: React.FC = () => {
               },
             ]}
           >
+            <FinancialSaveNotice />
             <Text style={[styles.modalTitle, { color: theme.danger }]}>
               إلغاء وحذف الصفقة {dealToDelete?.dealNumber}
             </Text>
@@ -1037,7 +1052,7 @@ export const UsdDealsScreen: React.FC = () => {
               هل تريد حذف هذه الصفقة واسترجاع كافة أرصدة الحسابات (الدينار والدولار) إلى وضعها قبل الصفقة؟
             </Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.cancelBtn,
                   { backgroundColor: theme.cardAlt, borderColor: theme.border },
@@ -1050,11 +1065,11 @@ export const UsdDealsScreen: React.FC = () => {
                   تراجع
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[styles.saveBtn, { backgroundColor: theme.danger }]}
-                onPress={() => {
+                onPress={async () => {
                   if (dealToDelete) {
-                    if (!deleteUsdDeal(dealToDelete.id, true)) return;
+                    if (!await submit(() => deleteUsdDeal(dealToDelete.id, true))) return;
                     setDealToDelete(null);
                   }
                 }}
@@ -1087,6 +1102,7 @@ export const UsdDealsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
+              <FinancialSaveNotice />
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 فتح صفقة شراء دولار جديدة (تحديد طريقة وسعر لحظة الشراء)
               </Text>
@@ -1183,7 +1199,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     الكمية المشتراة ($ USD)
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1206,7 +1222,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     سعر الشراء في لحظة الشراء (د.ل)
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1260,7 +1276,7 @@ export const UsdDealsScreen: React.FC = () => {
 
               <View style={styles.twoColRow}>
                 <View style={{ flex: 1 }}>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1279,7 +1295,7 @@ export const UsdDealsScreen: React.FC = () => {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1303,7 +1319,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     عمولة الشراء (إن وجدت)
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1323,7 +1339,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     وصف مختصر للصفقة
                   </Text>
-                  <TextInput
+                  <TextInput editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1387,7 +1403,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
 
               {/* Optional Step 2: Record Sell Moment right now */}
-              <TouchableOpacity
+              <TouchableOpacity disabled={saving}
                 style={[
                   styles.immediateSellToggle,
                   {
@@ -1494,7 +1510,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         الكمية المباعة ($)
                       </Text>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1517,7 +1533,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         سعر البيع في لحظة البيع (د.ل)
                       </Text>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1570,7 +1586,7 @@ export const UsdDealsScreen: React.FC = () => {
 
                   <View style={styles.twoColRow}>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1589,7 +1605,7 @@ export const UsdDealsScreen: React.FC = () => {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1665,7 +1681,7 @@ export const UsdDealsScreen: React.FC = () => {
               )}
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
@@ -1684,7 +1700,7 @@ export const UsdDealsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleCreateDeal}
                 >
@@ -1719,6 +1735,7 @@ export const UsdDealsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
+              <FinancialSaveNotice />
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {isPersonalTakeMode
                   ? `سحب شخصي من الصفقة ${activeDealForSale?.dealNumber}`
@@ -1769,7 +1786,7 @@ export const UsdDealsScreen: React.FC = () => {
                 </Text>
                 <View style={{ flexDirection: 'row-reverse', gap: 6 }}>
                   {[0.25, 0.5, 1].map((pct) => (
-                    <TouchableOpacity
+                    <TouchableOpacity disabled={saving}
                       key={pct}
                       style={[
                         styles.portionChip,
@@ -1796,7 +1813,7 @@ export const UsdDealsScreen: React.FC = () => {
                 </View>
               </View>
 
-              <TextInput
+              <TextInput editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1896,7 +1913,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         سعر البيع في لحظة البيع (د.ل لكل 1$)
                       </Text>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1919,7 +1936,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         عمولة مخصومة (د.ل)
                       </Text>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1973,7 +1990,7 @@ export const UsdDealsScreen: React.FC = () => {
 
                   <View style={styles.twoColRow}>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1992,7 +2009,7 @@ export const UsdDealsScreen: React.FC = () => {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -2101,7 +2118,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
@@ -2120,7 +2137,7 @@ export const UsdDealsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity disabled={saving}
                   style={[styles.saveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleConfirmSale}
                 >
