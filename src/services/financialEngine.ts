@@ -152,9 +152,39 @@ function applyAccountDeltas(
   let valid = true;
   const accounts = state.accounts.map((account) => {
     if (!deltas.has(account.id)) return account;
-    const balance = moneySum(account.balance, deltas.get(account.id)!);
-    // Bank accounts may represent an existing overdraft; physical cash cannot.
-    if (!validMoney(balance) || (account.isCash && balance < 0)) valid = false;
+    const delta = deltas.get(account.id)!;
+    const balance = moneySum(account.balance, delta);
+    if (!validMoney(balance)) valid = false;
+
+    // الخزائن النقدية العينية لا يمكن أن يكون رصيدها سالباً تحت أي ظرف
+    if (account.isCash && balance < 0) {
+      valid = false;
+    }
+
+    // الحسابات المصرفية وغير النقدية عند إجراء خصم مالي
+    if (!account.isCash && delta < 0) {
+      if (account.allowOverdraft === true) {
+        const rawLimit = account.overdraftLimit;
+        const hasValidLimit =
+          typeof rawLimit === 'number' &&
+          Number.isFinite(rawLimit) &&
+          rawLimit > 0 &&
+          validMoney(rawLimit);
+
+        if (hasValidLimit) {
+          const limit = roundMoney(rawLimit);
+          // الرصيد بعد الخصم لا يجوز أن يتجاوز سقف السحب على المكشوف المصرح به (-limit)
+          if (balance < -limit) valid = false;
+        } else {
+          // allowOverdraft مفعل ولكن بدون سقف رقمي موجب وصريح: يُمنع السحب على المكشوف
+          if (balance < 0) valid = false;
+        }
+      } else {
+        // حساب غير مصرح له بالسحب على المكشوف: يُمنع أن يصبح الرصيد سالباً
+        if (balance < 0) valid = false;
+      }
+    }
+
     return { ...account, balance, updatedAt: now };
   });
   return valid ? accounts : null;
@@ -167,9 +197,9 @@ export interface DisbursementCheck {
 }
 
 /**
- * فحص إمكانية الصرف من الحساب ومنع السحب على المكشوف غير المصرح به (إصلاح DEBT-ACC-02)
+ * فحص إمكانية الصرف من الحساب ومنع السحب على المكشوف غير المصرح به (إصلاح FIN-CRITICAL-02)
  * الكاش النقدي يستحيل سحبه على المكشوف في جميع الأحوال.
- * الحسابات المصرفية يمكن سحبها على المكشوف فقط إذا كانت allowOverdraft = true مع مراعاة overdraftLimit.
+ * الحسابات المصرفية يمكن سحبها على المكشوف فقط إذا كانت allowOverdraft = true مع تحديد سقف موجب وصريح overdraftLimit.
  */
 export function canDisburseFromAccount(
   account: Account | null | undefined,
@@ -181,7 +211,7 @@ export function canDisburseFromAccount(
   const cleanAmount = roundMoney(amount);
   const currentBalance = roundMoney(account.balance);
 
-  // الكاش النقدي الفعلي لا يمكن أن يكون سالباً أبداً
+  // 1. الخزائن النقدية العينية (isCash === true): يُمنع السحب على المكشوف دائماً
   if (account.isCash) {
     const available = Math.max(0, currentBalance);
     const deficit = cleanAmount > currentBalance ? roundMoney(cleanAmount - currentBalance) : 0;
@@ -192,13 +222,19 @@ export function canDisburseFromAccount(
     };
   }
 
-  // حساب غير نقدي مصرح له بالسحب على المكشوف
-  if (account.allowOverdraft) {
-    const limit =
-      account.overdraftLimit !== undefined && account.overdraftLimit > 0
-        ? roundMoney(account.overdraftLimit)
-        : undefined;
-    if (limit !== undefined) {
+  // 2. الحسابات المصرفية وغير النقدية:
+  // لا يُسمح بسحب مصرفي غير محدود لمجرد تفعيل allowOverdraft؛
+  // يُشترط سقف رقمي موجب وصريح overdraftLimit > 0
+  if (account.allowOverdraft === true) {
+    const rawLimit = account.overdraftLimit;
+    const hasValidLimit =
+      typeof rawLimit === 'number' &&
+      Number.isFinite(rawLimit) &&
+      rawLimit > 0 &&
+      validMoney(rawLimit);
+
+    if (hasValidLimit) {
+      const limit = roundMoney(rawLimit);
       const maxAvailable = roundMoney(currentBalance + limit);
       const deficit = cleanAmount > maxAvailable ? roundMoney(cleanAmount - maxAvailable) : 0;
       return {
@@ -207,15 +243,18 @@ export function canDisburseFromAccount(
         deficit,
       };
     }
-    // سحب على المكشوف مفتوح ومصرح به
+
+    // تفعيل allowOverdraft دون سقف موجب صريح يُعامل كعدم تصريح بالسحب على المكشوف
+    const available = Math.max(0, currentBalance);
+    const deficit = cleanAmount > currentBalance ? roundMoney(cleanAmount - currentBalance) : 0;
     return {
-      allowed: true,
-      available: Math.max(0, currentBalance),
-      deficit: 0,
+      allowed: currentBalance >= cleanAmount,
+      available,
+      deficit,
     };
   }
 
-  // حساب غير نقدي بدون تصريح سحب على المكشوف
+  // 3. حساب غير نقدي بدون تفعيل السحب على المكشوف
   const available = Math.max(0, currentBalance);
   const deficit = cleanAmount > currentBalance ? roundMoney(cleanAmount - currentBalance) : 0;
   return {
@@ -1117,12 +1156,16 @@ export function settleDebtInstallmentMutation(
   let targetAcc: Account | undefined = undefined;
 
   if (isNonCash) {
-    // التسوية غير النقدية تتطلب سبباً صريحاً، ولا تؤثر على أي خزينة (إصلاح DEBT-ACC-01)
+    // منع الجمع غير الصحيح بين كاش وغير كاش (إصلاح FIN-CRITICAL-03):
+    // إذا كانت التسوية غير نقدية، يُمنع تماماً ربطها بخزينة نقدية، ويُشترط وجود nonCashReason صريح
+    if (params.accountId && params.accountId.trim() !== '') return state;
+    if (params.settlementType === 'cash') return state;
     nonCashReason = (params.nonCashReason || params.notes || '').trim();
     if (!nonCashReason) return state;
   } else {
     // القسط النقدي يتطلب إلزامياً تحديد خزينة بنفس العملة ولا يصح افتراض التسوية تلقائياً
     if (!params.accountId) return state;
+    if (params.isNonCash === true || params.settlementType === 'non_cash') return state;
     targetAcc = state.accounts.find((a) => a.id === params.accountId);
     if (!targetAcc || targetAcc.currency !== debt.currency) return state;
 
@@ -1207,7 +1250,7 @@ export function settleDebtInstallmentMutation(
 }
 
 /**
- * حذف قسط دين ذرياً وعكس الأثر المالي على الخزينة المرتبطة إن وجد (إصلاح DEBT-ACC-01)
+ * حذف قسط دين ذرياً وعكس الأثر المالي على الخزينة المرتبطة إن وجد مع حماية مشددة (إصلاح FIN-CRITICAL-01)
  */
 export function deleteDebtInstallmentMutation(
   state: MaliState,
@@ -1240,7 +1283,7 @@ export function deleteDebtInstallmentMutation(
     updatedAt: now,
   };
 
-  // إذا كان قسط تسوية غير نقدية، لا توجد خزينة أو معاملة لعكسها
+  // 1. إذا كان قسط تسوية غير نقدية: لا توجد خزينة أو معاملة لعكسها
   if (installment.isNonCash || installment.settlementType === 'non_cash') {
     return touchState({
       ...state,
@@ -1248,22 +1291,53 @@ export function deleteDebtInstallmentMutation(
     });
   }
 
-  // قسط نقدي: البحث عن المعاملة وعكس حركة الرصيد
-  const isMoneyIn = debt.direction === 'receivable';
-  const delta = isMoneyIn ? -instAmount : instAmount;
-
-  const linkedTx = state.transactions.find((tx) =>
+  // 2. قسط نقدي: التحقق الصارم من المعاملة المرتبطة قبل تعديل أي خزينة
+  const matchingTxs = state.transactions.filter((tx) =>
     (installment.transactionId && tx.id === installment.transactionId) ||
     tx.installmentId === installmentId
   );
 
-  const targetAccountId = installment.accountId || linkedTx?.accountId;
+  // إذا وُجدت أكثر من معاملة واحدة تطابق المعرف، نرفض لوجود تعارض/ازدواج
+  if (matchingTxs.length > 1) {
+    return state;
+  }
+
+  const linkedTx = matchingTxs[0];
+
+  // إذا كان القسط حديثاً ولديه transactionId ولكن المعاملة غير موجودة في السجلات:
+  // نرفض العملية منعاً لتعديل الخزينة دون دليل على المعاملة الأصلية
+  if (installment.transactionId && !linkedTx) {
+    return state;
+  }
+
+  // في حال وجود معاملة مرتبطة، نتحقق من التطابق التام:
+  if (linkedTx) {
+    if (linkedTx.type !== 'debt_settlement') return state;
+    if (linkedTx.debtId && linkedTx.debtId !== debtId) return state;
+    if (linkedTx.amount !== instAmount) return state;
+    if (linkedTx.currency !== debt.currency) return state;
+    if (installment.accountId && linkedTx.accountId !== installment.accountId) return state;
+  }
+
   let updatedAccounts = state.accounts;
 
-  if (targetAccountId) {
+  // إذا وُجدت معاملة نقدية موثقة ومطابقة، يتم عكس أثرها على الخزينة
+  if (linkedTx) {
+    const targetAccountId = linkedTx.accountId;
+    const acc = state.accounts.find((a) => a.id === targetAccountId);
+    if (!acc || acc.currency !== debt.currency) return state;
+
+    const isMoneyIn = debt.direction === 'receivable';
+    const delta = isMoneyIn ? -instAmount : instAmount;
+
     const accounts = applyAccountDeltas(state, [[targetAccountId, delta]], now);
     if (!accounts) return state;
     updatedAccounts = accounts;
+  } else {
+    // مسار السجلات القديمة الآمن (Legacy Safe Path):
+    // قسط بدون transactionId وبدون معاملة مرتبطة في السجل المالي:
+    // تمنع القاعدة المحاسبية تعديل رصيد الخزينة دون دليل المعاملة الأصلية،
+    // لكن يُسمح بتحديث رصيد سجل الدين نفسه دون لمس الخزائن
   }
 
   const updatedTransactions = linkedTx

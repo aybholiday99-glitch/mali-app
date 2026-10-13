@@ -1,0 +1,71 @@
+# MALI APP — MULTI-AGENT ORCHESTRATION STATUS
+
+**Date:** 2026-10-13  
+**Orchestrator:** Lead AI Engineering Orchestrator (Antigravity)  
+**Branch:** `codex/mali-production-audit`  
+**Base SHA:** `949952fb6e29605bd63d27d4df65335cabeae6ff`  
+**GitHub PR:** [PR #2 (Draft)](https://github.com/aybholiday99-glitch/mali-app/pull/2)  
+
+---
+
+## 1. Team Structure & Active Roles
+
+| Agent # | Role / Title | Type | Assigned Scope & Owned Files | Execution & Test Result | Status |
+|---|---|---|---|---|---|
+| **Orchestrator** | Lead AI Engineering Orchestrator | Core | Global orchestration, merge integration, release gating | Global pipeline verified; zero merge conflicts | **ACTIVE** |
+| **Agent 1** | Financial Accounting Specialist | `self` | `src/services/financialEngine.ts`, `src/types/mali.ts` | FIN-CRITICAL-01..03 implemented & verified | **COMPLETED** |
+| **Agent 2** | Supabase & PostgreSQL Specialist | `self` | `supabase/`, `tests/database.test.mjs`, `tests/financialSqlValidation.test.mjs`, `tests/financialAuditSql.test.mjs` | **100 / 100 PASS** in isolated PostgreSQL 17.11; empirical non-cash SQL verified | **COMPLETED** |
+| **Agent 3** | Security Specialist | `self` | `vendor/`, `tests/dependencyOverrides.test.mjs`, auth/PKCE/OAuth review, secret scan | **6 / 6 PASS** vendor tests; **137 / 137 PASS** auth tests; 0 leaked secrets | **COMPLETED** |
+| **Agent 4** | Frontend & UX Specialist | `self` | `src/screens/ProceduresDebtsScreen.tsx`, accessibility | **10 / 10 PASS** (48dp touch bounds, RTL, deficit cards) | **COMPLETED** |
+| **Agent 5** | QA & Test Automation Specialist | `self` | `tests/debtTreasuryIntegration.test.mjs`, `tests/financialEngine.regression.test.mjs` | **594 / 594 PASS** (100% across all 54 test files) | **COMPLETED** |
+| **Agent 6** | DevOps & Release Engineer | `self` | CI, Web Export (`npm run build:web`), Release Gate | Web bundle exported cleanly to `dist/`; gate status: **NOT PRODUCTION READY** | **COMPLETED** |
+
+---
+
+## 2. Work Breakdown & Status
+
+### A. Critical Accounting Repairs
+- [x] **FIN-CRITICAL-01 (Safe Installment Reversal):**
+  - Verified exact transaction identity (`transactionId`, `installmentId`).
+  - Verified debt, installment, account, amount, and currency matching before applying reversal deltas.
+  - Rejects reversal if modern records do not match or are missing from the ledger (prevents phantom balance modifications).
+  - Conflicting transactions (multiple matching transactions) strictly rejected.
+  - Legacy safe path: installments without `transactionId` update remaining balance safely without modifying any treasury balance.
+  - Double-reversal strictly prevented (idempotent).
+- [x] **FIN-CRITICAL-02 (Strict Overdraft Policy):**
+  - Cash accounts (`isCash === true`) can NEVER overdraft under any circumstances.
+  - Bank accounts require explicit `allowOverdraft: true` AND a positive, finite `overdraftLimit > 0`.
+  - Unlimited bank overdrafts are strictly disallowed (evaluated as no overdraft).
+  - Enforced consistently in `canDisburseFromAccount` and `applyAccountDeltas` across all disbursements (expenses, transfers, deals, debts).
+  - Legacy negative balances are preserved and cannot be worsened without authorized limit.
+- [x] **FIN-CRITICAL-03 (Non-Cash Settlement Integrity):**
+  - Enforced explicit `settlementType: 'non_cash'` with mandatory `nonCashReason`.
+  - Rejects contradictory combinations: non-cash with `accountId` provided is strictly rejected; cash with `isNonCash: true` is strictly rejected.
+  - Verified empirical SQL compatibility with `mali_sync_vault` and rejection of forged transaction references (`22023`).
+- [x] **FIN-CRITICAL-04 (Comprehensive Financial Validation):**
+  - Verified P&L isolation, balances, and atomic reversals across all 594 tests.
+
+### B. Security & Dependency Gate
+- [x] Re-verified `node-forge` `GHSA-86w9-cpqp-85rv`: latest npm registry version remains `1.4.0` (no upstream fix published).
+- [x] Verified local vendor backport integrity in `vendor/node-forge-1.4.0.tgz` (all 6 tests PASS).
+- [x] Honest reporting: `npm audit --audit-level=high` reports 4 transitive occurrences under `@expo/cli`. No version spoofing.
+- [x] Multi-tenant RLS isolation and token storage verification: 137/137 auth tests PASS.
+
+### C. Database & Sync Hardening
+- [x] Verified PostgreSQL 17.11 RLS, CAS RPC validation, and immutable audit journal on real loopback instance (100/100 PASS).
+- [x] Quarantined 21 unowned legacy archive records in `mali_legacy_unowned_archive` with zero owner inference.
+- [x] Preserved live Supabase safety: NO unapproved migrations on production `evcwoaerlykghgdevrhb`.
+
+### D. Quality, Testing & CI
+- [x] TypeScript check (`npm run typecheck`): **0 errors**.
+- [x] Linter check (`npm run lint`): **0 errors, 0 warnings**.
+- [x] Unit & Integration test suite (`npm test`): **594 / 594 PASS** (100%).
+- [x] Web Production export (`npm run build:web`): **PASS** (`dist/`).
+
+---
+
+## 3. Current Blockers & Release Decision
+1. **Blocker (External):** Upstream `node-forge` package has no official release > 1.4.0. Gate held open.
+2. **Blocker (Hardware):** Physical iOS device required for final iOS native acceptance.
+3. **Blocker (Production):** Live Supabase cutover requires client approval and scheduled maintenance window.
+4. **Decision:** **GATE: NOT PRODUCTION READY** (strictly protects user funds until external blockers resolve).

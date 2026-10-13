@@ -55,20 +55,20 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   - Expanded capacity bounds for 50,000-record vaults/backups (48 MiB / 100,000 audit entries, 96 MiB chunk max).
   - Cleaned all ESLint warnings (0 errors, 0 warnings across all source and test files).
   - TypeScript typecheck: 0 errors.
-  - Implemented Debt & Treasury Accounting Integration (الربط المحاسبي الكامل بين الديون والخزائن):
+  - Implemented Debt & Treasury Accounting Integration & Critical Hardening (FIN-CRITICAL-01..03):
     - Direction-aware initial debt issuance/receipt (receivable loans deduct cash, payable debts deposit cash/bank).
-    - Enforced overdraft prevention on disbursements (`canDisburseFromAccount`): physical cash accounts can never overdraft; bank accounts require explicit `allowOverdraft` and respect `overdraftLimit`.
+    - Enforced overdraft prevention on disbursements (`canDisburseFromAccount` and `applyAccountDeltas`): physical cash accounts can never overdraft; bank accounts require explicit `allowOverdraft: true` and respect positive numeric `overdraftLimit > 0`; unlimited overdraft is strictly rejected.
     - Mandatory treasury selection on all cash debt installments, disallowing cash settlements without an account.
-    - Independent `settlementType: 'non_cash'` mode with mandatory reason (`مقاصة ديون`, `تنازل / إبراء ذمة`, `تسوية عينية`, etc.) without impacting treasury balances.
+    - Independent `settlementType: 'non_cash'` mode with mandatory reason (`مقاصة ديون`, `تنازل / إبراء ذمة`, `تسوية عينية`, etc.) without impacting treasury balances. Contradictory combinations (non-cash with account or cash with non-cash flag) rejected.
+    - Hardened `deleteDebtInstallmentMutation` (FIN-CRITICAL-01): strict transaction identity check, match verification, rejection of missing/conflicting transactions on modern records, safe legacy path without phantom modifications, and double-reversal idempotency.
     - Missing matching currency treasury alert card and guidance in UI.
     - Real-time deficit breakdown alert card (Available, Required, Deficit) on lending disbursements and debt settlements.
     - Excluded debt capital movements from operating expenses and income filters in P&L (`isDebtTransaction(tx)` in `DashboardScreen.tsx` and `ExpensesScreen.tsx`).
     - Enforced boundary check: installment amount cannot exceed remaining debt.
-    - Atomic individual installment deletion (`deleteDebtInstallmentMutation`) restoring remaining debt balance and reversing transactions.
     - Visual treasury badges in debt card headers and exact treasury name on each installment row.
     - Preserved opening balance mode («تسجيل رصيد دين سابق بدون حركة نقدية في الخزينة»).
-    - Comprehensive integration test suite `tests/debtTreasuryIntegration.test.mjs` (15/15 pass).
-  - All tests passing: npm test **592/592 PASS** (0 failures across all 54 test files).
+    - Comprehensive integration test suite `tests/debtTreasuryIntegration.test.mjs` (18/18 pass).
+  - All tests passing: npm test **594/594 PASS** (0 failures across all 54 test files).
   - PostgreSQL 17.11 real instance: 16 RLS + 67 validator + 17 audit checks = **100/100 PASS**,
     plus independent dump & restore rehearsal (10 tables, ACLs, RLS, CAS, 21 originals + 21 archives) PASS.
   - Web production bundle export (npm run build:web) verified: PASS.

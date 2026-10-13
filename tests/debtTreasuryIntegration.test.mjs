@@ -656,4 +656,194 @@ test('Debt & Treasury Integration — Full Accounting Flow & Lifecycle', async (
     // Linked transaction must be removed
     assert.equal(state.transactions.some((tx) => tx.installmentId === 'inst-cash-del'), false);
   });
+
+  await t.test('16. FIN-CRITICAL-01 & FIN-CRITICAL-03: Hardened Installment Reversal, Conflict Detection & Non-Cash Isolation', () => {
+    let state = createInitialState();
+    // 1. Create debt
+    state = addDebtRecordMutation(state, {
+      id: 'debt-crit-rev',
+      personName: 'عميل حماية العكس',
+      direction: 'receivable',
+      currency: 'LYD',
+      totalAmount: 3000,
+      accountId: 'acc-cash-lyd',
+    });
+
+    // 2. Add legitimate cash installment
+    state = settleDebtInstallmentMutation(state, {
+      installmentId: 'inst-legit',
+      debtId: 'debt-crit-rev',
+      amount: 500,
+      accountId: 'acc-cash-lyd',
+      paymentMethod: 'cash',
+    });
+
+    const legitInst = state.debts.find((d) => d.id === 'debt-crit-rev').installments[0];
+    assert.ok(legitInst.transactionId);
+
+    // 3. Test missing linked transaction on modern installment (tampered ledger):
+    // If transactionId is present on installment but transaction was removed, deletion must be REJECTED!
+    const tamperedLedgerState = {
+      ...state,
+      transactions: state.transactions.filter((tx) => tx.id !== legitInst.transactionId),
+    };
+    const rejectMissingTx = deleteDebtInstallmentMutation(tamperedLedgerState, 'debt-crit-rev', 'inst-legit');
+    assert.strictEqual(rejectMissingTx, tamperedLedgerState);
+
+    // 4. Test conflicting/duplicate transactions:
+    // If two transactions match the installment ID, deletion must be REJECTED!
+    const duplicateTx = { ...state.transactions.find((tx) => tx.id === legitInst.transactionId), id: 'tx-dup-inst' };
+    const duplicateTxState = {
+      ...state,
+      transactions: [...state.transactions, duplicateTx],
+    };
+    const rejectDuplicate = deleteDebtInstallmentMutation(duplicateTxState, 'debt-crit-rev', 'inst-legit');
+    assert.strictEqual(rejectDuplicate, duplicateTxState);
+
+    // 5. Test mismatched currency on linked transaction:
+    const mismatchedTxState = {
+      ...state,
+      transactions: state.transactions.map((tx) =>
+        tx.id === legitInst.transactionId ? { ...tx, currency: 'USD' } : tx
+      ),
+    };
+    const rejectCurrencyMismatch = deleteDebtInstallmentMutation(mismatchedTxState, 'debt-crit-rev', 'inst-legit');
+    assert.strictEqual(rejectCurrencyMismatch, mismatchedTxState);
+
+    // 6. Test Legacy Installment (no transactionId and no transaction in ledger):
+    // Should update remaining balance without modifying any treasury account!
+    const legacyDebtId = 'debt-legacy';
+    const legacyInstId = 'inst-legacy-1';
+    const cashBalanceBefore = state.accounts.find((a) => a.id === 'acc-cash-lyd').balance;
+    const legacyState = {
+      ...state,
+      debts: [
+        {
+          id: legacyDebtId,
+          personName: 'عميل قديم',
+          direction: 'receivable',
+          currency: 'LYD',
+          totalAmount: 1000,
+          paidAmount: 200,
+          remainingAmount: 800,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          installments: [
+            {
+              id: legacyInstId,
+              amount: 200,
+              date: new Date().toISOString(),
+              paymentMethod: 'cash',
+              // No transactionId (legacy)
+            },
+          ],
+        },
+        ...state.debts,
+      ],
+    };
+
+    const cleanedLegacy = deleteDebtInstallmentMutation(legacyState, legacyDebtId, legacyInstId);
+    const updatedLegacyDebt = cleanedLegacy.debts.find((d) => d.id === legacyDebtId);
+    assert.equal(updatedLegacyDebt.paidAmount, 0);
+    assert.equal(updatedLegacyDebt.remainingAmount, 1000);
+    assert.equal(updatedLegacyDebt.installments.length, 0);
+    // Treasury balance MUST NOT change (no phantom modification!)
+    assert.equal(cleanedLegacy.accounts.find((a) => a.id === 'acc-cash-lyd').balance, cashBalanceBefore);
+
+    // 7. Double-reversal prevention (Idempotency):
+    const firstDeletion = deleteDebtInstallmentMutation(state, 'debt-crit-rev', 'inst-legit');
+    assert.notStrictEqual(firstDeletion, state);
+    const secondDeletion = deleteDebtInstallmentMutation(firstDeletion, 'debt-crit-rev', 'inst-legit');
+    // Must return same state unchanged
+    assert.strictEqual(secondDeletion, firstDeletion);
+
+    // 8. Non-cash settlement with accountId provided (contradictory) MUST be rejected:
+    const rejectConflictingNonCash = settleDebtInstallmentMutation(state, {
+      debtId: 'debt-crit-rev',
+      amount: 100,
+      settlementType: 'non_cash',
+      isNonCash: true,
+      nonCashReason: 'مقاصة',
+      accountId: 'acc-cash-lyd', // Cannot link treasury to non-cash settlement!
+    });
+    assert.strictEqual(rejectConflictingNonCash, state);
+
+    // 9. Cash settlement with isNonCash flag MUST be rejected:
+    const rejectConflictingCash = settleDebtInstallmentMutation(state, {
+      debtId: 'debt-crit-rev',
+      amount: 100,
+      settlementType: 'cash',
+      isNonCash: true,
+      accountId: 'acc-cash-lyd',
+    });
+    assert.strictEqual(rejectConflictingCash, state);
+  });
+
+  await t.test('17. FIN-CRITICAL-02: Comprehensive Overdraft Matrix (Zero, Exact, Exceeding, Legacy Negative, Unlimited Rejection)', () => {
+    let state = createInitialState();
+    const cashAcc = state.accounts.find((a) => a.id === 'acc-cash-lyd'); // balance: 10,000, isCash: true
+
+    // 1. Physical cash: exact balance -> allowed
+    const exactCash = canDisburseFromAccount(cashAcc, 10000);
+    assert.equal(exactCash.allowed, true);
+    assert.equal(exactCash.deficit, 0);
+    assert.equal(exactCash.available, 10000);
+
+    // 2. Physical cash: exceeding by 0.01 -> deficit
+    const exceedCash = canDisburseFromAccount(cashAcc, 10000.01);
+    assert.equal(exceedCash.allowed, false);
+    assert.equal(exceedCash.deficit, 0.01);
+
+    // 3. Physical cash: zero balance account -> deficit
+    const zeroCashAcc = { ...cashAcc, balance: 0 };
+    const zeroCheck = canDisburseFromAccount(zeroCashAcc, 100);
+    assert.equal(zeroCheck.allowed, false);
+    assert.equal(zeroCheck.deficit, 100);
+    assert.equal(zeroCheck.available, 0);
+
+    // 4. Physical cash: legacy negative balance -> deficit (cannot worsen)
+    const negCashAcc = { ...cashAcc, balance: -50 };
+    const negCashCheck = canDisburseFromAccount(negCashAcc, 20);
+    assert.equal(negCashCheck.allowed, false);
+    assert.equal(negCashCheck.deficit, 70);
+    assert.equal(negCashCheck.available, 0);
+
+    // 5. Bank account with allowOverdraft = true but NO overdraftLimit (or undefined/0/NaN):
+    // Must REJECT unlimited overdraft!
+    const bankAcc = state.accounts.find((a) => a.id === 'acc-bank-lyd'); // balance: 5,000, isCash: false
+    const unlimBank1 = { ...bankAcc, allowOverdraft: true, overdraftLimit: undefined };
+    assert.equal(canDisburseFromAccount(unlimBank1, 5500).allowed, false);
+    assert.equal(canDisburseFromAccount(unlimBank1, 5500).deficit, 500);
+
+    const unlimBank2 = { ...bankAcc, allowOverdraft: true, overdraftLimit: 0 };
+    assert.equal(canDisburseFromAccount(unlimBank2, 5500).allowed, false);
+
+    const unlimBank3 = { ...bankAcc, allowOverdraft: true, overdraftLimit: -1000 };
+    assert.equal(canDisburseFromAccount(unlimBank3, 5500).allowed, false);
+
+    // 6. Bank account with valid overdraftLimit:
+    const limBank = { ...bankAcc, allowOverdraft: true, overdraftLimit: 2000 }; // max 7,000
+    // Exactly at limit
+    const atLim = canDisburseFromAccount(limBank, 7000);
+    assert.equal(atLim.allowed, true);
+    assert.equal(atLim.available, 7000);
+    assert.equal(atLim.deficit, 0);
+
+    // Exceeding by 100
+    const overLim = canDisburseFromAccount(limBank, 7100);
+    assert.equal(overLim.allowed, false);
+    assert.equal(overLim.deficit, 100);
+
+    // 7. Bank account with existing legacy negative balance and overdraft limit:
+    const negBank = { ...bankAcc, balance: -500, allowOverdraft: true, overdraftLimit: 2000 }; // max available = 1,500
+    const negBankOk = canDisburseFromAccount(negBank, 1000);
+    assert.equal(negBankOk.allowed, true);
+    assert.equal(negBankOk.available, 1500);
+    assert.equal(negBankOk.deficit, 0);
+
+    const negBankFail = canDisburseFromAccount(negBank, 1600);
+    assert.equal(negBankFail.allowed, false);
+    assert.equal(negBankFail.deficit, 100);
+  });
 });
