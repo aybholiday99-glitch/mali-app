@@ -25,6 +25,7 @@ interface CalmDropdownProps {
   onSelect: (value: string) => void;
   placeholder?: string;
   compact?: boolean;
+  disabled?: boolean;
 }
 
 export const CalmDropdown: React.FC<CalmDropdownProps> = ({
@@ -34,6 +35,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
   onSelect,
   placeholder = 'اختر من القائمة...',
   compact = false,
+  disabled = false,
 }) => {
   const { theme } = useMali();
   const [open, setOpen] = useState(false);
@@ -49,6 +51,12 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
       ) : null}
 
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${label || placeholder}: ${selectedOption?.label || placeholder}`}
+        accessibilityState={{ expanded: open, disabled }}
+        aria-expanded={open}
+        aria-disabled={disabled}
+        disabled={disabled}
         activeOpacity={0.8}
         style={[
           styles.trigger,
@@ -58,7 +66,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
             borderColor: open ? theme.primary : theme.border,
           },
         ]}
-        onPress={() => setOpen(true)}
+        onPress={() => { if (!disabled) setOpen(true); }}
       >
         <View style={styles.triggerRight}>
           {selectedOption?.icon ? (
@@ -126,11 +134,14 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
         onRequestClose={() => setOpen(false)}
       >
         <TouchableOpacity
+          accessible={false}
+          focusable={false}
           activeOpacity={1}
           style={[styles.backdrop, { backgroundColor: theme.overlay }]}
           onPress={() => setOpen(false)}
         >
           <View
+            accessibilityViewIsModal
             style={[
               styles.menuCard,
               { backgroundColor: theme.card, borderColor: theme.border },
@@ -142,10 +153,12 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
                 { borderBottomColor: theme.border },
               ]}
             >
-              <Text style={[styles.menuTitle, { color: theme.text }]}>
+              <Text accessibilityRole="header" style={[styles.menuTitle, { color: theme.text }]}>
                 {label || placeholder}
               </Text>
               <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`إغلاق قائمة ${label || placeholder}`}
                 style={[styles.closeBtn, { backgroundColor: theme.cardAlt }]}
                 onPress={() => setOpen(false)}
               >
@@ -153,11 +166,17 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.optionsList}>
+            <ScrollView accessibilityRole="radiogroup" accessibilityLabel={label || placeholder} style={styles.optionsList}>
               {options.map((opt) => {
                 const isSelected = opt.value === value;
                 return (
                   <TouchableOpacity
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${opt.label}${opt.subLabel ? `، ${opt.subLabel}` : ''}`}
+                    accessibilityState={{ selected: isSelected, checked: isSelected, disabled }}
+                    aria-checked={isSelected}
+                    aria-disabled={disabled}
+                    disabled={disabled}
                     key={opt.value}
                     style={[
                       styles.optionItem,
@@ -165,6 +184,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
                       isSelected && { backgroundColor: theme.primarySoft },
                     ]}
                     onPress={() => {
+                      if (disabled) return;
                       onSelect(opt.value);
                       setOpen(false);
                     }}
@@ -256,6 +276,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   trigger: {
+    minHeight: 48,
+    minWidth: 48,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -330,9 +352,9 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -341,6 +363,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   optionItem: {
+    minHeight: 48,
+    minWidth: 48,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',

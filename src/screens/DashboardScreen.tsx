@@ -69,7 +69,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
     state.accounts[0]?.id || ''
   );
 
-  const { submit, saving } = useFinancialSubmission(() => {
+  const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
     setSubmissionKey(nextSubmissionKey()); setRateModalOpen(false); setQuickExpModalOpen(false);
     setQExpAmount(''); setQExpCustomDetail(''); setQExpAccountId('');
     setCashRateInput(String(state.marketRates.cashUsdToLyd)); setChequeRateInput(String(state.marketRates.chequeUsdToLyd));
@@ -142,7 +142,9 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
     const cRate = parseFinancialInput(cashRateInput);
     const chRate = parseFinancialInput(chequeRateInput);
     const disc = parseFinancialInput(discountInput);
-    if (cRate === null || chRate === null || disc === null) return;
+    if (cRate === null || cRate <= 0) return reject('أدخل سعر دولار نقدي صحيحاً أكبر من صفر.', 'cashRateInput');
+    if (chRate === null || chRate <= 0) return reject('أدخل سعر دولار مصرفي صحيحاً أكبر من صفر.', 'chequeRateInput');
+    if (disc === null || disc < 0 || disc >= 100) return reject('أدخل نسبة خصم صحيحة من 0 إلى أقل من 100.', 'discountInput');
     if (!await submit(() => updateMarketRates({
       cashUsdToLyd: cRate,
       chequeUsdToLyd: chRate,
@@ -156,7 +158,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
-      <FinancialSaveNotice />
+      <FinancialSaveNotice error={submissionError} />
       {/* Compact Live Market Exchange Rates Strip */}
       <View
         style={[
@@ -187,8 +189,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
         </View>
 
         <View style={styles.rateButtonsGroup}>
-          <TouchableOpacity disabled={saving}
-            style={[styles.editRateBtn, { backgroundColor: theme.blueSoft }]}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+            style={[styles.editRateBtn, { backgroundColor: theme.blueSoft }, styles.touchTarget]}
             onPress={() => setCalcModalOpen(true)}
           >
             <Ionicons name="calculator-outline" size={14} color={theme.blue} />
@@ -197,8 +199,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity disabled={saving}
-            style={[styles.editRateBtn, { backgroundColor: theme.primarySoft }]}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+            style={[styles.editRateBtn, { backgroundColor: theme.primarySoft }, styles.touchTarget]}
             onPress={() => {
               setCashRateInput(String(state.marketRates.cashUsdToLyd));
               setChequeRateInput(String(state.marketRates.chequeUsdToLyd));
@@ -238,11 +240,12 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             </Text>
           </View>
 
-          <View style={styles.currencyToggle}>
-            <TouchableOpacity disabled={saving}
+          <View accessibilityRole="radiogroup" accessibilityLabel="عملة عرض صافي الرصيد" style={styles.currencyToggle}>
+            <TouchableOpacity aria-checked={valuationCurrency === 'LYD'} accessibilityRole="radio" accessibilityState={{ disabled: saving, checked: valuationCurrency === 'LYD' }} disabled={saving}
               style={[
                 styles.currBtn,
                 valuationCurrency === 'LYD' && styles.currBtnActive,
+                styles.touchTarget,
               ]}
               onPress={() => setValuationCurrency('LYD')}
             >
@@ -255,10 +258,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                 دينار
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity disabled={saving}
+            <TouchableOpacity aria-checked={valuationCurrency === 'USD'} accessibilityRole="radio" accessibilityState={{ disabled: saving, checked: valuationCurrency === 'USD' }} disabled={saving}
               style={[
                 styles.currBtn,
                 valuationCurrency === 'USD' && styles.currBtnActive,
+                styles.touchTarget,
               ]}
               onPress={() => setValuationCurrency('USD')}
             >
@@ -275,8 +279,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
         </View>
 
         <View style={styles.heroBreakdownGrid}>
-          <TouchableOpacity disabled={saving}
-            style={styles.breakdownItem}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+            style={[styles.breakdownItem, styles.touchTarget]}
             onPress={() => onNavigate('accounts')}
           >
             <Text style={styles.breakdownLabel}>الكاش النقدي</Text>
@@ -285,8 +289,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity disabled={saving}
-            style={styles.breakdownItem}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+            style={[styles.breakdownItem, styles.touchTarget]}
             onPress={() => onNavigate('accounts')}
           >
             <Text style={styles.breakdownLabel}>المصارف</Text>
@@ -295,8 +299,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity disabled={saving}
-            style={styles.breakdownItem}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+            style={[styles.breakdownItem, styles.touchTarget]}
             onPress={() => onNavigate('deals')}
           >
             <Text style={styles.breakdownLabel}>الدولار ($)</Text>
@@ -309,10 +313,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
 
       {/* 4 Clean Quick Action Buttons */}
       <View style={styles.quickActionsRow}>
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.quickActionBtn,
             { backgroundColor: theme.surface, borderColor: theme.border },
+            styles.touchTarget,
           ]}
           onPress={() => {
             setQExpAccountId(state.accounts[0]?.id || '');
@@ -332,10 +337,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.quickActionBtn,
             { backgroundColor: theme.surface, borderColor: theme.border },
+            styles.touchTarget,
           ]}
           onPress={() => onNavigate('deals')}
         >
@@ -352,10 +358,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.quickActionBtn,
             { backgroundColor: theme.surface, borderColor: theme.border },
+            styles.touchTarget,
           ]}
           onPress={() => onNavigate('accounts')}
         >
@@ -372,10 +379,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.quickActionBtn,
             { backgroundColor: theme.surface, borderColor: theme.border },
+            styles.touchTarget,
           ]}
           onPress={() => onNavigate('contacts')}
         >
@@ -395,10 +403,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
 
       {/* Two Compact Summary Cards */}
       <View style={styles.kpiRow}>
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.kpiCard,
             { backgroundColor: theme.surface, borderColor: theme.border },
+            styles.touchTarget,
           ]}
           onPress={() => onNavigate('deals')}
         >
@@ -413,10 +422,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.kpiCard,
             { backgroundColor: theme.surface, borderColor: theme.border },
+            styles.touchTarget,
           ]}
           onPress={() => onNavigate('expenses')}
         >
@@ -438,7 +448,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
         <Text style={[styles.sectionTitle, { color: theme.text }]}>
           حساباتي وخزائني
         </Text>
-        <TouchableOpacity disabled={saving} onPress={() => onNavigate('accounts')}>
+        <TouchableOpacity style={styles.touchTarget} accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving} onPress={() => onNavigate('accounts')}>
           <Text style={[styles.sectionLink, { color: theme.primary }]}>
             إدارة الحسابات ←
           </Text>
@@ -451,7 +461,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
         style={styles.accountsCarousel}
       >
         {state.accounts.map((acc) => (
-          <TouchableOpacity disabled={saving}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
             key={acc.id}
             style={[
               styles.miniAccCard,
@@ -460,6 +470,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                 borderColor: theme.border,
                 borderRightColor: acc.color,
               },
+              styles.touchTarget,
             ]}
             onPress={() => onNavigate('accounts')}
           >
@@ -481,7 +492,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
         <Text style={[styles.sectionTitle, { color: theme.text }]}>
           آخر الحركات
         </Text>
-        <TouchableOpacity disabled={saving} onPress={() => onNavigate('expenses')}>
+        <TouchableOpacity style={styles.touchTarget} accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving} onPress={() => onNavigate('expenses')}>
           <Text style={[styles.sectionLink, { color: theme.primary }]}>
             عرض الكل ←
           </Text>
@@ -588,8 +599,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               { backgroundColor: theme.surface, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice />
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
+            <FinancialSaveNotice error={submissionError} />
+            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
               تحديث أسعار صرف الدولار ونسبة خصم الصكوك
             </Text>
             <Text style={[styles.modalSub, { color: theme.textMuted }]}>
@@ -599,7 +610,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               سعر الدولار نقدي (كاش) مقابل الدينار
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="سعر الدولار النقدي بالدينار" ref={fieldRef('cashRateInput')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -607,6 +618,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={cashRateInput}
@@ -616,7 +628,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               سعر الدولار تحويل مصرفي / صكوك مقابل الدينار
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="سعر الدولار المصرفي بالدينار" ref={fieldRef('chequeRateInput')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -624,6 +636,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={chequeRateInput}
@@ -633,7 +646,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               نسبة خصم تسييل الصكوك الافتراضية (%)
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="نسبة الخصم الافتراضية للصك (%)" ref={fieldRef('discountInput')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -641,6 +654,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={discountInput}
@@ -648,10 +662,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.cancelBtn,
                   { backgroundColor: theme.surfaceSoft },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setRateModalOpen(false)}
               >
@@ -661,8 +676,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                 onPress={handleSaveRates}
               >
                 <Text style={styles.saveBtnText}>حفظ الأسعار</Text>
@@ -681,8 +696,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               { backgroundColor: theme.surface, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice />
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
+            <FinancialSaveNotice error={submissionError} />
+            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
               الحاسبة السريعة (دولار كاش / تحويل مصرفي / تسييل صكوك)
             </Text>
             <Text style={[styles.modalSub, { color: theme.textMuted }]}>
@@ -692,7 +707,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               1. أدخل مبلغ الدولار ($ USD) لمعرفة قيمته بالدينار:
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="كمية الدولار في الحاسبة" ref={fieldRef('calcUsdInput')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -700,6 +715,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={calcUsdInput}
@@ -741,7 +757,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               2. أدخل قيمة صك مصرفي (د.ل) لمعرفة صافي الكاش بعد خصم ({discPct}%):
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="مبلغ الصك في الحاسبة بالدينار" ref={fieldRef('calcChequeLydInput')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -749,6 +765,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={calcChequeLydInput}
@@ -780,8 +797,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                 onPress={() => setCalcModalOpen(false)}
               >
                 <Text style={styles.saveBtnText}>تم</Text>
@@ -805,8 +822,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               { backgroundColor: theme.surface, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice />
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
+            <FinancialSaveNotice error={submissionError} />
+            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
               سحب مصروف سريع ومختصر
             </Text>
             <Text style={[styles.modalSub, { color: theme.textMuted }]}>
@@ -816,7 +833,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.text }]}>
               1. القيمة المسحوبة:
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="قيمة المصروف السريع" ref={fieldRef('qExpAmount')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -826,6 +843,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   fontSize: 16,
                   fontWeight: 'bold',
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={qExpAmount}
@@ -845,9 +863,9 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               {['10', '20', '50', '100', '200', '500'].map((val) => {
                 const active = qExpAmount === val;
                 return (
-                  <TouchableOpacity disabled={saving}
+                  <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                     key={val}
-                    style={{
+                    style={[{
                       paddingHorizontal: 10,
                       paddingVertical: 5,
                       borderRadius: 8,
@@ -856,7 +874,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                         ? theme.primary
                         : theme.surfaceSoft,
                       borderColor: active ? theme.primary : theme.border,
-                    }}
+                    }, styles.touchTarget]}
                     onPress={() => setQExpAmount(val)}
                   >
                     <Text
@@ -873,7 +891,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               })}
             </View>
 
-            <CalmDropdown
+            <CalmDropdown disabled={saving}
               label="2. لأي غرض؟ (أكل، ملابس، سيارة، مقاضي، أو غيره):"
               value={qExpPurposeKey}
               options={QUICK_EXPENSE_PURPOSES.map((p) => ({
@@ -885,7 +903,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               onSelect={setQExpPurposeKey}
             />
 
-            <CalmDropdown
+            <CalmDropdown disabled={saving}
               label="3. سُحبت من أي حساب؟"
               value={qExpAccountId}
               options={state.accounts.map((acc) => ({
@@ -903,7 +921,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               تفصيل إضافي اختياري:
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="ملاحظات المصروف السريع" ref={fieldRef('qExpCustomDetail')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -911,6 +929,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               value={qExpCustomDetail}
               onChangeText={setQExpCustomDetail}
@@ -919,10 +938,11 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.cancelBtn,
                   { backgroundColor: theme.surfaceSoft },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setQuickExpModalOpen(false)}
               >
@@ -935,14 +955,15 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                 onPress={async () => {
                   const amt = parseFinancialInput(qExpAmount);
                   const acc = state.accounts.find(
                     (a) => a.id === qExpAccountId
                   );
-                  if (amt === null || amt <= 0 || !acc) return;
+                  if (amt === null || amt <= 0) return reject('أدخل مبلغ مصروف صحيحاً أكبر من صفر.', 'qExpAmount');
+                  if (!acc) return reject('اختر حساباً موجوداً لخصم المصروف.');
                   const purposeObj =
                     QUICK_EXPENSE_PURPOSES.find(
                       (p) => p.key === qExpPurposeKey
@@ -980,6 +1001,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
 };
 
 const styles = StyleSheet.create({
+  touchTarget: { minHeight: 48, minWidth: 48 },
   container: {
     flex: 1,
   },

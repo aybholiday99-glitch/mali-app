@@ -63,7 +63,7 @@ export const ContactsScreen: React.FC = () => {
     null
   );
 
-  const { submit, saving } = useFinancialSubmission(() => {
+  const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
     setModalVisible(false); setEditingContact(null); setSelectedPerson(null);
     setNameInput(''); setPhoneInput(''); setBankInput(''); setNotesInput(''); setSearchQuery('');
   });
@@ -205,7 +205,7 @@ export const ContactsScreen: React.FC = () => {
   };
 
   const handleSaveContact = async () => {
-    if (!nameInput.trim()) return;
+    if (!nameInput.trim()) return reject('أدخل اسم المتعامل ثم أعد الحفظ.', 'nameInput');
     if (editingContact) {
       if (!await submit(() => updateContact(editingContact.id, {
         name: nameInput.trim(),
@@ -258,7 +258,7 @@ export const ContactsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
-      <FinancialSaveNotice />
+      <FinancialSaveNotice error={submissionError} />
       {/* Compact Top Summary Strip */}
       <View
         style={[
@@ -309,8 +309,8 @@ export const ContactsScreen: React.FC = () => {
 
       {/* Search, Filter Dropdown & Add Person Row */}
       <View style={styles.searchAndAddRow}>
-        <TouchableOpacity disabled={saving}
-          style={[styles.addPersonBtn, { backgroundColor: theme.primary }]}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+          style={[styles.addPersonBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
           onPress={handleOpenAddModal}
         >
           <Ionicons name="person-add" size={16} color="#FFFFFF" />
@@ -318,7 +318,7 @@ export const ContactsScreen: React.FC = () => {
         </TouchableOpacity>
 
         <View style={{ width: 145 }}>
-          <CalmDropdown
+          <CalmDropdown disabled={saving} label="تصفية تصنيف المتعامل"
             compact
             value={roleFilter}
             options={[
@@ -346,8 +346,8 @@ export const ContactsScreen: React.FC = () => {
           ]}
         >
           <Ionicons name="search-outline" size={16} color={theme.textMuted} />
-          <TextInput editable={!saving}
-            style={[styles.searchInput, { color: theme.text }]}
+          <TextInput accessibilityLabel="البحث عن متعامل بالاسم أو الهاتف" ref={fieldRef('searchQuery')} role="searchbox" editable={!saving}
+            style={[styles.searchInput, { color: theme.text }, styles.touchTarget]}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="بحث بالاسم أو الهاتف..."
@@ -434,25 +434,27 @@ export const ContactsScreen: React.FC = () => {
               <View style={styles.quickContactActions}>
                 {person.phone ? (
                   <>
-                    <TouchableOpacity disabled={saving}
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`الاتصال بـ ${person.name}`} disabled={saving}
                       style={[
                         styles.iconCircleBtn,
                         {
                           backgroundColor: theme.primarySoft,
                           borderColor: theme.primary,
                         },
+                        styles.touchTarget,
                       ]}
                       onPress={() => handleCallPhone(person.phone)}
                     >
                       <Ionicons name="call" size={15} color={theme.primary} />
                     </TouchableOpacity>
-                    <TouchableOpacity disabled={saving}
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`مراسلة ${person.name} عبر واتساب`} disabled={saving}
                       style={[
                         styles.iconCircleBtn,
                         {
                           backgroundColor: theme.successSoft,
                           borderColor: theme.success,
                         },
+                        styles.touchTarget,
                       ]}
                       onPress={() => handleWhatsApp(person.phone)}
                     >
@@ -464,13 +466,14 @@ export const ContactsScreen: React.FC = () => {
                     </TouchableOpacity>
                   </>
                 ) : null}
-                <TouchableOpacity disabled={saving}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`تعديل بيانات ${person.name}`} disabled={saving}
                   style={[
                     styles.iconCircleBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => handleOpenEditModal(person)}
                 >
@@ -599,10 +602,11 @@ export const ContactsScreen: React.FC = () => {
 
             {/* Footer: View Full Ledger & Export */}
             <View style={styles.cardFooter}>
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.ledgerBtn,
                   { backgroundColor: theme.primarySoft, borderWidth: 1, borderColor: theme.primary },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setSelectedPerson(person)}
               >
@@ -616,13 +620,14 @@ export const ContactsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.excelBtn,
                   {
                     backgroundColor: theme.cardAlt,
                     borderColor: theme.border,
                   },
+                  styles.touchTarget,
                 ]}
                 onPress={() => {
                   const csv = generateContactStatementCsv(state, person);
@@ -665,10 +670,10 @@ export const ContactsScreen: React.FC = () => {
               },
             ]}
           >
-            <FinancialSaveNotice />
+            <FinancialSaveNotice error={submissionError} />
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
+                <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                   سجل المعاملات مع: {selectedPerson?.name}
                 </Text>
                 <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
@@ -679,10 +684,11 @@ export const ContactsScreen: React.FC = () => {
                     : ''}
                 </Text>
               </View>
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel="إغلاق كشف المتعامل" disabled={saving}
                 style={[
                   styles.closeIconBtn,
                   { backgroundColor: theme.cardAlt },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setSelectedPerson(null)}
               >
@@ -968,13 +974,14 @@ export const ContactsScreen: React.FC = () => {
             </ScrollView>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
                     backgroundColor: theme.cardAlt,
                     borderColor: theme.border,
                   },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setSelectedPerson(null)}
               >
@@ -988,8 +995,8 @@ export const ContactsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
               {selectedPerson && (
-                <TouchableOpacity disabled={saving}
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={() => {
                     const csv = generateContactStatementCsv(
                       state,
@@ -1030,8 +1037,8 @@ export const ContactsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <FinancialSaveNotice />
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 {editingContact
                   ? `تعديل بيانات: ${editingContact.name}`
                   : 'إضافة شخص أو مكتب صرافة جديد'}
@@ -1040,7 +1047,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 الاسم الكامل / اسم المكتب أو الشركة
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="اسم المتعامل" ref={fieldRef('nameInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1048,6 +1055,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={nameInput}
                 onChangeText={setNameInput}
@@ -1058,7 +1066,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 رقم الهاتف (للاتصال والواتساب)
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="رقم هاتف المتعامل" ref={fieldRef('phoneInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1066,6 +1074,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 keyboardType="phone-pad"
                 value={phoneInput}
@@ -1074,7 +1083,7 @@ export const ContactsScreen: React.FC = () => {
                 placeholderTextColor={theme.textMuted}
               />
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="تصنيف المتعامل:"
                 value={roleInput}
                 options={CONTACT_ROLES.map((r) => ({
@@ -1089,7 +1098,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 المصرف المعتاد / رقم حسابه أو طريقة التعامل
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="بيانات مصرف المتعامل" ref={fieldRef('bankInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1097,6 +1106,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={bankInput}
                 onChangeText={setBankInput}
@@ -1107,7 +1117,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات إضافية
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="ملاحظات المتعامل" ref={fieldRef('notesInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1115,6 +1125,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={notesInput}
                 onChangeText={setNotesInput}
@@ -1123,13 +1134,14 @@ export const ContactsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity disabled={saving}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setModalVisible(false)}
                 >
@@ -1143,13 +1155,14 @@ export const ContactsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
                 {editingContact && (
-                  <TouchableOpacity disabled={saving}
+                  <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                     style={[
                       styles.cancelBtn,
                       {
                         backgroundColor: theme.dangerSoft,
                         borderColor: theme.danger,
                       },
+                      styles.touchTarget,
                     ]}
                     onPress={async () => {
                       if (!await submit(() => deleteContact(editingContact.id))) return;
@@ -1163,8 +1176,8 @@ export const ContactsScreen: React.FC = () => {
                     </Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity disabled={saving}
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleSaveContact}
                 >
                   <Text style={styles.saveBtnText}>حفظ بيانات الشخص</Text>
@@ -1179,6 +1192,7 @@ export const ContactsScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  touchTarget: { minHeight: 48, minWidth: 48 },
   container: {
     flex: 1,
   },
@@ -1325,9 +1339,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   iconCircleBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -1426,9 +1440,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   closeIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },

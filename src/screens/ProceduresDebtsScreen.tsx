@@ -97,7 +97,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
   );
   const [newStageTitle, setNewStageTitle] = useState('');
 
-  const { submit, saving } = useFinancialSubmission(() => {
+  const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
     setSubmissionKey(nextSubmissionKey()); setNewDebtModal(false); setActiveDebtForPay(null); setNewProcModal(false); setAddingStageProcId(null);
     setPersonName(''); setPhone(''); setDebtAmount(''); setDebtNotes(''); setDebtDueDate(''); setDebtError(null); setSelectedWalletId('');
     setInstallmentAmt(''); setInstallmentNotes(''); setInstallmentAccId('');
@@ -144,7 +144,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
   const handleSaveDebt = async () => {
     const amt = parseFinancialInput(debtAmount);
-    if (!personName.trim() || amt === null || amt <= 0) return;
+    if (!personName.trim()) return reject('أدخل اسم صاحب الدين ثم أعد الحفظ.', 'personName');
+    if (amt === null || amt <= 0) return reject('أدخل مبلغ دين صحيحاً أكبر من صفر.', 'debtAmount');
     const validWallet = state.accounts.find(
       (a) => a.id === selectedWalletId && a.currency === debtCurrency
     );
@@ -177,9 +178,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
   };
 
   const handleSaveInstallment = async () => {
-    if (!activeDebtForPay) return;
+    if (!activeDebtForPay) return reject('اختر الدين الذي تريد تسجيل الدفعة له.');
     const amt = parseFinancialInput(installmentAmt);
-    if (amt === null || amt <= 0) return;
+    if (amt === null || amt <= 0) return reject('أدخل مبلغ دفعة صحيحاً أكبر من صفر.', 'installmentAmt');
 
     if (!await submit(() => addDebtInstallment({
       idempotencyKey: submissionKey + ":addDebtInstallment",
@@ -196,9 +197,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
   };
 
   const handleSaveProcedure = async () => {
-    if (!procTitle.trim()) return;
+    if (!procTitle.trim()) return reject('أدخل عنوان الإجراء المالي ثم أعد الحفظ.', 'procTitle');
     const amt = procAmt.trim() ? parseFinancialInput(procAmt) : undefined;
-    if (amt === null) return;
+    if (amt === null || (amt !== undefined && amt < 0)) return reject('أدخل مبلغ إجراء صحيحاً لا يقل عن صفر أو اتركه فارغاً.', 'procAmt');
     const stages = procStagesText
       .split('\n')
       .map((s) => s.trim())
@@ -229,15 +230,15 @@ export const ProceduresDebtsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
-      <FinancialSaveNotice />
+      <FinancialSaveNotice error={submissionError} />
       {/* Sub-navigation Tabs */}
-      <View
+      <View accessibilityRole="tablist" accessibilityLabel="الديون والإجراءات المالية"
         style={[
           styles.subTabs,
           { backgroundColor: theme.cardAlt, borderColor: theme.border },
         ]}
       >
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity aria-selected={activeTab === 'debts'} accessibilityRole="tab" accessibilityState={{ disabled: saving, selected: activeTab === 'debts' }} disabled={saving}
           style={[
             styles.subTab,
             activeTab === 'debts' && {
@@ -247,6 +248,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               shadowRadius: 4,
               elevation: 1,
             },
+            styles.touchTarget,
           ]}
           onPress={() => setActiveTab('debts')}
         >
@@ -271,7 +273,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity disabled={saving}
+        <TouchableOpacity aria-selected={activeTab === 'procedures'} accessibilityRole="tab" accessibilityState={{ disabled: saving, selected: activeTab === 'procedures' }} disabled={saving}
           style={[
             styles.subTab,
             activeTab === 'procedures' && {
@@ -281,6 +283,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               shadowRadius: 4,
               elevation: 1,
             },
+            styles.touchTarget,
           ]}
           onPress={() => setActiveTab('procedures')}
         >
@@ -357,10 +360,11 @@ export const ProceduresDebtsScreen: React.FC = () => {
             </View>
           </View>
 
-          <TouchableOpacity disabled={saving}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
             style={[
               styles.primaryActionBtn,
               { backgroundColor: theme.primary },
+              styles.touchTarget,
             ]}
             onPress={() => setNewDebtModal(true)}
           >
@@ -536,10 +540,11 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
                 <View style={styles.cardActions}>
                   {debt.remainingAmount > 0 && (
-                    <TouchableOpacity disabled={saving}
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                       style={[
                         styles.payInstallmentBtn,
                         { backgroundColor: theme.primary },
+                        styles.touchTarget,
                       ]}
                       onPress={() => {
                         const matchingAccs = state.accounts.filter(
@@ -562,13 +567,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       </Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity disabled={saving}
+                  <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`حذف دين ${debt.personName}`} disabled={saving}
                     style={[
                       styles.deleteBtn,
                       {
                         backgroundColor: theme.dangerSoft,
                         borderColor: theme.danger,
                       },
+                      styles.touchTarget,
                     ]}
                     onPress={async () => await submit(() => deleteDebt(debt.id))}
                   >
@@ -586,10 +592,11 @@ export const ProceduresDebtsScreen: React.FC = () => {
       ) : (
         /* Financial Procedures Tab */
         <>
-          <TouchableOpacity disabled={saving}
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
             style={[
               styles.primaryActionBtn,
               { backgroundColor: theme.primary },
+              styles.touchTarget,
             ]}
             onPress={() => setNewProcModal(true)}
           >
@@ -710,11 +717,12 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   </View>
 
                   {proc.stages.map((st) => (
-                    <TouchableOpacity disabled={saving}
+                    <TouchableOpacity aria-checked={st.completed} accessibilityRole="checkbox" accessibilityState={{ disabled: saving, checked: st.completed }} accessibilityLabel={`${proc.title}: ${st.title}`} disabled={saving}
                       key={st.id}
                       style={[
                         styles.stageRow,
                         { borderBottomColor: theme.border },
+                        styles.touchTarget,
                       ]}
                       onPress={async () => await submit(() => toggleProcedureStage(proc.id, st.id))}
                     >
@@ -749,7 +757,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
                   {addingStageProcId === proc.id ? (
                     <View style={styles.addStageInline}>
-                      <TextInput editable={!saving}
+                      <TextInput accessibilityLabel="اسم المرحلة الجديدة" ref={fieldRef('newStageTitle')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -759,18 +767,21 @@ export const ProceduresDebtsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         value={newStageTitle}
                         onChangeText={setNewStageTitle}
                         placeholder="اكتب اسم المرحلة الجديدة..."
                         placeholderTextColor={theme.textMuted}
                       />
-                      <TouchableOpacity disabled={saving}
+                      <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                         style={[
                           styles.inlineSaveBtn,
                           { backgroundColor: theme.primary },
+                          styles.touchTarget,
                         ]}
                         onPress={async () => {
+                          if (!newStageTitle.trim()) return reject('أدخل اسم المرحلة الجديدة.', 'newStageTitle');
                           if (!await submit(() => addProcedureStage(proc.id, newStageTitle))) return;
                           setNewStageTitle('');
                           setAddingStageProcId(null);
@@ -781,7 +792,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     </View>
                   ) : (
                     <View style={styles.procFooterRow}>
-                      <TouchableOpacity disabled={saving}
+                      <TouchableOpacity style={styles.touchTarget} accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                         onPress={() => setAddingStageProcId(proc.id)}
                       >
                         <Text
@@ -790,7 +801,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                           + إضافة خطوة أو مرحلة جديدة
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity disabled={saving}
+                      <TouchableOpacity style={styles.touchTarget} accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`حذف إجراء ${proc.title}`} disabled={saving}
                         onPress={async () => await submit(() => deleteProcedure(proc.id))}
                       >
                         <Ionicons
@@ -827,12 +838,12 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <FinancialSaveNotice />
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 تسجيل دين جديد أو أمانة مالية
               </Text>
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="نوع الدين / الأمانة:"
                 value={direction}
                 options={[
@@ -857,7 +868,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 اسم الشخص أو الجهة
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="اسم صاحب الدين" ref={fieldRef('personName')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -865,13 +876,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={personName}
                 onChangeText={setPersonName}
                 placeholder="مثال: محمد السنوسي / شركة..."
                 placeholderTextColor={theme.textMuted}
               />
-              {debtError && <Text accessibilityRole="alert" style={{ color: theme.danger, textAlign: 'right' }}>{debtError}</Text>}
+              {debtError && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={{ color: theme.danger, textAlign: 'right' }}>{debtError}</Text>}
 
               <View style={styles.twoColRow}>
                 <View style={{ flex: 2 }}>
@@ -880,7 +892,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المبلغ الكلي
                   </Text>
-                  <TextInput editable={!saving}
+                  <TextInput accessibilityLabel="قيمة الدين" ref={fieldRef('debtAmount')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -888,6 +900,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={debtAmount}
@@ -897,7 +910,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="العملة"
                     value={debtCurrency}
                     options={[
@@ -931,7 +944,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 تاريخ الاستحقاق / التذكير
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="تاريخ استحقاق الدين" ref={fieldRef('debtDueDate')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -939,6 +952,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={debtDueDate}
                 onChangeText={setDebtDueDate}
@@ -946,8 +960,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 placeholderTextColor={theme.textMuted}
               />
 
-              <TouchableOpacity disabled={saving}
-                style={styles.checkboxOption}
+              <TouchableOpacity aria-checked={affectWallet} accessibilityRole="checkbox" accessibilityState={{ disabled: saving, checked: affectWallet }} accessibilityLabel="تحديث رصيد الحساب عند تسجيل الدين" disabled={saving}
+                style={[styles.checkboxOption, styles.touchTarget]}
                 onPress={() => setAffectWallet(!affectWallet)}
               >
                 <Ionicons
@@ -966,7 +980,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               </TouchableOpacity>
 
               {affectWallet && (
-                <CalmDropdown
+                <CalmDropdown disabled={saving}
                   label="اختر الحساب لتحديث رصيده:"
                   value={selectedWalletId}
                   options={state.accounts
@@ -987,7 +1001,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات وتفاصيل الاتفاق
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="ملاحظات الدين" ref={fieldRef('debtNotes')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -995,6 +1009,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={debtNotes}
                 onChangeText={setDebtNotes}
@@ -1003,13 +1018,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity disabled={saving}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setNewDebtModal(false)}
                 >
@@ -1022,8 +1038,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity disabled={saving}
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleSaveDebt}
                 >
                   <Text style={styles.saveBtnText}>حفظ السجل</Text>
@@ -1050,8 +1066,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice />
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
+            <FinancialSaveNotice error={submissionError} />
+            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
               {activeDebtForPay?.direction === 'receivable'
                 ? `تحصيل دفعة من: ${activeDebtForPay?.personName}`
                 : `سداد دفعة إلى: ${activeDebtForPay?.personName}`}
@@ -1067,7 +1083,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               قيمة الدفعة المسددة الآن
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="قيمة الدفعة" ref={fieldRef('installmentAmt')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1075,13 +1091,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={installmentAmt}
               onChangeText={setInstallmentAmt}
             />
 
-            <CalmDropdown
+            <CalmDropdown disabled={saving}
               label={
                 activeDebtForPay?.direction === 'receivable'
                   ? 'إيداع المبلغ المحصل في حساب:'
@@ -1101,7 +1118,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 }))}
               onSelect={setInstallmentAccId}
             />
-            <CalmDropdown
+            <CalmDropdown disabled={saving}
               label="طريقة السداد"
               value={installmentMethod}
               options={[
@@ -1116,7 +1133,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظات الدفعة
             </Text>
-            <TextInput editable={!saving}
+            <TextInput accessibilityLabel="ملاحظات الدفعة" ref={fieldRef('installmentNotes')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1124,6 +1141,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               value={installmentNotes}
               onChangeText={setInstallmentNotes}
@@ -1132,13 +1150,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity disabled={saving}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
                     backgroundColor: theme.cardAlt,
                     borderColor: theme.border,
                   },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setActiveDebtForPay(null)}
               >
@@ -1151,8 +1170,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                 onPress={handleSaveInstallment}
               >
                 <Text style={styles.saveBtnText}>
@@ -1183,12 +1202,12 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <FinancialSaveNotice />
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 إضافة إجراء مالي أو معاملة مصرفية بمراحل
               </Text>
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="نوع الإجراء المالي:"
                 value={procType}
                 options={PROCEDURE_TYPES.map((pt) => ({
@@ -1205,7 +1224,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 عنوان الإجراء / المعاملة
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="عنوان الإجراء المالي" ref={fieldRef('procTitle')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1213,6 +1232,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={procTitle}
                 onChangeText={setProcTitle}
@@ -1227,7 +1247,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المصرف / الجهة
                   </Text>
-                  <TextInput editable={!saving}
+                  <TextInput accessibilityLabel="مصرف أو جهة الإجراء" ref={fieldRef('procBank')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1235,6 +1255,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={procBank}
                     onChangeText={setProcBank}
@@ -1248,7 +1269,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     رقم الصك / الإشارة
                   </Text>
-                  <TextInput editable={!saving}
+                  <TextInput accessibilityLabel="الرقم المرجعي للإجراء" ref={fieldRef('procRef')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1256,6 +1277,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={procRef}
                     onChangeText={setProcRef}
@@ -1272,7 +1294,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المبلغ المرتبط (اختياري)
                   </Text>
-                  <TextInput editable={!saving}
+                  <TextInput accessibilityLabel="مبلغ الإجراء المالي" ref={fieldRef('procAmt')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1280,6 +1302,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={procAmt}
@@ -1294,7 +1317,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     تاريخ المتابعة
                   </Text>
-                  <TextInput editable={!saving}
+                  <TextInput accessibilityLabel="تاريخ استحقاق الإجراء" ref={fieldRef('procDueDate')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1302,6 +1325,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={procDueDate}
                     onChangeText={setProcDueDate}
@@ -1312,7 +1336,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 خطوات ومراحل الإجراء (كل مرحلة في سطر جديد):
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="مراحل الإجراء، مرحلة في كل سطر" ref={fieldRef('procStagesText')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1321,6 +1345,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 multiline
                 value={procStagesText}
@@ -1330,7 +1355,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات إضافية
               </Text>
-              <TextInput editable={!saving}
+              <TextInput accessibilityLabel="ملاحظات الإجراء" ref={fieldRef('procNotes')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1338,6 +1363,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={procNotes}
                 onChangeText={setProcNotes}
@@ -1346,13 +1372,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity disabled={saving}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setNewProcModal(false)}
                 >
@@ -1365,8 +1392,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity disabled={saving}
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleSaveProcedure}
                 >
                   <Text style={styles.saveBtnText}>حفظ الإجراء</Text>
@@ -1381,6 +1408,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  touchTarget: { minHeight: 48, minWidth: 48 },
   container: {
     flex: 1,
   },
