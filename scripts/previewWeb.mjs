@@ -10,7 +10,8 @@ createServer(async (request,response)=>{
     const pathname=decodeURIComponent(url.pathname).replace(/^\/mali-app(?=\/|$)/,'');
     let path=resolve(root,'.'+pathname);
     if(path!==root&&!path.startsWith(root+sep)){response.writeHead(403).end();return;}
-    if(path===root||(await stat(path)).isDirectory())path=resolve(root,'index.html');
+    const info=await stat(path).catch(()=>null);
+    if(path===root||info?.isDirectory()||(!info&&!extname(path)))path=resolve(root,'index.html');
     const body=await readFile(path);
     response.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff'});
     response.end(body);

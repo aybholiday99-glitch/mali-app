@@ -136,3 +136,7 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
 - Expo Router06af396 integrated (source5dbdba8): six protected routed screens, one persistent provider,
   native/web back/deep-link/base paths, retained Auth form and no second OAuth exchange. Agent398tests/
   type/lint/web build PASS; local Android CNG debug build in progress, final primary integration pending.
+
+- Prepared local Pages SPA404 fallback from the exact built Router entry with no URL/query/hash redirect,
+  preserving deep links/OAuth and protected route checks.7actual Router/fallback checks PASS; this only
+  creates build artifacts and does not deploy. Local preview supports direct routed paths.
