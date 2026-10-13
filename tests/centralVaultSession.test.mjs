@@ -136,3 +136,25 @@ test('two consecutive writes serialize server CAS revisions instead of writing s
   assert.deepEqual(baselines,[first,second]);
   assert.deepEqual(session.snapshot().contacts.map(x=>x.id),['one','two']);
 });
+
+test('lost server acknowledgement blocks further financial writes until new verified pull', async () => {
+  let attempts=0;
+  const session=createCentralVaultSession({
+    pull: async()=>verified(first),
+    push: async()=>{attempts++; throw Error('network dropped after server may have committed');},
+  },empty);
+  await session.open(owner('client'),config);
+  assert.equal((await session.update(s=>({...s,debts:[{id:'original'}]}))).ok,false);
+  assert.equal(session.snapshot(),null);
+  assert.equal((await session.update(s=>({...s,debts:[{id:'duplicated'}]}))).ok,false);
+  assert.equal(attempts,1);
+});
+test('malformed server acknowledgement timestamp is never trusted', async () => {
+  const session=createCentralVaultSession({
+    pull: async()=>verified(first),
+    push: async()=>({ok:true,success:true,updatedAt:'not-a-timestamp'}),
+  },empty);
+  await session.open(owner('client'),config);
+  assert.equal((await session.update(s=>({...s,contacts:[{id:'x'}]}))).ok,false);
+  assert.equal(session.snapshot(),null);
+});
