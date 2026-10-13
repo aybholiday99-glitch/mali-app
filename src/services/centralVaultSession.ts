@@ -89,10 +89,15 @@ export function createCentralVaultSession(
       } catch { return failure('invalid', 'تعذر التحقق من العملية المالية.'); }
       let result: SyncResult;
       try { result = await gateway.push(candidate, candidate.supabaseConfig, user); }
-      catch { return failure('unavailable', 'فشل الوصول للخادم، لم تُعتمد العملية.'); }
+      catch {
+        // A lost acknowledgement is not proof that the server rolled back.
+        // Refuse any further mutation until a fresh authoritative pull.
+        if (generation === requestedGeneration) { blocked = true; current = null; }
+        return failure('unavailable', 'تعذر تأكيد استجابة الخادم. أعد تحميل الخزنة قبل أي تعديل.');
+      }
       if (generation !== requestedGeneration || owner?.id !== user.id)
         return failure('session', 'تغير الحساب أثناء العملية. تحقق من السجل على الخادم.');
-      if (!result.ok || !result.success || !result.updatedAt) {
+      if (!result.ok || !result.success || !result.updatedAt || !Number.isFinite(Date.parse(result.updatedAt))) {
         if (result.conflictDetected) {
           blocked = true; current = null;
           return failure('conflict', 'تغيرت بيانات الحساب على الخادم. أعد تحميلها قبل إجراء أي تعديل.');
