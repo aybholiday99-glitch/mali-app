@@ -1,19 +1,17 @@
 // Real Chromium acceptance, no production connections or credentials.
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
+import { stripTypeScriptTypes } from 'node:module';
 import { readFile, mkdtemp, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = path.resolve(root, 'dist');
 const source = await readFile(path.resolve(root, 'src/services/webFinancialStorageBackend.ts'), 'utf8');
-const probe = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
+const probe = stripTypeScriptTypes(source, { mode: 'strip' });
 const contentTypes = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
@@ -60,7 +58,8 @@ function protocol(ws) {
     const item = jobs.get(p.id);
     if (!item) return;
     jobs.delete(p.id);
-    p.error ? item.reject(Error(p.error.message)) : item.resolve(p.result);
+    if (p.error) item.reject(Error(p.error.message));
+    else item.resolve(p.result);
   });
   return (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++nextId;
@@ -84,7 +83,8 @@ async function until(fn, description, timeout = 35000) {
   throw Error('Timed out waiting for ' + description);
 }
 async function storageProbe() {
-  const {createWebFinancialStorageBackend} = await import('/mali-app/__storage_probe.mjs');
+  const probeUrl = '/mali-app/' + '__storage_probe.mjs';
+  const {createWebFinancialStorageBackend} = await import(probeUrl);
   const legacy = {
     getItem: async key => localStorage.getItem(key),
     setItem: async (key, value) => localStorage.setItem(key, value),
@@ -118,7 +118,8 @@ async function storageProbe() {
   return { sizes };
 }
 async function reloadProbe() {
-  const {createWebFinancialStorageBackend} = await import('/mali-app/__storage_probe.mjs');
+  const probeUrl = '/mali-app/' + '__storage_probe.mjs';
+  const {createWebFinancialStorageBackend} = await import(probeUrl);
   const db = createWebFinancialStorageBackend({
     dbName: 'mali_chrome_acceptance_v1',
     legacyStorage: {
