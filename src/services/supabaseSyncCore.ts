@@ -61,7 +61,7 @@ function errorKind(error: unknown, fallback: NonNullable<SyncResult['failureKind
   if (detail?.status === 401 || ['bad_jwt', 'session_not_found', 'refresh_token_not_found'].includes(detail?.code || '')) return 'session';
   return fallback;
 }
-const failure = (error: unknown) => ({ ...fail(error instanceof Error ? error.message : 'فشل الاتصال بالسحابة.'), failureKind: errorKind(error) });
+const failure = (error: unknown) => ({ ...fail(error instanceof SyncFailure ? error.message : 'تعذر إكمال المزامنة. تم الاحتفاظ بالنسخة المحلية؛ تحقق من الاتصال وصحة بيانات الخزنة.'), failureKind: errorKind(error) });
 
 export function createSupabaseSyncService(deps: SyncDependencies) {
   const configured = (config: SupabaseConfig) => Boolean(config?.url?.trim() && config?.anonKey?.trim());
@@ -107,11 +107,11 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
     try {
       const { client, userId } = await verifiedClient(config, currentUser);
       const result: DbResult<any[]> = await client.from('mali_vault_snapshots').select('workspace_key').eq('user_id', userId).limit(1);
-      if (result.error) throw new Error(result.error.message);
+      if (result.error) throw new SyncFailure('تعذر قراءة الخزنة السحابية.',errorKind(result.error));
       await verifyUser(client, userId);
       return { ok: true, message: 'الاتصال بخزنتك السحابية ناجح.' };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : 'فشل الاتصال بالسحابة.' };
+      return { ok: false, message: error instanceof SyncFailure ? error.message : 'تعذر توثيق الاتصال بالخزنة السحابية.' };
     }
   }
   async function pushStateToSupabase(state: MaliState, overrideConfig?: SupabaseConfig, currentUser?: AuthUser | null,
@@ -131,7 +131,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       });
       const { data, error } = await unlessAborted(_options?.signal && query.abortSignal ? query.abortSignal(_options.signal) : query, _options?.signal);
       if (_options?.signal?.aborted) throw new SyncFailure('تم إلغاء طلب الرفع.', 'transient');
-      if (error) throw new SyncFailure(`فشل حفظ الخزنة السحابية: ${error.message}`, errorKind(error));
+      if (error) throw new SyncFailure('رفض الخادم حفظ الخزنة. تم الاحتفاظ بالنسخة المحلية؛ تحقق من الاتصال والجلسة وإعداد المزامنة.', errorKind(error));
       if (!isObject(data) || typeof data.ok !== 'boolean') throw new Error('استجابة المزامنة السحابية غير صالحة.');
       await verifyUser(client, userId, _options?.signal);
       if (!data.ok) {
@@ -153,7 +153,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       const { client, userId } = await verifiedClient(config, currentUser);
       const snapshotResult: DbResult<any[]> = await client.from('mali_vault_snapshots').select('workspace_key, payload, updated_at, user_id')
         .eq('user_id', userId).order('updated_at', { ascending: false }).limit(1);
-      if (snapshotResult.error) throw new Error(snapshotResult.error.message);
+      if (snapshotResult.error) throw new SyncFailure('تعذر قراءة الخزنة السحابية. تحقق من الاتصال والجلسة وإعداد المزامنة.',errorKind(snapshotResult.error));
       if (!Array.isArray(snapshotResult.data)) throw new Error('استجابة الخزنة السحابية غير صالحة.');
       if (snapshotResult.data.length) {
         const snapshot = snapshotResult.data[0];
@@ -166,7 +166,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       }
       const results: DbResult<any[]>[] = await Promise.all(TABLES.map((table) => client.from(table).select('*').eq('user_id', userId)));
       for (const result of results) {
-        if (result.error) throw new Error(`تعذر قراءة الجداول المالية: ${result.error.message}`);
+        if (result.error) throw new SyncFailure('تعذر قراءة الجداول المالية القديمة. تم الاحتفاظ بالنسخة المحلية.',errorKind(result.error));
         if (!Array.isArray(result.data)) throw new Error('استجابة الجداول المالية غير صالحة.');
       }
       await verifyUser(client, userId);
@@ -191,7 +191,7 @@ export function createSupabaseSyncService(deps: SyncDependencies) {
       return { ok: true, success: true, state, data: state, updatedAt, timestamp: updatedAt,
         identityVerified: true,
         snapshotUpdatedAt: null, message: 'تم استرجاع الجداول المالية القديمة الخاصة بحسابك.' };
-    } catch (error) { return fail(error instanceof Error ? error.message : 'فشل السحب من السحابة.'); }
+    } catch (error) { return failure(error); }
   }
   return { testSupabaseConnection, pushStateToSupabase, pullStateFromSupabase };
 }

@@ -150,7 +150,7 @@ export function createDurableSyncWorker<T>(deps: Dependencies<T>) {
     if (record?.stop) return Promise.resolve(record.stop.result);
     if (!force && (!active || !record?.pending || record.nextAttemptAt > clock.now())) { schedule(); return Promise.resolve(failed('الرفع مؤجل.')); }
     unschedule();
-    running = execute().catch(error => error?.message ? failed(error.message) : failed('تعذر حفظ الرفع محلياً.'))
+    running = execute().catch(() => failed('تعذر حفظ الرفع محلياً.'))
       .finally(() => { running = null; schedule(); });
     return running;
   }

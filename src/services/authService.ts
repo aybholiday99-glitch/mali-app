@@ -337,7 +337,7 @@ async function registerWithEmailImpl(
       return {
         success: false,
         ok: false,
-        message: `تعذر إنشاء الحساب: ${error.message}`,
+        message: 'تعذر إنشاء الحساب. تحقق من الاتصال وصحة البريد وكلمة المرور، ثم أعد المحاولة.',
       };
     }
 
@@ -379,11 +379,11 @@ async function registerWithEmailImpl(
       user: verifiedUser,
       message: 'تم إنشاء حسابك السحابي بنجاح.',
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر الاتصال بخادم المصادقة السحابي: ${e?.message || 'تحقق من اتصالك بالإنترنت'}`,
+      message: 'تعذر الاتصال بخادم المصادقة السحابي. تحقق من اتصالك بالإنترنت ثم أعد المحاولة.',
     };
   }
 }
@@ -441,11 +441,11 @@ async function loginWithEmailImpl(
       user: verifiedUser,
       message: 'تم تسجيل الدخول السحابي بنجاح.',
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر الاتصال بخادم المصادقة: ${e?.message || 'تحقق من اتصالك بالإنترنت'}`,
+      message: 'تعذر الاتصال بخادم المصادقة. تحقق من اتصالك بالإنترنت ثم أعد المحاولة.',
     };
   }
 }
@@ -488,7 +488,7 @@ export async function resetPasswordByEmail(
       return {
         success: false,
         ok: false,
-        message: `تعذر إرسال رابط استعادة كلمة المرور: ${error.message}`,
+        message: 'تعذر إرسال رابط استعادة كلمة المرور. تحقق من الاتصال ثم أعد المحاولة.',
       };
     }
 
@@ -498,11 +498,11 @@ export async function resetPasswordByEmail(
       message:
         'تم إرسال رابط آمن لإعادة تعيين كلمة المرور إلى بريدك الإلكتروني عبر Supabase Auth.',
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر الاتصال بخادم المصادقة: ${e?.message || 'خطأ في الشبكة'}`,
+      message: 'تعذر الاتصال بخادم المصادقة. تحقق من الاتصال ثم أعد المحاولة.',
     };
   }
 }
@@ -538,7 +538,7 @@ export async function resetUserPasswordLocal(
       return {
         success: false,
         ok: false,
-        message: `تعذر تحديث كلمة المرور: ${error.message}`,
+        message: 'تعذر تحديث كلمة المرور. افتح رابط استعادة جديداً وتحقق من الاتصال ثم أعد المحاولة.',
       };
     }
     return {
@@ -598,7 +598,7 @@ async function consumeOAuthRedirectImpl(
         {
           type: 'MALI_OAUTH_CALLBACK_COMPLETE',
           hasError: Boolean(errorParam) || !verifiedUser,
-          errorMessage: errorParam || undefined,
+          errorMessage: errorParam ? 'تعذر إكمال مصادقة المزود. افتح طلب دخول جديداً.' : undefined,
         },
         targetOrigin
       );
@@ -612,13 +612,13 @@ async function consumeOAuthRedirectImpl(
     }
 
     return verifiedUser;
-  } catch (err: any) {
+  } catch {
     if (window.opener && window.opener !== window) {
       window.opener.postMessage(
         {
           type: 'MALI_OAUTH_CALLBACK_COMPLETE',
           hasError: true,
-          errorMessage: err?.message || 'فشل التحقق من جلسة OAuth',
+          errorMessage: 'فشل التحقق من جلسة OAuth. افتح طلب دخول جديداً.',
         },
         targetOrigin
       );
@@ -741,7 +741,7 @@ export async function launchSocialOAuthWindow(
             finish({
               success: false,
               ok: false,
-              message: `تعذر إكمال مصادقة ${providerLabel}: ${errText}`,
+              message: `تعذر إكمال مصادقة ${providerLabel}. افتح طلب دخول جديداً أو استخدم البريد الإلكتروني.`,
             });
             return;
           }
@@ -800,11 +800,11 @@ export async function launchSocialOAuthWindow(
       ok: false,
       message: `يرجى استخدام متصفح يدعم نوافذ المصادقة الآمنة (PKCE) لتسجيل الدخول عبر ${providerLabel}.`,
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر بدء مصادقة ${providerLabel}: ${e?.message || 'خطأ غير متوقع'}`,
+      message: `تعذر بدء مصادقة ${providerLabel}. تحقق من الاتصال وافتح طلب دخول جديداً.`,
     };
   }
 }

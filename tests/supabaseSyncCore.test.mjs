@@ -54,6 +54,20 @@ function fixture(options = {}) {
   return { service, queries, calls, client };
 }
 
+test('all sync transport failures redact raw server/request details while retaining typed failure categories',async()=>{
+  const privateText='PRIVATE-JWT-EMAIL-ACCOUNT';
+  const push=fixture({rpcResult:{data:null,error:{message:privateText,status:503}}});
+  const pushed=await push.service.pushStateToSupabase(baseState(),undefined,user);
+  assert.equal(pushed.failureKind,'transient');assert.ok(!pushed.message.includes(privateText));
+  const pull=fixture({responses:{mali_vault_snapshots:{data:null,error:{message:privateText,status:401}}}});
+  const pulled=await pull.service.pullStateFromSupabase(baseState().supabaseConfig,user);
+  assert.equal(pulled.failureKind,'session');assert.ok(!pulled.message.includes(privateText));
+  const connected=await pull.service.testSupabaseConnection(baseState().supabaseConfig,user);
+  assert.equal(connected.ok,false);assert.ok(!connected.message.includes(privateText));
+  pull.client.auth.getUser=async()=>{throw new Error(privateText);};
+  assert.ok(!(await pull.service.pullStateFromSupabase(baseState().supabaseConfig,user)).message.includes(privateText));
+});
+
 test('typed write failure categories distinguish transient transport, session, validation and permanent rejection',async()=>{
   for(const [options,kind] of [
     [{authError:{message:'network',name:'AuthRetryableFetchError'}},'transient'],

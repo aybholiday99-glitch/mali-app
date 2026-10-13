@@ -116,3 +116,10 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   omit financial image payloads, reject foreign/malformed rows, cancel late owner responses and redact
   remote errors. Focused actual panel/reader/existing Cloud UI10tests PASS; actualPG17 audit17PASS.
   CI now explicitly repeats immutable audit17 against PG17 rather than only in-memory SQL emulation.
+
+- Pure conflict preparation integratedf21e0f3 (sourcecd04606):48new cases/71focused PASS, exact CAS/session/
+  owner/config review, full original/pending/attempted/latest/fresh evidence, audited keep-local rebase,
+  exact cloud adoption and renewed review on changed CAS. Provider locking/archive/UI integration pending.
+- Root support diagnostics use explicit nonfinancial metadata/count allowlist, and transport/Auth/UI error
+  messages no longer echo remote payloads. Typed sync failure categories remain intact.63focused actual
+  auth/sync/worker/screen/native checks PASS; no remote monitoring service or sensitive logging added.

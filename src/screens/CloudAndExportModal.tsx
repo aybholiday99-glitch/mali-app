@@ -8,10 +8,12 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { FinancialHistoryPanel } from '../components/FinancialHistoryPanel';
+import { createSafeDiagnostics } from '../services/diagnosticsCore';
 import { SUPABASE_SQL_SCHEMA } from '../services/supabaseSync';
 import {
   exportFileOrShare,
@@ -34,6 +36,8 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
     theme,
     isSyncing,
     lastSyncMessage,
+    cloudSyncStatus,
+    currentUser,
     updateSupabaseConfig,
     syncToCloud,
     pullFromCloud,
@@ -118,6 +122,15 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
 
           <ScrollView style={styles.scrollArea}>
             <FinancialHistoryPanel />
+            <View style={[styles.sectionBox,{backgroundColor:theme.cardAlt,borderColor:theme.border}]}>
+              <Text accessibilityLiveRegion="polite" style={[styles.sectionTitle,{color:theme.text}]}>{cloudSyncStatus.phase==='blocked'?'توقفت المزامنة لحماية بياناتك':cloudSyncStatus.phase==='retrying'?'تعذر الاتصال؛ ستُعاد المحاولة عند فتح التطبيق':cloudSyncStatus.phase==='storage-error'?'تعذر الحفظ على الجهاز؛ يلزم إعادة المحاولة':cloudSyncStatus.phase==='uploading'?'جارٍ رفع النسخة المحفوظة':state.pendingCloudSync?'نسخة محفوظة على الجهاز تنتظر الرفع':'حالة الحفظ والمزامنة'}</Text>
+              <Text style={[styles.sectionSub,{color:theme.textSecondary}]}>تعمل إعادة المزامنة أثناء فتح التطبيق. عند التعارض تبقى النسختان محفوظتين ويتوقف الرفع حتى اختيار حلّ واضح.</Text>
+              <TouchableOpacity accessibilityRole="button" style={styles.sqlToggleBtn} onPress={async()=>{
+                const report=createSafeDiagnostics(state,cloudSyncStatus,Platform.OS,!!currentUser?.isLocalOnly);
+                const ok=await exportFileOrShare('mali-support-diagnostics.json',JSON.stringify(report,null,2),'application/json');
+                setStatusBanner(ok?'تم فتح تنزيل أو مشاركة تقرير حالة التطبيق. يحتوي أعداد السجلات وحالة الحفظ فقط.':'تعذر تجهيز أو مشاركة تقرير الحالة.');
+              }}><Text style={[styles.sqlToggleText,{color:theme.primary}]}>تصدير تقرير الحالة للدعم دون أسماء أو أرصدة أو صور أو مفاتيح</Text></TouchableOpacity>
+            </View>
             {statusBanner || lastSyncMessage ? (
               <View
                 style={[

@@ -17,6 +17,15 @@ installNativeTestLoader();
 const service = await import('../src/services/authService.ts');
 const user = { id:'user-B',email:'b@test.invalid',created_at:'2026-10-12',app_metadata:{provider:'email'} };
 
+test('real registration and password helpers redact remote error payloads',async()=>{
+  const privateText='PRIVATE-AUTH-TOKEN-EMAIL';
+  auth={getSession:async()=>({data:{session:{user:{id:'redacted-user',email:'safe@test.invalid'}}},error:null}),signUp:async()=>({data:{},error:{message:privateText}}),resetPasswordForEmail:async()=>({error:{message:privateText}}),updateUser:async()=>({error:{message:privateText}})};
+  const config={url:'https://redaction-test.invalid',anonKey:'public-synthetic-key'};
+  const results=[await service.registerWithEmail('Test','safe@test.invalid','SecurePassword8!',undefined,config),
+    await service.resetPasswordByEmail('safe@test.invalid',config),await service.resetUserPasswordLocal('safe@test.invalid','SecurePassword8!',config)];
+  for(const result of results){assert.equal(result.success,false);assert.ok(!result.message.includes(privateText));}
+});
+
 test('real auth service serializes logout cleanup before a later login', async () => {
   const events = [];
   let release;
