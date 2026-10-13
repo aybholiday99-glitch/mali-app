@@ -163,6 +163,15 @@ try {
     "document.readyState === 'complete' && document.body && document.body.innerText.trim().length > 10"),
   'Mali actual web UI mount');
   console.log('PASS real Chromium renders Mali web app', await evaluate(call, 'document.title'));
+  const guestEntered = await evaluate(call, "(() => { const elements = [...document.querySelectorAll('button,[role=button]')]; const entry = elements.find(el => (el.textContent || '').includes('الدخول السريع المباشر إلى خزنتي المحلية')); if (!entry) return false; entry.click(); return true; })()");
+  assert.equal(guestEntered, true, 'The real web UI must expose the offline guest entry button');
+  await until(async () => {
+    try {
+      return await evaluate(call,
+        "!document.body.innerText.includes('الدخول السريع المباشر إلى خزنتي المحلية') && document.body.innerText.trim().length > 50");
+    } catch { return false; }
+  }, 'offline guest vault navigation');
+  console.log('PASS real Chrome offline guest session navigates to the financial vault');
   // Keep the isolated storage acceptance on a stable same-origin page, without
   // Expo Router redirecting the location during a full-page navigation.
   await call('Page.navigate', { url: address + '__storage_probe.html' });
