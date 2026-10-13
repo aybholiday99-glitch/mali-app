@@ -1,3 +1,4 @@
+import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
@@ -634,7 +635,7 @@ export const UsdDealsScreen: React.FC = () => {
       </View>
 
       {/* Deals Cards (Clean & Low-Density) */}
-      {filteredDeals.map((deal) => {
+      {<PagedRows items={filteredDeals} label="صفقات الدولار" disabled={saving} resetKey={JSON.stringify([statusFilter, searchQuery])}>{(deal) => {
         const buyAcc = accountMap.get(deal.sourceLydAccountId);
         const isBuyCash = deal.buyPaymentMethod === 'cash';
 
@@ -903,7 +904,7 @@ export const UsdDealsScreen: React.FC = () => {
                 >
                   عمليات البيع المسجلة ({deal.sales.length}):
                 </Text>
-                {deal.sales.map((s) => {
+                {<PagedRows items={deal.sales} label="مبيعات الصفقة" disabled={saving} resetKey={deal.id} pageSize={10}>{(s) => {
                   const targetAcc = accountMap.get(s.targetLydAccountId);
                   return (
                     <View
@@ -977,7 +978,7 @@ export const UsdDealsScreen: React.FC = () => {
                       )}
                     </View>
                   );
-                })}
+                }}</PagedRows>}
               </View>
             )}
 
@@ -1027,7 +1028,7 @@ export const UsdDealsScreen: React.FC = () => {
             )}
           </View>
         );
-      })}
+      }}</PagedRows>}
 
       {/* Modal 0: Confirm Delete Deal */}
       <Modal

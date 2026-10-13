@@ -1,3 +1,4 @@
+import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
@@ -349,7 +350,7 @@ export const AccountsScreen: React.FC = () => {
       </View>
 
       {/* Accounts List */}
-      {filteredAccounts.map((acc) => {
+      {<PagedRows items={filteredAccounts} label="الحسابات" disabled={saving} resetKey={filterType}>{(acc) => {
         const txCount = state.transactions.filter(
           (t) => t.accountId === acc.id || t.targetAccountId === acc.id
         ).length;
@@ -510,7 +511,7 @@ export const AccountsScreen: React.FC = () => {
             </View>
           </View>
         );
-      })}
+      }}</PagedRows>}
 
       {/* Modal 0: Direct Transfer Between Accounts (تحويل مباشر بين حساباتي) */}
       <Modal

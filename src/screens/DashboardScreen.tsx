@@ -1,3 +1,4 @@
+import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
@@ -455,12 +456,9 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.accountsCarousel}
-      >
-        {state.accounts.map((acc) => (
+      <PagedRows items={state.accounts} label="حساباتي وخزائني" disabled={saving}
+        horizontal scrollStyle={styles.accountsCarousel}>
+        {(acc) => (
           <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
             key={acc.id}
             style={[
@@ -484,8 +482,8 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
               {formatMoney(acc.balance, acc.currency)}
             </Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+        )}
+      </PagedRows>
 
       {/* Recent Transactions (4 items for low visual clutter) */}
       <View style={styles.sectionHeader}>

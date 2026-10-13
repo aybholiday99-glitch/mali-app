@@ -6,9 +6,11 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
+import { PagedRows } from './PagedRows';
 
 export interface DropdownOption {
   value: string;
@@ -39,8 +41,13 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
 }) => {
   const { theme } = useMali();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   const selectedOption = options.find((o) => o.value === value);
+  const query = search.trim().toLowerCase();
+  const filteredOptions = query
+    ? options.filter(option => `${option.label} ${option.subLabel || ''}`.toLowerCase().includes(query))
+    : options;
 
   return (
     <View style={compact ? styles.compactWrapper : styles.wrapper}>
@@ -66,7 +73,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
             borderColor: open ? theme.primary : theme.border,
           },
         ]}
-        onPress={() => { if (!disabled) setOpen(true); }}
+        onPress={() => { if (!disabled) { setSearch(''); setOpen(true); } }}
       >
         <View style={styles.triggerRight}>
           {selectedOption?.icon ? (
@@ -127,7 +134,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
         </View>
       </TouchableOpacity>
 
-      <Modal
+      {open && <Modal
         visible={open}
         transparent
         animationType="fade"
@@ -166,8 +173,15 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
               </TouchableOpacity>
             </View>
 
+            {(options.length > 20 || search) && <TextInput role="searchbox"
+              accessibilityLabel={`البحث في ${label || placeholder}`} placeholder="البحث في الخيارات"
+              placeholderTextColor={theme.textMuted} value={search} onChangeText={setSearch} editable={!disabled}
+              style={[styles.searchInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]} />}
             <ScrollView accessibilityRole="radiogroup" accessibilityLabel={label || placeholder} style={styles.optionsList}>
-              {options.map((opt) => {
+              {filteredOptions.length === 0 && <Text accessibilityLiveRegion="polite"
+                style={{ color: theme.textSecondary, textAlign: 'right', padding: 12 }}>لا توجد خيارات مطابقة.</Text>}
+              <PagedRows items={filteredOptions} label={label || placeholder} resetKey={search} disabled={disabled}>
+              {(opt) => {
                 const isSelected = opt.value === value;
                 return (
                   <TouchableOpacity
@@ -252,11 +266,12 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
                     )}
                   </TouchableOpacity>
                 );
-              })}
+              }}
+              </PagedRows>
             </ScrollView>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </Modal>}
     </View>
   );
 };
@@ -362,6 +377,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
+  searchInput: { minHeight: 48, minWidth: 48, margin: 12, paddingHorizontal: 12,
+    borderWidth: 1, borderRadius: 10, textAlign: 'right' },
   optionItem: {
     minHeight: 48,
     minWidth: 48,

@@ -1,3 +1,4 @@
+import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { parseFinancialInput } from '../utils/financialInput';
@@ -375,7 +376,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
           </TouchableOpacity>
 
           {/* Debts List */}
-          {state.debts.map((debt) => {
+          {<PagedRows items={state.debts} label="الديون" disabled={saving}>{(debt) => {
             const pct =
               debt.totalAmount > 0
                 ? Math.min(
@@ -520,7 +521,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     >
                       دفعات التسديد المسجلة ({debt.installments.length}):
                     </Text>
-                    {debt.installments.map((inst) => (
+                    {<PagedRows items={debt.installments} label="دفعات الدين" disabled={saving} resetKey={debt.id} pageSize={10}>{(inst) => (
                       <View key={inst.id} style={styles.instRow}>
                         <Text
                           style={[
@@ -534,7 +535,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                           {inst.notes ? ` - ${inst.notes}` : ''}
                         </Text>
                       </View>
-                    ))}
+                    )}</PagedRows>}
                   </View>
                 )}
 
@@ -587,7 +588,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 </View>
               </View>
             );
-          })}
+          }}</PagedRows>}
         </>
       ) : (
         /* Financial Procedures Tab */
@@ -606,7 +607,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             </Text>
           </TouchableOpacity>
 
-          {state.procedures.map((proc) => {
+          {<PagedRows items={state.procedures} label="الإجراءات" disabled={saving}>{(proc) => {
             const doneCount = proc.stages.filter((s) => s.completed).length;
             const totalCount = proc.stages.length || 1;
             const pct = Math.round((doneCount / totalCount) * 100);
@@ -716,7 +717,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     </Text>
                   </View>
 
-                  {proc.stages.map((st) => (
+                  {<PagedRows items={proc.stages} label="مراحل الإجراء" disabled={saving} resetKey={proc.id} pageSize={10}>{(st) => (
                     <TouchableOpacity aria-checked={st.completed} accessibilityRole="checkbox" accessibilityState={{ disabled: saving, checked: st.completed }} accessibilityLabel={`${proc.title}: ${st.title}`} disabled={saving}
                       key={st.id}
                       style={[
@@ -753,7 +754,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         </Text>
                       )}
                     </TouchableOpacity>
-                  ))}
+                  )}</PagedRows>}
 
                   {addingStageProcId === proc.id ? (
                     <View style={styles.addStageInline}>
@@ -815,7 +816,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 </View>
               </View>
             );
-          })}
+          }}</PagedRows>}
         </>
       )}
 

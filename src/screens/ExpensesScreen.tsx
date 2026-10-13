@@ -1,3 +1,4 @@
+import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import { nextSubmissionKey } from '../services/submissionKey';
 import { financialPreview, parseFinancialInput } from '../utils/financialInput';
@@ -636,7 +637,7 @@ export const ExpensesScreen: React.FC = () => {
           </View>
 
           {/* Transactions Cards */}
-          {filteredTransactions.map((tx) => {
+          {<PagedRows items={filteredTransactions} label="سجل الحركات" disabled={saving} resetKey={JSON.stringify([typeFilter, methodFilter, searchQuery])}>{(tx) => {
             const acc = accountMap.get(tx.accountId);
             const isPositive =
               tx.type === 'income' ||
@@ -775,7 +776,7 @@ export const ExpensesScreen: React.FC = () => {
                 </View>
               </View>
             );
-          })}
+          }}</PagedRows>}
         </>
       ) : (
         /* Budgets & Categories Analytics View */
@@ -783,7 +784,7 @@ export const ExpensesScreen: React.FC = () => {
           <Text style={[styles.budgetIntro, { color: theme.textSecondary }]}>
             تتبع مصاريفك الشهرية حسب كل غرض (أكل، ملابس، سيارة، منزل...) مقارنة بالسقف الشهري:
           </Text>
-          {state.budgets.map((b) => {
+          {<PagedRows items={state.budgets} label="الميزانيات" disabled={saving}>{(b) => {
             const spentLyd = state.transactions
               .filter(
                 (t) =>
@@ -894,7 +895,7 @@ export const ExpensesScreen: React.FC = () => {
                 </View>
               </View>
             );
-          })}
+          }}</PagedRows>}
         </View>
       )}
 

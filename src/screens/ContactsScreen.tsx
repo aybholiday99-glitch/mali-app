@@ -1,3 +1,4 @@
+import { PagedRows } from '../components/PagedRows';
 import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import React, { useState } from 'react';
 import {
@@ -357,7 +358,7 @@ export const ContactsScreen: React.FC = () => {
       </View>
 
       {/* Contacts Cards List */}
-      {filteredContacts.map((person) => {
+      {<PagedRows items={filteredContacts} label="المتعاملون" disabled={saving} resetKey={JSON.stringify([roleFilter, searchQuery])}>{(person) => {
         const stats = getPersonActivity(person);
 
         return (
@@ -648,7 +649,7 @@ export const ContactsScreen: React.FC = () => {
             </View>
           </View>
         );
-      })}
+      }}</PagedRows>}
 
       {/* Modal 1: Full Transaction History with Selected Person */}
       <Modal
@@ -709,7 +710,7 @@ export const ContactsScreen: React.FC = () => {
                   لا توجد صفقات شراء مسجلة من هذا الشخص بعد.
                 </Text>
               ) : (
-                selectedPersonStats?.boughtDeals.map((d) => {
+                <PagedRows items={selectedPersonStats?.boughtDeals ?? []} label="مشتريات المتعامل" disabled={saving} resetKey={selectedPerson?.id} pageSize={10}>{(d) => {
                   const buyAcc = accountMap.get(d.sourceLydAccountId);
                   return (
                     <View
@@ -786,7 +787,7 @@ export const ContactsScreen: React.FC = () => {
                       />
                     </View>
                   );
-                })
+                }}</PagedRows>
               )}
 
               {/* 2. Sales Sold to this Person */}
@@ -799,7 +800,7 @@ export const ContactsScreen: React.FC = () => {
                   لا توجد عمليات بيع مسجلة لهذا الشخص بعد.
                 </Text>
               ) : (
-                selectedPersonStats?.soldEntries.map(({ deal, sale }) => {
+                <PagedRows items={selectedPersonStats?.soldEntries ?? []} label="مبيعات المتعامل" disabled={saving} resetKey={selectedPerson?.id} pageSize={10}>{({ deal, sale }) => {
                   const recAcc = accountMap.get(sale.targetLydAccountId);
                   return (
                     <View
@@ -897,7 +898,7 @@ export const ContactsScreen: React.FC = () => {
                       />
                     </View>
                   );
-                })
+                }}</PagedRows>
               )}
 
               {/* 3. Debts & Trusts with this Person */}
@@ -912,7 +913,7 @@ export const ContactsScreen: React.FC = () => {
                   لا توجد ديون أو أمانات مسجلة مع هذا الشخص.
                 </Text>
               ) : (
-                selectedPersonStats?.personDebts.map((db) => (
+                <PagedRows items={selectedPersonStats?.personDebts ?? []} label="ديون المتعامل" disabled={saving} resetKey={selectedPerson?.id} pageSize={10}>{(db) => (
                   <View
                     key={db.id}
                     style={[
@@ -969,7 +970,7 @@ export const ContactsScreen: React.FC = () => {
                       </Text>
                     ) : null}
                   </View>
-                ))
+                )}</PagedRows>
               )}
             </ScrollView>
 
