@@ -79,19 +79,29 @@ test('integrity gate rejects a modified installed file and an unexpected forge c
   }
 });
 
-test('picomatch adapter preserves 11,352 recorded original matcher results through the real Metro consumer', () => {
+test('picomatch adapter preserves 22,704 original Windows/POSIX results and the real Metro consumer platform semantics', () => {
   const baseline = JSON.parse(readFileSync(new URL('./fixtures/metroMatcherBaseline.json',import.meta.url),'utf8'));
-  let index = 0;
-  for (const { globs, options } of baseline.cases) {
-    for (const file of baseline.paths) {
-      const expected = baseline.answers[index++] === '1';
-      assert.equal(matcher.some(file,globs,options),expected,JSON.stringify({file,globs,options}));
-      if (Object.keys(options).length === 1 && globs.length) {
-        assert.equal(includedByGlob('f',globs,options.dot,file),expected,'real Metro watcher '+JSON.stringify({file,globs,options}));
+  const hostPlatform = process.platform === 'win32' ? 'windows' : 'posix';
+  for (const [platform, windows] of [['windows',true],['posix',false]]) {
+    let index = 0;
+    assert.equal(baseline.platformAnswers[platform].length,11352);
+    for (const { globs, options } of baseline.cases) {
+      for (const file of baseline.paths) {
+        const expected = baseline.platformAnswers[platform][index++] === '1';
+        const explicitOptions = { ...options, windows };
+        assert.equal(matcher.some(file,globs,explicitOptions),expected,JSON.stringify({platform,file,globs,options:explicitOptions}));
+        if (platform === hostPlatform) {
+          assert.equal(matcher.some(file,globs,options),expected,'host default '+JSON.stringify({platform,file,globs,options}));
+          if (Object.keys(options).length === 1 && globs.length) {
+            assert.equal(includedByGlob('f',globs,options.dot,file),expected,'real Metro watcher '+JSON.stringify({platform,file,globs,options}));
+          }
+        }
       }
     }
+    assert.equal(index,11352);
   }
-  assert.equal(index,11352);
+  assert.equal(matcher.some('src\\foo.ts',['src/**'],{dot:false,windows:true}),true);
+  assert.equal(matcher.some('src\\foo.ts',['src/**'],{dot:false,windows:false}),false);
   assert.equal(matcher.some(['foo.ts','bar.ts'],'*.js'),false,'array callback index must not enable picomatch returnObject');
   assert.equal(includedByGlob('d',[],false,'.hidden'),false);
   assert.equal(includedByGlob('d',[],true,'.hidden'),true);

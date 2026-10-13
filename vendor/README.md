@@ -42,7 +42,8 @@ npm run typecheck
 npm run build:web
 ```
 
-The six dependency tests include 11,352 recorded differential matcher outcomes,
+The six dependency tests include 22,704 recorded differential matcher outcomes
+(11,352 each with explicit Windows and POSIX path semantics),
 the real Metro watcher, original-CVE deep patterns, hash/extra-copy negative
 controls, actual Expo and CLI signature/certificate/CSR operations and an
 independent Node crypto oracle. All keys are generated in memory per test; no
@@ -52,9 +53,23 @@ verification accept the malformed nested DigestAlgorithm signature that native
 crypto and this backport reject.
 
 Windows clean installs and the scoped tests/checks/build passed during candidate
-preparation. Linux qualification and independent integration review remain
-pending; the local Docker Linux engine was unavailable. Successful scoped checks
+preparation. Linux CI subsequently passed clean installation, installed-source
+integrity and the Expo/CLI crypto checks. Its matcher fixture failure exposed a
+Windows-only oracle: the original matcher also uses different default backslash
+semantics on POSIX. Both complete oracles are now recorded from verified original
+npm archives. The adapter is checked against both explicit modes; the real Metro
+consumer is checked against the host's oracle. No cases are omitted. Linux CI
+qualification of this fixture repair remains pending. Successful scoped checks
 do not establish native device, store signing or production deployment readiness.
+
+To regenerate the matching fixture, extract the exact official npm archives
+listed in `tests/fixtures/metroMatcherBaseline.json` into an isolated directory's
+`node_modules`, after verifying each listed SHA-512 integrity. Save that archive
+metadata as `origins.json` in the directory. Run
+`node scripts/recordMatcherBaseline.mjs <directory>`; it checks the original
+versions and micromatch source SHA-256 before executing the original matcher.
+The vulnerable baseline packages are test preparation inputs only and are never
+installed into the application or included in its dependency graph.
 
 Installation uses root local tarball dependencies and npm `$dependency` override
 references. Relative transitive tarball overrides and linked directory dependency
