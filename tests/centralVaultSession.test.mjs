@@ -133,7 +133,7 @@ test('two consecutive writes serialize server CAS revisions instead of writing s
     session.update(s=>({...s,contacts:[...s.contacts,{id:'two'}]})),
   ]);
   assert.deepEqual(edits.map(x=>x.ok),[true,true]);
-  assert.deepEqual(baselines,[first,second]);
+  assert.deepEqual(baselines,[first,new Date(Date.parse(second)).toISOString()]);
   assert.deepEqual(session.snapshot().contacts.map(x=>x.id),['one','two']);
 });
 
