@@ -18,39 +18,49 @@ independently PASS61 cases and original amount-mutation/undefined-vs-absence pro
 config/receipt paths capture once, reject getters/coercion, preserve exact uncertain retries.
 ea7eced fences batched A->logout->A UI with generation and cancels aborted Pull reads.
 
-Current root candidate: explicit CAS inspect/download/reason/keep-local/adopt-cloud UI, fresh
-verified owner/exact timestamp/session/config/revision locks; changed cloud requires new choice.
-Complete verified cold archive precedes a single candidate+readyOutbox commit. Ordinary import/
-config/push preserves CAS stop; keep-local still normal CAS; adopt-cloud sends nothing. Worker
-identity prevents old metadata callbacks from publishing after replacement. Backup uses same
-atomic envelope, no separate post-publication enqueue. Uncertain commit fences stale RAM writes;
-retains blocked record; restart reads verified head. Session change during archive cancels head
-publication.129 integrated +3 actual UI tests PASS, types PASS, scoped lint0errors/3existing
-warnings. Independent candidate review next. No final gate inherits prior SHAs.
+Current root31a4dd9 includes independent recovery/CAS PASS atd2db769. Review8 actual-provider
+probes plus130 initial focused tests; final46 targeted regressionPASS. New repairs9e463a6 reject
+false-success reversal rollback and preserve complete nested marketRates; d2db769 rechecks session
+immediately before publishing candidate head, refuses old ordinary Pull during/after uncertain
+restore, and releases only its own hydration lock. Archive+candidate/outbox verified atomically;
+changed cloud requires renewed explicit choice, ordinary config/import/push retains CAS stop.
+No forced overwrites or weakening journal/idempotency. Candidate lifecyclef2afbe5 fixes real Hermes
+startup crash (native window lacks DOM methods);4 regressionPASS. Actual Android cold startup and
+local guest entry now PASS. Accessibility31a4dd9 (source286299c) adds labels/roles/states/48dp/focus/
+recoverable errors on6screens+dropdown/submission;18tests/type/lintPASS in dedicated worktree.
+Root independent accessibility review and integrated final gates remain.
 
-Parallel ownership: financial agent mali-durable-mutations owns six screens/CalmDropdown/submission
-hook accessibility repair only (baseb549363). Sync agent independent review only. Architecture
-agent mali-router-native owns generated debug build/runtime proof. Root Context/Cloud/history/
-conflict/recovery/integration/continuity. No overlapping writes or production calls.
+Parallel ownership: native_acceptance owns real Android acceptance atC:/MaliNative, no product
+edits; accessibility_completion owns bounded paging/search performance in mali-durable-mutations
+at286299c; recovery_independent_review now owns read-only cold-archive access in mali-conflict-core,
+branchcodex/mali-recovery-access at31a4dd9, new service/panel+Cloud UI only. Root owns integration,
+independent reviews and continuity. No overlapping writers. Do not restart accepted repairs.
 
-Latest pushed6b79ee0 CI38328473640: app392/types/lint/build PASS; PG17 SQL/actual full restore/
-SAST/dependency consumer+provenance PASS; mandatory raw audit FAIL4high, one forge advisory.
-New source requires fresh CI. No audit suppression.
+Latest pushedf7437ca CI38334145618: app511/types/lint/Expocheck/buildPASS, PG17 16RLS+67validator+
+17audit plus full restore10tables/ACLs/owners/RLS/CAS/21originals+21archivesPASS, SASTPASS;
+Linux actual dependency consumers/provenancePASS; mandatory raw npm auditFAIL4high/0moderate,
+one forge advisory. Dump132031bytes SHA2564d48841394a2187924e9b2192c1499edc729b72e904d70e9116840c9510f5364.
+New source needs fresh CI; no audit suppression. Browser actualf7437ca guest expense7.77 on100
+persisted92.23 after reload; journal2events; JSONdownload has1account/1tx/2audit/0connectionfields;
+actual chooser+explicit restorePASS. Proof.audit/web-backup-restore-proof.jpg. No production IO.
 
 PG17.11 LOCALAPPDATA/MaliPostgres17Tools/pgsql/bin, 127.0.0.1:54329/mali_test, .audit/postgres17-data.
 Tests use guarded UUID child DBs and restricted function owners/ACLs. Android Studio/SDK36 under
 LOCALAPPDATA/MaliAndroidTools; WHPX emulator-5554 Android16 booted/airplane/default network:none.
-Cold JBR25 debug build failed prefab despite EXIT0 because JNA native-access warning polluted
-stderr. Official hash-verified portable Temurin21 fixed configure; cached one-worker/1GiB retry
-now C++ compile. No APK or device acceptance claimed. Use primary latest JS via local Metro.
-No manual native edits, CNG only. Web8137/mali-app synthetic guest100LYD, retained7.77 draft.
-dist predates async/CAS: rebuild before current browser acceptance.
+JBR25 native-access warning and Windows longpath failures resolved with official Temurin21 and
+short physical worktreeC:/MaliNative (head23771b4, do not integrate wholesale). CNG debug APK built
+8m56s,79182575bytes, installed emulator-5554. Metro primary latest JS atlocalhost8081 viaADB
+reverse and loopback relay; native agent records source versions per flow. No generated native
+edits. Windows cannot prove iOS. Android real financial/receipts/files/PDF/lifecycle acceptance
+ongoing; initial Hermes startup fault repaired and cold launchPASS. Webpreview8137 distf7437ca;
+rebuild for latestsource before further visual acceptance. Large-list baseline actualrenderer:
+10kexpenses190371hostnodes/915ms; hostonlynotnative, bounded rendering now delegated.
 
 External gates: compatible upstream forge/raw audit; iOS hardware; real production backup;
 21null-owner originals+21exact archives/6nullable columns need actual owner evidence; old Google
 revocation proof; HIBP plan; enabled-provider/device E2E. Atomic and immutable-history migrations
 NOT APPLIED PRODUCTION. No merge/publish/cutover.
 
-Next safe action: independent review atomic restore/CAS candidate; integrate accessibility repair
-and Android evidence; remaining recovery access/performance/full final gates; normal push/PR2/
+Next safe action: independently review accessibility, integrate archive access/performance and
+Android findings/evidence; run integrated final gates, normal push/PR2/
 report updates. Continue feasible work. Project NOT PRODUCTION READY.

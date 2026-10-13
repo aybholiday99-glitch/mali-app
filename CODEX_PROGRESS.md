@@ -163,3 +163,21 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
   targets; bounded isolated repair in progress.
 - Pushed6b79ee0 CI38328473640 app392/PG17 SQL/actual full restore/SAST/dependency provenance/actual
   Linux consumers PASS; mandatory raw audit FAIL4high, one forge advisory. No suppression.
+
+
+## 2026-10-13 reviewed recovery, real browser restore and Android startup
+
+9e463a6 fixes audited reversal-import false success and retains full nested marketRates.
+d2db769 fences final head publication on session expiry and refuses stale Pull during/after
+uncertain import without releasing another recovery lock.46targetedPASS, typesPASS, lint0errors;
+independent reviewer8probePASS plus130initialfocusedPASS. No forced sync or audit weakening.
+Real browser f7437ca: guest100 ->expense7.77 ->reload92.23/1transaction; read-only2journal events;
+JSONdownload1account/1tx/2audit/0connectionfields; actualchooser+explicitrestorePASS. Proof
+.audit/web-backup-restore-proof.jpg. Full current data retained and no production requests.
+CNG Android16 debugAPK79182575bytes built8m56s with officialTemurin21 inC:/MaliNative; installed.
+Actual Hermes startup revealed native window.addEventListener absent; f2afbe5 platform+callable
+guard fixes,4regressionsPASS, actual coldstartup+guestentryPASS. Native acceptance continues.
+31a4dd9 cherry-picks independent bounded accessibility286299c:6screens+CalmDropdown+submission
+and2tests;18PASS/typePASS/lint0errors13baselinewarnings. Root review pending. Next bounded work:
+10k-list rendering and accessible archived-version retrieval. Latest completed CI f7437ca run
+38334145618 app511PASS, PG1716+67+17/fullrestorePASS, SAST/actualLinuxconsumersPASS; rawaudit4highFAIL.
