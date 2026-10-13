@@ -329,3 +329,39 @@ test('dashboard aggregates supported account balances without resetting large to
   const loan = debt(state(), { accountId: 'bank', createdAt: DATE, totalAmount: 100 });
   assert.equal(engine.reconcileDashboardSummary(loan, new Date(DATE)).currentMonthExpensesLyd, 0);
 });
+
+
+test('backup imports enforce non-cash settlement contract and linked cash currency', () => {
+  const empty = state();
+  let snapshot = debt(empty);
+  snapshot = engine.settleDebtInstallmentMutation(snapshot, {
+    debtId: 'debt', installmentId: 'backup-noncash', amount: 100,
+    settlementType: 'non_cash', isNonCash: true,
+    nonCashReason: 'مقاصة بموافقة الطرفين',
+  });
+  assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify(snapshot), empty).valid, true);
+  const mutate = (change) => {
+    const forged = structuredClone(snapshot);
+    const installment = forged.debts[0].installments[0];
+    change(installment);
+    assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify(forged), empty).valid, false);
+  };
+  mutate(i => { i.accountId = 'lyd'; });
+  mutate(i => { i.transactionId = 'forged-cash-journal'; });
+  mutate(i => { i.isNonCash = false; });
+  mutate(i => { delete i.settlementType; });
+  mutate(i => { i.nonCashReason = '   '; });
+  mutate(i => { i.nonCashReason = { unsafe: true }; });
+  mutate(i => { i.settlementType = 'cash'; });
+
+  let cash = debt(empty, { accountId: 'lyd' });
+  cash = engine.settleDebtInstallmentMutation(cash, {
+    debtId: 'debt', installmentId: 'backup-cash', amount: 100,
+    accountId: 'lyd', paymentMethod: 'cash',
+  });
+  assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify(cash), empty).valid, true);
+  const tampered = structuredClone(cash);
+  const cashTx = tampered.transactions.find(tx => tx.installmentId === 'backup-cash');
+  cashTx.currency = 'USD';
+  assert.equal(engine.validateAndSanitizeBackupPayload(JSON.stringify(tampered), empty).valid, false);
+});
