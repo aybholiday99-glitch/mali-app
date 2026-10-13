@@ -444,6 +444,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         {/* Primary Submit Button */}
         <TouchableOpacity
           style={[styles.submitBtn, { backgroundColor: theme.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel={mode === 'register' ? 'إنشاء الحساب والدخول' : mode === 'forgot' ? 'تحديث الرقم السري' : 'تسجيل الدخول بالبريد الإلكتروني'}
           onPress={handleEmailAuth}
           disabled={loading}
         >
@@ -494,6 +496,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 borderColor: theme.border,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="المتابعة باستخدام Google"
             onPress={() => handleOpenSocialLogin('google')}
           >
             <Ionicons name="logo-google" size={18} color="#EA4335" />
@@ -504,6 +508,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           <TouchableOpacity
             style={styles.facebookBtn}
+            accessibilityRole="button"
+            accessibilityLabel="المتابعة باستخدام Facebook"
             onPress={() => handleOpenSocialLogin('facebook')}
           >
             <Ionicons name="logo-facebook" size={20} color="#FFFFFF" />
@@ -521,6 +527,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 borderColor: theme.primary,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="الدخول السريع المباشر إلى خزنتي المحلية"
             onPress={handleQuickGuestStart}
           >
             <Ionicons name="flash-outline" size={18} color={theme.primary} />
@@ -533,6 +541,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         {/* Bottom Cloud Setup Link */}
         <TouchableOpacity
           style={[styles.cloudSetupRow, { borderTopColor: theme.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="إعدادات الربط السحابي"
           onPress={onOpenCloudConfig}
         >
           <Ionicons name="cloud-outline" size={16} color={theme.primary} />
