@@ -1758,12 +1758,35 @@ function validateFinancialBackup(parsed: BackupRecord): void {
       if (installmentIds.has(installment.id)) throw new Error('معرف دفعة مكرر.');
       installmentIds.add(installment.id);
       amount(installment, 'amount');
+      // Imported snapshots must obey the same cash/non-cash contract as the
+      // financial engine and PostgreSQL, without corrupting legacy installments.
+      if (installment.isNonCash !== undefined && typeof installment.isNonCash !== 'boolean') {
+        throw new Error('علامة التسوية غير النقدية غير صالحة.');
+      }
+      if (installment.settlementType !== undefined &&
+          installment.settlementType !== 'cash' && installment.settlementType !== 'non_cash') {
+        throw new Error('نوع تسوية الدين غير صالح.');
+      }
+      if (installment.settlementType === 'non_cash') {
+        if (installment.isNonCash !== true || installment.accountId !== undefined ||
+            installment.transactionId !== undefined || typeof installment.nonCashReason !== 'string' ||
+            !installment.nonCashReason.trim()) {
+          throw new Error('التسوية غير النقدية تحتوي على حركة نقدية أو سبب مفقود.');
+        }
+      } else if (installment.settlementType === 'cash') {
+        if (installment.isNonCash === true || !installment.accountId ||
+            !installment.transactionId || installment.nonCashReason !== undefined) {
+          throw new Error('القسط النقدي يفتقد إلى الخزينة أو الحركة المالية.');
+        }
+      } else if (installment.isNonCash === true) {
+        throw new Error('نوع التسوية غير النقدية مفقود.');
+      }
       if (installment.accountId) accountRef(installment.accountId, debtCurrency);
       if (installment.transactionId) {
         const tx = transactionById.get(installment.transactionId);
         if (!tx || tx.debtId !== debt.id || tx.type !== 'debt_settlement' ||
-          tx.accountId !== installment.accountId || tx.amount !== installment.amount ||
-          (tx.installmentId && tx.installmentId !== installment.id)) {
+          tx.currency !== debtCurrency || tx.accountId !== installment.accountId ||
+          tx.amount !== installment.amount || (tx.installmentId && tx.installmentId !== installment.id)) {
           throw new Error('حركة دفعة مفقودة أو غير متطابقة.');
         }
       }
