@@ -1,6 +1,6 @@
 # Mali release gate
 
-**NOT PRODUCTION READY.** Updated 2026-10-13. Draft PR2; main/Pages unchanged.
+**ANDROID-ONLY RELEASE CANDIDATE — NOT PRODUCTION READY.** Updated 2026-10-13. Draft PR2; main/Pages unchanged. The owner explicitly excludes iOS from the current release scope.
 Earlier MALI_FINAL_AUDIT/MALI_RELEASE_READINESS completion claims are superseded.
 Each source needs its own validation; prior CI is not the final integrated gate.
 
@@ -18,8 +18,8 @@ Each source needs its own validation; prior CI is not the final integrated gate.
 | All UI/RTL/accessibility/performance | PARTIAL: real Chromium 2026-10-13 verified UI mount, offline guest navigation, lossless IndexedDB migration, 1k/10k/50k record persistence and 50k full reload; accessibility/RTL source tests pass; every screen and fault-path on physical devices still requires acceptance |
 | Compatible secure dependencies | FAIL: braces absent and Expo57 consumers PASS; truthful forge1.4.0 backport passes all security/consumer tests but raw audit reports 4 high due to unreleased upstream fix |
 | Mandatory tests and CI | PARTIAL: 619/619 app tests PASS, PostgreSQL 17.11 120/120 PASS, real browser storage/guest acceptance PASS, dump/restore rehearsal PASS, web build PASS; unpatched node-forge advisory keeps npm audit and aggregate CI FAIL |
-| Android acceptance | PARTIAL: prior Android16 local APK startup and guest entry PASS; separate Ubuntu Android emulator APK/launch CI introduced, but new run 38435753028 awaits final result. Full native financial/OAuth acceptance still required |
-| iOS acceptance | PENDING: Windows lacks Xcode/iOS device; external hardware required |
+| Android acceptance | PARTIAL: Linux Gradle built the debug APK successfully. Cloud debug emulator run 38441593693 failed while launching Metro/React Native DevTools, not during APK compilation. The new standalone APK job 38444394181 builds and tests a JS-bundled offline-launchable release variant with test signing; result pending. Full native financial/biometric/OAuth and persistence acceptance still required. |
+| iOS acceptance | OUT OF SCOPE: owner requested Android-only; no iOS builds or tests are required for this Android-targeted release. |
 | Approved production published/tested | FAIL: PR2 draft; no merge/publication/financial migration deployment |
 
 Earlier live changes only repaired unsafe Auth trigger/function, confirmation/password settings
