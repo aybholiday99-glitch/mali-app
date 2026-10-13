@@ -27,6 +27,19 @@ const guest={id:'local-offline-guest',isLocalOnly:true,name:'Test',email:'test@l
 const cloud={...guest,id:'cloud-A',isLocalOnly:false};
 let api;
 function Probe(){api=useMali();return null;}
+
+test('restore refuses a previously reversed keyed operation instead of claiming revision-only success',async()=>{
+  stored.clear();const tree=await mount();await act(async()=>{api.loginUser(guest);});
+  await act(async()=>{assert.equal(await api.addAccount(account),true);});
+  await act(async()=>{assert.equal(await api.addTransaction({title:'Saved before reversal',type:'expense',amount:5,currency:'LYD',category:'test',accountId:api.state.accounts[0].id,paymentMethod:'cash',idempotencyKey:'old-reversed-key'}),true);});
+  const backup=JSON.stringify(api.state);
+  await act(async()=>{assert.equal(await api.deleteTransaction(api.state.transactions[0].id),true);});
+  const before=api.state,raw=await financialStorage.getItem('@mali_app_state_v2_'+guest.id);
+  await act(async()=>{assert.equal(await api.importStateJson(backup),false);});
+  assert.equal(api.state,before);assert.equal(api.state.accounts[0].balance,100);assert.equal(api.state.transactions.length,0);
+  assert.equal(await financialStorage.getItem('@mali_app_state_v2_'+guest.id),raw);
+  assert.ok(api.lastSyncMessage.includes('تاريخ'));await act(async()=>{tree.unmount();});
+});
 async function mount(clock){let tree;await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,{syncScheduler:clock?.scheduler},React.createElement(Probe)));});return tree;}
 const account={name:'Cash',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:100,isCash:true,color:'#fff'};
 

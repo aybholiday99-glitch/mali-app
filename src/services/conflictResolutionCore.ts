@@ -99,7 +99,7 @@ function canonical(value: unknown): unknown {
   return Object.fromEntries(Object.keys(value).sort().filter(key => (value as Record<string, unknown>)[key] !== undefined)
     .map(key => [key, canonical((value as Record<string, unknown>)[key])]));
 }
-function sameFinancial(a: MaliState, b: MaliState) {
+export function sameFinancialState(a: MaliState, b: MaliState) {
   return COLLECTIONS.every(key => JSON.stringify(canonical(a[key])) === JSON.stringify(canonical(b[key])));
 }
 function validateState(value: unknown, fallback: MaliState, ownerId: string): MaliState {
@@ -175,7 +175,7 @@ export function prepareConflictResolution(input: ConflictResolutionInput): Confl
       try {
         candidate = appendFinancialAudit(cloud, candidate, { ownerId: current.ownerId,
           action: 'conflict_resolution_keep_local', reason: input.reason.trim() });
-        if (!sameFinancial(candidate, local)) return refuse('audit-reconciliation');
+        if (!sameFinancialState(candidate, local)) return refuse('audit-reconciliation');
       } catch { return refuse('audit-reconciliation'); }
     }
     candidate = { ...candidate, localRevision: nextRevision, pendingCloudSync: input.choice === 'keep-local',

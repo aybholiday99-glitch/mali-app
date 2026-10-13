@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSupabaseSyncService } from '../src/services/supabaseSyncCore.ts';
 import { validateAndSanitizeBackupPayload } from '../src/services/financialEngine.ts';
+import { appendFinancialAudit } from '../src/services/financialAudit.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ID = '22222222-2222-4222-8222-222222222222';
@@ -53,6 +54,29 @@ function fixture(options = {}) {
   const service = createSupabaseSyncService({ getClient: () => client, fallbackState: baseState(), validateBackup: validateAndSanitizeBackupPayload });
   return { service, queries, calls, client };
 }
+
+test('actual cloud transport preserves complete nested rate fields on Pull, conflict and Push',async()=>{
+  const state=baseState();state.marketRates.extraCompleteVersion={source:'server-owned-extension',quote:6.4,nested:{arabic:'نسخة كاملة'}};
+  const f=fixture({responses:{mali_vault_snapshots:{data:[snapshot(state)],error:null}},rpcResult:{data:{ok:false,conflictDetected:true,updatedAt:BASELINE,cloudState:snapshot(state).payload},error:null}});
+  const pulled=await f.service.pullStateFromSupabase(state.supabaseConfig,user);
+  assert.equal(pulled.ok,true);assert.equal(pulled.identityVerified,true);assert.deepEqual(pulled.state.marketRates,state.marketRates);
+  const pushed=await f.service.pushStateToSupabase(state,state.supabaseConfig,user);
+  assert.equal(pushed.conflictDetected,true);assert.deepEqual(pushed.cloudState.marketRates,state.marketRates);
+  assert.deepEqual(f.calls[0].args.p_payload.marketRates,state.marketRates);
+});
+
+test('complete rate extensions survive backup journal replay and actual cloud Pull/Push validation',async()=>{
+  const before=baseState(),next=baseState();next.marketRates.extra={nested:[{source:'extension',quote:6.4}]};
+  const state=appendFinancialAudit(before,next,{ownerId:USER_ID,action:'market_rate_update',reason:'Preserve complete version'});
+  const restored=validateAndSanitizeBackupPayload(JSON.stringify(state),before);
+  assert.equal(restored.valid,true);assert.deepEqual(restored.state.marketRates,state.marketRates);
+  assert.deepEqual(restored.state.financialAudit,state.financialAudit);
+  const f=fixture({responses:{mali_vault_snapshots:{data:[snapshot(state)],error:null}}});
+  const pulled=await f.service.pullStateFromSupabase(state.supabaseConfig,user);
+  assert.equal(pulled.ok,true);assert.deepEqual(pulled.state.marketRates,state.marketRates);assert.deepEqual(pulled.state.financialAudit,state.financialAudit);
+  assert.equal((await f.service.pushStateToSupabase(state,state.supabaseConfig,user)).ok,true);
+  assert.deepEqual(f.calls[0].args.p_payload.marketRates,state.marketRates);
+});
 
 test('all sync transport failures redact raw server/request details while retaining typed failure categories',async()=>{
   const privateText='PRIVATE-JWT-EMAIL-ACCOUNT';

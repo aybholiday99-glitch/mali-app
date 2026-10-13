@@ -23,7 +23,7 @@ import { appendFinancialAudit, financialOperationId } from '../services/financia
 import type { FinancialAuditMetadata } from '../types/financialAudit';
 import { financialDate } from '../services/financialDate';
 import { snapshotFinancialInput } from '../services/financialInputSnapshot';
-import { conflictSnapshotForReview, prepareConflictResolution, type ConflictChoice, type ConflictReviewToken } from '../services/conflictResolutionCore';
+import { conflictSnapshotForReview, prepareConflictResolution, sameFinancialState, type ConflictChoice, type ConflictReviewToken } from '../services/conflictResolutionCore';
 import type { CloudConflictReview, CloudConflictResolutionResult } from '../types/cloudConflict';
 import {
   pullStateFromSupabase,
@@ -1238,6 +1238,10 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
     let replacement:MaliState;
     try {replacement=preserveSourceHistory?validation.state:appendFinancialAudit(before,imported,{ownerId,action:'backup_import',reason:'استعادة نسخة احتياطية اختارها المستخدم على هذا الجهاز.'});}
     catch {setLastSyncMessage('تعذر اعتماد النسخة مع السجل المالي الحالي.');return false;}
+    if(!sameFinancialState(replacement,validation.state)) {
+      setLastSyncMessage('تاريخ النسخة يتعارض مع عملية سبق عكسها أو اعتمادها. لم تُسترجع النسخة؛ بقي الملف والخزنة والسجل الحالي دون تغيير.');
+      return false;
+    }
     const retained=syncWorker.current?.getRecord();
     const revision=Math.max(localRevision.current,retained?.pending?.revision||0,retained?.acknowledgedRevision||0,retained?.stop?.attempted?.revision||0)+1;
     if(!Number.isSafeInteger(revision))return false;

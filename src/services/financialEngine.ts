@@ -35,7 +35,7 @@ export function updateMarketRatesMutation(state: MaliState, input: Partial<Marke
       !Number.isFinite(discount) || discount < 0 || discount >= 100) return state;
   const cashRate = roundRate(cash), chequeRate = roundRate(cheque);
   if (cashRate <= 0 || chequeRate <= 0) return state;
-  return { ...state, marketRates: { cashUsdToLyd: cashRate, chequeUsdToLyd: chequeRate,
+  return { ...state, marketRates: { ...state.marketRates, cashUsdToLyd: cashRate, chequeUsdToLyd: chequeRate,
     defaultChequeDiscountPercent: discount, updatedAt: new Date().toISOString() } };
 }
 const MAX_MONEY_CENTS = BigInt(MAX_MONEY_AMOUNT) * 100n;
@@ -1599,6 +1599,7 @@ export function validateAndSanitizeBackupPayload(
       marketRates:
         parsed.marketRates && typeof parsed.marketRates === 'object'
           ? {
+              ...parsed.marketRates,
               cashUsdToLyd: roundRate(
                 Number(parsed.marketRates.cashUsdToLyd) || fallbackState.marketRates.cashUsdToLyd
               ),
