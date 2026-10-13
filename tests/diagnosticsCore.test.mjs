@@ -13,3 +13,9 @@ test('malformed diagnostics values cannot copy arbitrary error/phase fields into
   const secret='PRIVATE';const output=createSafeDiagnostics({localRevision:-1},{phase:secret,outbox:{attempts:secret,syncedAt:secret,stop:{reason:secret}}},secret,true);
   assert.ok(!JSON.stringify(output).includes(secret));assert.equal(output.platform,'unknown');assert.equal(output.sync.phase,'unknown');assert.equal(output.localRevision,undefined);
 });
+test('parseable date comments cannot smuggle private strings into diagnostic timestamps',()=>{
+  const privateText='CUSTOMER-NAME-PRIVATEKEY';const malicious='2026-10-13 ('+privateText+')';
+  assert.ok(Number.isFinite(Date.parse(malicious)));
+  const result=createSafeDiagnostics({},{phase:'idle',outbox:{syncedAt:malicious}},'web',true);
+  assert.equal(result.sync.syncedAt,undefined);assert.ok(!JSON.stringify(result).includes(privateText));
+});

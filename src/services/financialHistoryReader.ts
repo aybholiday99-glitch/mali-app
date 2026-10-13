@@ -1,4 +1,5 @@
 import type {AuthUser, SupabaseConfig} from '../types/mali';
+import {isAbsoluteTimestamp} from '../utils/absoluteTimestamp.ts';
 
 export interface ServerFinancialAcceptance {
   history_id: number;
@@ -16,7 +17,6 @@ interface HistoryClient {
 type HistoryResult = {ok:true;rows:ServerFinancialAcceptance[];nextCursor?:number} | {ok:false;message:string};
 const failed=():HistoryResult=>({ok:false,message:'تعذر توثيق أو قراءة سجل الخادم. قد لا تكون ترحيلة السجل مفعّلة أو انتهت الجلسة. بقي سجل الجهاز محفوظاً.'});
 const PAGE_SIZE=30;
-const timestamp=(value:unknown):value is string=>typeof value==='string' && value.length<=64 && Number.isFinite(Date.parse(value));
 
 /** Owner-filtered keyset page; no credential, financial image, or history-write request. */
 export async function readFinancialHistory(client:HistoryClient,config:SupabaseConfig,user:AuthUser|null,
@@ -39,9 +39,10 @@ export async function readFinancialHistory(client:HistoryClient,config:SupabaseC
       for(const row of data){
         if(!row || !Number.isSafeInteger(row.history_id) || row.history_id<=0 || row.history_id>=previous
           || row.user_id!==user.id || row.workspace_key!==config.workspaceKey
-          || (row.actor_id!==null && row.actor_id!==user.id) || !timestamp(row.accepted_at) || !timestamp(row.snapshot_updated_at)
+          || (row.actor_id!==null && row.actor_id!==user.id) || !isAbsoluteTimestamp(row.accepted_at) || !isAbsoluteTimestamp(row.snapshot_updated_at)
           || !['observed_baseline','cloud_commit','snapshot_deleted'].includes(row.event_type))return failed();
-        rows.push({...row});previous=row.history_id;
+        rows.push({history_id:row.history_id,user_id:row.user_id,workspace_key:row.workspace_key,actor_id:row.actor_id,
+          accepted_at:row.accepted_at,snapshot_updated_at:row.snapshot_updated_at,event_type:row.event_type});previous=row.history_id;
       }
       const after=await client.auth.getUser();
       if(!current() || after.error || after.data?.user?.id!==user.id)return failed();

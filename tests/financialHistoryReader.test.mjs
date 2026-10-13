@@ -29,9 +29,13 @@ test('history cannot query unauthenticated, guest, expired or invalid cursor ses
   const result=await readFinancialHistory(f.client,config,{...user,isLocalOnly:true},{signal:f.controller.signal,isCurrent:()=>true});assert.equal(result.ok,false);
 });
 test('history rejects foreign ownership, workspace, invalid chronology, duplicate order and unsafe ids',async()=>{
-  for(const rows of [[{...row(20),user_id:'other'}],[{...row(20),workspace_key:'other'}],[{...row(20),actor_id:'other'}],[{...row(20),accepted_at:'tomorrow'}],[row(20),row(20)],[row(20),row(21)],[row(Number.MAX_SAFE_INTEGER+1)]]){
+  for(const rows of [[{...row(20),user_id:'other'}],[{...row(20),workspace_key:'other'}],[{...row(20),actor_id:'other'}],[{...row(20),accepted_at:'tomorrow'}],[{...row(20),accepted_at:'2026-02-30T00:00:00Z'}],[{...row(20),accepted_at:'2026-10-13 (PRIVATE-COMMENT)'}],[row(20),row(20)],[row(20),row(21)],[row(Number.MAX_SAFE_INTEGER+1)]]){
     assert.equal((await fixture(rows).read()).ok,false);
   }
+});
+test('summary reader drops unexpected response fields rather than copying full remote records',async()=>{
+  const result=await fixture([{...row(20),unexpectedPrivateField:'PRIVATE',changes:[{image:'PRIVATE'}]}]).read();
+  assert.equal(result.ok,true);assert.ok(!JSON.stringify(result).includes('PRIVATE'));assert.equal(Object.keys(result.rows[0]).length,7);
 });
 test('session/owner change after query cannot publish history from an earlier user',async()=>{
   const f=fixture();let reads=0;

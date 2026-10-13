@@ -123,3 +123,16 @@ all-control accessibility/RTL/performance acceptance, old credential evidence an
 - Root support diagnostics use explicit nonfinancial metadata/count allowlist, and transport/Auth/UI error
   messages no longer echo remote payloads. Typed sync failure categories remain intact.63focused actual
   auth/sync/worker/screen/native checks PASS; no remote monitoring service or sensitive logging added.
+
+- Independent support/reader review caught permissive Date.parse accepting private date comments;
+  strict calendar-valid absolute timestamp repair and explicit7-field server projection PASS13tests,
+  independent original exploit/calendar/extra-field probes,30+1pagination/owner/unmount tests.
+  Official decoder identity/archive/license/exact one-export substitution reviewed independently;
+  363 malformed/Arabic/emoji/query comparisons through actual Router equal official ESM0.5.0.
+- Added user-selected JSON file restore via already-installed Expo57 File.pickFileAsync typed result;
+  selection alone never changes a vault, safe length checked before/after read, explicit confirmation
+  preserves source/original evidence. No giant file is bound into a native TextInput.18focused tests PASS;
+  real Android file picker/round-trip still pending. No new native dependency or production request.
+- Expo Router06af396 integrated (source5dbdba8): six protected routed screens, one persistent provider,
+  native/web back/deep-link/base paths, retained Auth form and no second OAuth exchange. Agent398tests/
+  type/lint/web build PASS; local Android CNG debug build in progress, final primary integration pending.

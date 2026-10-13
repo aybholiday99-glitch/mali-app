@@ -1,8 +1,9 @@
 import type {MaliState} from '../types/mali';
 import type {CloudSyncStatus} from './durableSyncWorker';
+import {isAbsoluteTimestamp} from '../utils/absoluteTimestamp.ts';
 const count=(rows:unknown)=>Array.isArray(rows)?rows.length:0;
 const integer=(value:unknown)=>Number.isSafeInteger(value) && Number(value)>=0?value:undefined;
-const timestamp=(value:unknown)=>typeof value==='string' && value.length<=64 && Number.isFinite(Date.parse(value))?value:undefined;
+const timestamp=(value:unknown)=>isAbsoluteTimestamp(value)?value:undefined;
 
 /** Explicit allowlist: support reports never serialize state, config, rows or errors. */
 export function createSafeDiagnostics(state:MaliState,status:CloudSyncStatus<MaliState>,platform:string,localOnly:boolean){

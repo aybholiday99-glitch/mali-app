@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef,useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { FinancialHistoryPanel } from '../components/FinancialHistoryPanel';
 import { createSafeDiagnostics } from '../services/diagnosticsCore';
+import { pickBackupFile,type BackupFileResult } from '../utils/backupFilePicker';
 import { SUPABASE_SQL_SCHEMA } from '../services/supabaseSync';
 import {
   exportFileOrShare,
@@ -56,6 +57,9 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
   const [importJsonText, setImportJsonText] = useState('');
   const [showImportBox, setShowImportBox] = useState(false);
+  const [pickedBackup,setPickedBackup]=useState<Extract<BackupFileResult,{status:'selected'}>|null>(null);
+  const [readingBackup,setReadingBackup]=useState(false);
+  const backupPickerPending=useRef(false);
 
   const buildCurrentConfig = () => ({
     url: urlInput.trim(),
@@ -399,6 +403,12 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
               </TouchableOpacity>
 
               <View style={styles.syncActionsRow}>
+                <TouchableOpacity accessibilityRole="button" disabled={readingBackup} accessibilityState={{disabled:readingBackup,busy:readingBackup}} style={[styles.pullBtn,{backgroundColor:theme.card,borderColor:theme.border}]} onPress={async()=>{
+                  if(backupPickerPending.current)return;backupPickerPending.current=true;setReadingBackup(true);
+                  try{const result=await pickBackupFile();if(result.status==='selected'){setPickedBackup(result);setImportJsonText('');setShowImportBox(true);setStatusBanner('تمت قراءة الملف. راجع الاختيار ثم أكد الاسترجاع؛ لم تتغير الخزنة بعد.');}
+                    else if(result.status==='error')setStatusBanner(result.message);
+                  }finally{backupPickerPending.current=false;setReadingBackup(false);}
+                }}><Text style={[styles.pullBtnText,{color:theme.primary}]}>{readingBackup?'جارٍ اختيار النسخة…':'اختيار ملف نسخة JSON'}</Text></TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.pushBtn,
@@ -506,7 +516,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                       borderColor: theme.blue,
                     },
                   ]}
-                  onPress={() => setShowImportBox(!showImportBox)}
+                  onPress={() => {setPickedBackup(null);setShowImportBox(!showImportBox);}}
                 >
                   <Ionicons
                     name="folder-open-outline"
@@ -531,7 +541,7 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                   >
                     الصق محتوى ملف النسخة الاحتياطية (JSON) هنا:
                   </Text>
-                  <TextInput
+                  {pickedBackup ? <Text style={[styles.sectionSub,{color:theme.text}]}>{pickedBackup.name} · {Math.ceil(pickedBackup.bytes/1024)} KB. ستُحفظ نسخة الاسترجاع والدليل السابق قبل الاستبدال.</Text> : <TextInput
                     style={[
                       styles.input,
                       {
@@ -546,20 +556,20 @@ export const CloudAndExportModal: React.FC<CloudModalProps> = ({
                     onChangeText={setImportJsonText}
                     placeholder='{"accounts": [...], "deals": [...]}'
                     placeholderTextColor={theme.textMuted}
-                  />
+                  />}
                   <TouchableOpacity
                     style={[
                       styles.pushBtn,
                       { marginTop: 8, backgroundColor: theme.primary },
                     ]}
                     onPress={async () => {
-                      const ok = await importStateJson(importJsonText);
+                      const ok = await importStateJson(pickedBackup?.content || importJsonText);
                       setStatusBanner(
                         ok
                           ? 'تم استرجاع النسخة الاحتياطية بنجاح!'
-                          : 'صيغة ملف JSON غير صالحة.'
+                          : 'تعذر التحقق أو الحفظ أو تغيرت الجلسة. بقيت النسخة والبيانات السابقة محفوظة؛ راجع رسالة الحالة وأعد المحاولة.'
                       );
-                      if (ok) setShowImportBox(false);
+                      if (ok) {setShowImportBox(false);setPickedBackup(null);setImportJsonText('');}
                     }}
                   >
                     <Text style={styles.pushBtnText}>تأكيد الاسترجاع</Text>
