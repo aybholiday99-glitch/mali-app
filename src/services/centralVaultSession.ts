@@ -19,6 +19,7 @@ export type CentralVaultResult =
 
 const failure = (reason: 'session' | 'unavailable' | 'conflict' | 'invalid', message: string): CentralVaultResult =>
   ({ ok: false, reason, message });
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const authenticated = (u: AuthUser | null): u is AuthUser =>
   Boolean(u && u.id && !u.isLocalOnly && u.id !== 'local-offline-guest');
 
@@ -33,7 +34,7 @@ export function createCentralVaultSession(
   let inFlight: Promise<unknown> = Promise.resolve();
 
   function snapshot(): MaliState | null {
-    return current ? structuredClone(current) : null;
+    return current ? clone(current) : null;
   }
   function clear() {
     generation += 1;
@@ -53,7 +54,7 @@ export function createCentralVaultSession(
       if (pulled.isEmpty && pulled.identityVerified === true) {
         current = emptyVault(user);
         current.supabaseConfig = { ...config, lastSyncedAt: undefined };
-        return { ok: true, state: structuredClone(current) };
+        return { ok: true, state: clone(current) };
       }
       if (!pulled.ok || !pulled.state || pulled.identityVerified !== true) {
         blocked = true;
@@ -63,7 +64,7 @@ export function createCentralVaultSession(
         supabaseConfig: { ...config, lastSyncedAt: pulled.snapshotUpdatedAt === null
           ? undefined : (pulled.snapshotUpdatedAt || pulled.updatedAt) },
         pendingCloudSync: false };
-      return { ok: true, state: structuredClone(current) };
+      return { ok: true, state: clone(current) };
     } catch {
       if (generation === token) blocked = true;
       return failure('unavailable', 'تعذر الاتصال بالخادم. لا توجد نسخة مالية محلية قابلة للاستخدام.');
@@ -78,7 +79,7 @@ export function createCentralVaultSession(
       const before = current;
       let candidate: MaliState;
       try {
-        candidate = mutate(structuredClone(before));
+        candidate = mutate(clone(before));
         if (!candidate || JSON.stringify(candidate) === JSON.stringify(before)) return failure('invalid', 'لا توجد عملية مالية صالحة.');
         if (candidate.supabaseConfig.url !== before.supabaseConfig.url ||
             candidate.supabaseConfig.anonKey !== before.supabaseConfig.anonKey)
@@ -104,7 +105,7 @@ export function createCentralVaultSession(
       current = { ...candidate, pendingCloudSync: false,
         supabaseConfig: { ...candidate.supabaseConfig, lastSyncedAt: result.snapshotUpdatedAt === null
           ? undefined : (result.snapshotUpdatedAt || result.updatedAt) } };
-      return { ok: true, state: structuredClone(current) };
+      return { ok: true, state: clone(current) };
     });
     inFlight = operation.then(() => {}, () => {});
     return operation;
