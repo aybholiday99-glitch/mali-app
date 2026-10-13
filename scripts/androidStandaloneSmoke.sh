@@ -17,13 +17,19 @@ else
   exit 1
 fi
 
-adb wait-for-device
-adb logcat -c
-adb install -r "$APK"
-adb shell am force-stop com.aybholiday.mali || true
-adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
+echo "Step 1: wait for emulator ADB connection"
+timeout 60 adb wait-for-device
+echo "Step 2: clear logcat"
+timeout 45 adb logcat -c
+echo "Step 3: install standalone APK"
+timeout 240 adb install -r "$APK"
+echo "Step 4: force-stop before fresh launch"
+timeout 45 adb shell am force-stop com.aybholiday.mali || true
+echo "Step 5: launch native Mali app"
+timeout 60 adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
 sleep 25
-FIRST_PID="$(adb shell pidof com.aybholiday.mali | tr -d '\r')"
+echo "Step 6: check initial app process"
+FIRST_PID="$(timeout 45 adb shell pidof com.aybholiday.mali | tr -d '\r')"
 adb logcat -d -t 2000 > android-standalone-evidence/first-launch-logcat.txt
 adb shell dumpsys activity activities > android-standalone-evidence/first-activity.txt
 adb shell uiautomator dump /sdcard/mali-release-first.xml || true
@@ -42,12 +48,15 @@ if grep -Eqi 'Unable to load script|Failed to connect to development server|Coul
   exit 1
 fi
 
-adb shell am force-stop com.aybholiday.mali
+echo "Step 7: simulate force-stop"
+timeout 45 adb shell am force-stop com.aybholiday.mali
 sleep 2
-adb logcat -c
-adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
+timeout 45 adb logcat -c
+echo "Step 8: relaunch Android app with no Metro"
+timeout 60 adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
 sleep 20
-SECOND_PID="$(adb shell pidof com.aybholiday.mali | tr -d '\r')"
+echo "Step 9: verify app process after restart"
+SECOND_PID="$(timeout 45 adb shell pidof com.aybholiday.mali | tr -d '\r')"
 adb logcat -d -t 2000 > android-standalone-evidence/second-launch-logcat.txt
 adb shell dumpsys activity activities > android-standalone-evidence/second-activity.txt
 adb shell uiautomator dump /sdcard/mali-release-second.xml || true
