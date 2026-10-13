@@ -6,7 +6,7 @@ Decision (owner request): **All durable customer financial records belong in the
 - Today, `src/services/financialStorage.ts` persists Android finance to AsyncStorage (with chunking, checkpoint and recovery). `MaliContext.tsx` writes financial state/outbox on device, then synchronizes opportunistically. `AuthScreen.tsx` offers a local guest mode. The current APKs are NOT compliant with the new owner requirement.
 - `src/services/supabaseSyncCore.ts` already has an ownership-verified cloud pull and `mali_sync_vault` atomic compare-and-swap RPC, but this RPC is pending deployment (production migrations end at `20261012221501_remove_unsafe_email_confirmation`).
 - Sensitive receipt images/backup exports can be written locally by app flows; their migration and secure serving must be completed before the no-device-data promise can be made.
-- `src/services/centralVaultSession.ts` and its Node tests are the first **isolated core** for this transition. They are NOT yet wired into the live customer React Native provider. It holds display records only in RAM, requires verified cloud identity on open, waits for server ACK before publishing a mutation, serializes CAS writes, and fails closed on uncertainty/conflict without persistent device writes.
+- `src/services/centralVaultSession.ts` and its Node tests implement the new online-only core. `MaliContext.tsx` now contains an **opt-in feature-flagged** integration: authenticated remote-first login, server ACK before publishing updates, no new financial cache/outbox writes, and a migration stop if legacy device records exist. `AuthScreen` hides guest login and customer-managed cloud settings in this mode; `exportHelper` blocks customer-side file export/print. It is **NOT ENABLED in the shipped Android builds**.
 
 ## Target data flows
 1. Customer signs up/signs in via Supabase Auth. Do not issue local guest sessions. Keep only a minimal refresh/session token in platform-secured auth storage; do not persist financial payloads, reports, photos or cloud mutation outboxes on Android.
@@ -24,7 +24,7 @@ Decision (owner request): **All durable customer financial records belong in the
 - Old device clients cannot be remotely guaranteed to stop persisting until upgraded. A coordinated server/API minimum version gate is needed.
 
 ## Release gates: do not deploy before all pass
-- [ ] Fully integrate server-only session into `MaliContext` with no AsyncStorage financial writes/reads after verified migration, no durable offline queue, no locally stored receipts or backups.
+- [ ] Complete/test the feature-flagged central-only provider and safely enable `EXPO_PUBLIC_MALI_CENTRAL_ONLY=true` **only after** legacy migration, server RPC and private media are validated. The current integration still reads *old* on-device data to detect migration requirements, never deletes it, and blocks customers until migrated.
 - [ ] Disable guest UI and serverless finance actions on Android; enforce authenticated online session on routes and API.
 - [ ] Replace automatic async push with direct authenticated RPC ACK prior to UI success; test concurrent devices, network loss, duplicate replay and session switch.
 - [ ] Audit third-party SDKs (logs, crash reporters, analytics), Android backup policy, screenshots, and OS-managed caching for financial data.
