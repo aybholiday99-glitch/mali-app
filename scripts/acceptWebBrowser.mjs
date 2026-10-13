@@ -167,7 +167,7 @@ try {
   try {
     guestEntered = await until(async () => {
       try {
-        return await evaluate(call, "(() => { const elements = [...document.querySelectorAll('button,[role=button]')]; const entry = elements.find(el => (el.textContent || '').includes('الدخول السريع المباشر إلى خزنتي المحلية')); if (!entry) return false; entry.click(); return true; })()");
+        return await evaluate(call, "(() => { const label = 'الدخول السريع المباشر إلى خزنتي المحلية'; const entry = [...document.querySelectorAll('div,span,button,a')].find(el => !el.children.length && (el.textContent || '').trim() === label); if (!entry) return false; const target = entry.closest('button,[role=button],[tabindex]') || entry.parentElement; if (!target) return false; target.click(); return true; })()");
       } catch { return false; }
     }, 'offline guest entry after provider bootstrap', 18000);
   } catch (error) {
