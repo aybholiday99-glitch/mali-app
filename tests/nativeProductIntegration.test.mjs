@@ -12,6 +12,7 @@ globalThis.nativeProductContext={theme:new Proxy({}, {get:()=> '#333333'})};
 const memory=new Map(), calls={library:[],camera:[],cameraPermission:0,libraryPermission:0,manipulate:[],share:[],print:[],deleted:[]};
 const jpeg=Buffer.from([255,216,255,217]).toString('base64');
 const asset={uri:'file:///cache/ImagePicker/source.jpg',width:4000,height:3000,type:'image',fileSize:1000};
+let copyGate=()=>Promise.resolve();
 let pickerResult={canceled:false,assets:[asset]},cameraAllowed=true,sharingAvailable=true,shareError=false,writeTruncated=false,pdfOversized=false;
 function uriOf(parts){const values=parts.map(p=>typeof p==='string'?p:p.uri);return values[0].replace(/\/+$/,'')+values.slice(1).map(value=>'/'+value.replace(/^\/+|\/+$/g,'')).join('');}
 class Directory {
@@ -29,7 +30,7 @@ class File {
   get size(){const data=memory.get(this.uri);return data?.size??(typeof data?.content==='string'?Buffer.byteLength(data.content):data?.content?.length??0);}
   create(){memory.set(this.uri,{content:''});}
   write(content){memory.set(this.uri,{content:writeTruncated?content.slice(0,-1):content});}
-  copy(destination){memory.set(destination.uri,{...memory.get(this.uri)});}
+  async copy(destination){await copyGate();assert.ok(memory.has(this.uri),'printer source must remain until copy completes');assert.ok(memory.get(destination.uri.slice(0,destination.uri.lastIndexOf('/')))?.directory,'destination directory must exist until copy completes');memory.set(destination.uri,{...memory.get(this.uri)});}
   delete(){memory.delete(this.uri);calls.deleted.push(this.uri);}
 }
 globalThis.nativeProductFS={File,Directory,Paths:{cache:new Directory('file:///cache')}};
@@ -63,7 +64,7 @@ registerHooks({resolve(specifier,context,next){
 const {pickReceiptImagesFromDevice}=await import('../src/utils/receiptPicker.ts');
 const {ReceiptAttachmentField,ReceiptInlineStrip}=await import('../src/components/ReceiptImageAttachment.tsx');
 const {exportFileOrShare,printFinancialStatement}=await import('../src/utils/exportHelper.ts');
-function reset(){memory.clear();memory.set('file:///cache',{directory:true});memory.set(asset.uri,{size:1000});for(const key of Object.keys(calls)){if(Array.isArray(calls[key]))calls[key].length=0;else calls[key]=0;}pickerResult={canceled:false,assets:[asset]};cameraAllowed=true;sharingAvailable=true;shareError=false;writeTruncated=false;pdfOversized=false;globalThis.maliTestPlatform.OS='android';}
+function reset(){copyGate=()=>Promise.resolve();memory.clear();memory.set('file:///cache',{directory:true});memory.set(asset.uri,{size:1000});for(const key of Object.keys(calls)){if(Array.isArray(calls[key]))calls[key].length=0;else calls[key]=0;}pickerResult={canceled:false,assets:[asset]};cameraAllowed=true;sharingAvailable=true;shareError=false;writeTruncated=false;pdfOversized=false;globalThis.maliTestPlatform.OS='android';}
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const state={accounts:[{id:'cash',name:'<unsafe> حساب',bankName:'Cash',category:'cash_lyd',currency:'LYD',balance:5,isCash:true}],contacts:[],deals:[],debts:[],procedures:[],transactions:[],budgets:[],marketRates:{cashUsdToLyd:6,chequeUsdToLyd:6.3,defaultChequeDiscountPercent:2},supabaseConfig:{}};
 
@@ -160,4 +161,16 @@ test('existing web picker uses bounded canvas JPEG and reports cancellation with
   globalThis.document={body:{appendChild(){}},createElement(type){if(type==='canvas')return{getContext:()=>({fillRect(){},drawImage(){}}),toDataURL:()=> 'data:image/jpeg;base64,'+jpeg};return{style:{},files:[{type:contentType,size:100}],remove(){},click(){queueMicrotask(()=>cancelled?this.oncancel():this.onchange());}};}};
   try{assert.equal((await pickReceiptImagesFromDevice()).images[0],'data:image/jpeg;base64,'+jpeg);assert.equal(revoked,1);cancelled=true;assert.equal((await pickReceiptImagesFromDevice()).status,'cancelled');cancelled=false;contentType='image/svg+xml';assert.equal((await pickReceiptImagesFromDevice()).status,'error');assert.equal(revoked,1);}
   finally{URL.createObjectURL=create;URL.revokeObjectURL=revoke;delete globalThis.window;delete globalThis.document;}
+});
+
+for(const fail of [false,true])test('native PDF '+(fail?'copy rejection is handled':'share waits for complete asynchronous copy')+' without early source/destination cleanup',async()=>{
+  reset();let release,entered;const started=new Promise(resolve=>entered=resolve);
+  copyGate=()=>{entered();return new Promise((resolve,reject)=>{release=()=>fail?reject(new Error('copy failed')):resolve();});};
+  const pending=printFinancialStatement(state);await started;
+  assert.equal(calls.share.length,0);assert.equal(memory.has('file:///cache/Print/report.pdf'),true);
+  assert.ok([...memory.entries()].some(([key,value])=>/mali-exports\/export-/.test(key)&&value.directory));
+  release();assert.equal(await pending,!fail);assert.equal(calls.share.length,fail?0:1);
+  assert.equal(memory.has('file:///cache/Print/report.pdf'),false);
+  if(fail)assert.equal([...memory.keys()].some(key=>/mali-exports\/export-/.test(key)),false);
+  else assert.deepEqual(calls.share[0].content,Buffer.from('%PDF-1.7 isolated I/O fixture'));
 });

@@ -42,7 +42,7 @@ export async function nativeExportPorts(): Promise<ExportPorts> {
         source=new File(result.uri);
         const prefix=Paths.cache.uri.endsWith('/') ? Paths.cache.uri : Paths.cache.uri+'/';
         if (!source.uri.startsWith(prefix) || !source.exists || source.size <= 0 || source.size > MAX_EXPORT_BYTES) throw new Error('invalid PDF output');
-        const file=new File(directory,filename);source.copy(file);
+        const file=new File(directory,filename);await source.copy(file);
         if (!file.exists || file.size !== source.size) throw new Error('incomplete PDF copy');
         prepared.set(file.uri,directory);return file.uri;
       } catch (error) { if (owned(directory)) directory.delete();throw error; }
