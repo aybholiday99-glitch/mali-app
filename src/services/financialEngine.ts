@@ -1283,8 +1283,10 @@ export function deleteDebtInstallmentMutation(
     updatedAt: now,
   };
 
-  // 1. إذا كان قسط تسوية غير نقدية: لا توجد خزينة أو معاملة لعكسها
+  // Non-cash reversals must never conceal a contradictory cash journal entry.
   if (installment.isNonCash || installment.settlementType === 'non_cash') {
+    if (installment.accountId || installment.transactionId ||
+        state.transactions.some((tx) => tx.installmentId === installmentId)) return state;
     return touchState({
       ...state,
       debts: state.debts.map((d) => (d.id === debt.id ? updatedDebt : d)),
@@ -1304,19 +1306,19 @@ export function deleteDebtInstallmentMutation(
 
   const linkedTx = matchingTxs[0];
 
-  // إذا كان القسط حديثاً ولديه transactionId ولكن المعاملة غير موجودة في السجلات:
-  // نرفض العملية منعاً لتعديل الخزينة دون دليل على المعاملة الأصلية
-  if (installment.transactionId && !linkedTx) {
-    return state;
-  }
+  // New cash installments must retain their original journal identity.
+  // Legacy installments with an account but no journal need manual reconciliation:
+  // changing only the receivable while leaving the cash balance intact is unsafe.
+  if (!linkedTx && (installment.transactionId || installment.accountId)) return state;
 
-  // في حال وجود معاملة مرتبطة، نتحقق من التطابق التام:
   if (linkedTx) {
-    if (linkedTx.type !== 'debt_settlement') return state;
-    if (linkedTx.debtId && linkedTx.debtId !== debtId) return state;
-    if (linkedTx.amount !== instAmount) return state;
-    if (linkedTx.currency !== debt.currency) return state;
-    if (installment.accountId && linkedTx.accountId !== installment.accountId) return state;
+    if (linkedTx.type !== 'debt_settlement' ||
+        linkedTx.debtId !== debtId ||
+        linkedTx.installmentId !== installmentId ||
+        (installment.transactionId && linkedTx.id !== installment.transactionId) ||
+        (installment.accountId && linkedTx.accountId !== installment.accountId) ||
+        linkedTx.amount !== instAmount ||
+        linkedTx.currency !== debt.currency) return state;
   }
 
   let updatedAccounts = state.accounts;
@@ -1466,7 +1468,17 @@ export function deleteTransactionMutation(state: MaliState, txId: string): MaliS
     if (installments.length === 0 && !tx.installmentId) installments = debt.installments.filter((i) =>
       !i.transactionId && i.amount === tx.amount && i.accountId === tx.accountId);
     if (installments.length !== 1) return state;
-    const remaining = debt.installments.filter((i) => i.id !== installments[0].id);
+    const installment = installments[0];
+    // The transaction deletion entry point must enforce the same journal
+    // identity checks as the installment deletion entry point.
+    if (tx.debtId !== debt.id ||
+        (tx.installmentId && tx.installmentId !== installment.id) ||
+        (installment.transactionId && installment.transactionId !== tx.id) ||
+        (installment.accountId && installment.accountId !== tx.accountId) ||
+        tx.currency !== debt.currency ||
+        tx.amount !== installment.amount ||
+        installment.isNonCash || installment.settlementType === 'non_cash') return state;
+    const remaining = debt.installments.filter((i) => i.id !== installment.id);
     const paidAmount = moneySum(...remaining.map((i) => i.amount));
     const remainingAmount = moneySum(debt.totalAmount, -paidAmount);
     if (!validMoney(paidAmount) || !validMoney(remainingAmount) || remainingAmount < 0) return state;
