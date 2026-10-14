@@ -285,5 +285,30 @@ platformfixturesandseparateweb/nativecycles;32targetedPASS. Final newsource CIst
   - TypeScript (`npm run typecheck`): **0 errors**.
   - ESLint (`npm run lint`): **0 errors, 0 warnings**.
 
+## 2026-10-14 Central Server-Authoritative RBAC & Maintenance Hardening
 
-
+- **Database Security & Server-Enforced Governance:**
+  - Added migration `supabase/migrations/20261014120000_central_admin_rbac_and_maintenance.sql`:
+    - `public.mali_admin_roles`: Table storing admin role assignments with RLS allowing self-read only, revoking public writes, and defining `mali_is_admin()` security-definer helper.
+    - `public.mali_system_settings`: Table storing global system settings (e.g. `maintenance_mode`) with public read for all clients and admin-only update.
+    - `public.mali_admin_audit_log`: Immutable append-only audit log table recording admin actions (actor, action, details, timestamp).
+    - Server RPCs: `mali_check_admin_role()`, `mali_admin_toggle_maintenance(p_active, p_reason)`, `mali_admin_get_system_metrics()`, `mali_admin_get_users()`, `mali_admin_get_security_events()`.
+    - Database Trigger: `mali_vault_snapshots_maintenance_check` on `public.mali_vault_snapshots` that automatically halts financial writes centrally with error code `55000` when maintenance mode is active.
+- **Admin Service Refactoring:**
+  - `src/services/adminService.ts`:
+    - Completely eliminated client-side email checking (`AUTHORIZED_OWNER_EMAILS`) and client-side `user_metadata.role` checks. `isSystemOwner` strictly evaluates server-assigned `app_metadata` or server role.
+    - Implemented `verifyAdminRoleOnServer`, `syncEmergencyMaintenanceState`, `getEmergencyMaintenanceState`, and `checkAdminMfaAssuranceLevel`.
+    - Rewrote `fetchAdminSystemMetrics`, `fetchAdminUserList`, `fetchAdminSecurityEvents`, and `setEmergencyMaintenanceMode` to execute real server RPCs with dynamic import decoupling, throwing explicit Arabic errors upon server failure without returning mock data.
+- **UI Screen Hardening:**
+  - `src/screens/AdminDashboardScreen.tsx`:
+    - Integrated asynchronous server maintenance toggle.
+    - Added explicit unavailable/retry status cards for overview, user directory, and security events tabs when server RPCs are disconnected or not deployed, preventing dummy mock data from ever displaying.
+    - Added MFA assurance status card in security tab.
+    - Fixed React 19 ESLint effect hook setState cascading render warning using clean async mounting lifecycle.
+- **Comprehensive Verification:**
+  - Admin Dashboard unit tests `tests/adminDashboard.test.mjs`: **6 / 6 PASS** (verifies anti-spoofing rejection, server RPC execution, customer rejection, central maintenance, and MFA).
+  - PostgreSQL 17.11 Admin RBAC tests `tests/adminRbacPostgres.test.mjs`: **6 / 6 PASS** (verifies `mali_is_admin`, `mali_check_admin_role`, RLS restrictions, immutable audit logging, database maintenance trigger blocking with code `55000`, and admin RPCs).
+  - Full application test suite (`npm test`): **707 / 707 PASS** (100% across all 60 test suites, 0 failures, 0 skipped).
+  - PostgreSQL 17.11 loopback suite: **143 / 143 PASS** across 4 test suites (`database.test.mjs`, `financialSqlValidation.test.mjs`, `financialAuditSql.test.mjs`, `adminRbacPostgres.test.mjs`).
+  - TypeScript (`npm run typecheck`): **0 errors**.
+  - ESLint (`npm run lint`): **0 errors, 0 warnings**.

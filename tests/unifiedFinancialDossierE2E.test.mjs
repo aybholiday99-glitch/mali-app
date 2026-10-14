@@ -514,6 +514,7 @@ test('Unified Financial Dossier E2E — Complete 16-Point Verification', async (
     });
 
     assert.equal(isDebtBelongingTransaction(state.transactions[0]), false);
+    assert.equal(isDealBelongingTransaction(state.transactions[0]), false);
     assert.equal(isDebtBelongingTransaction(state.transactions[1]), true);
 
     const profile = computeUnifiedContactProfile(state, contact);

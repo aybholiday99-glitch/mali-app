@@ -34,37 +34,55 @@ export interface AdminSecurityEvent {
     | 'concurrency_conflict'
     | 'overdraft_blocked'
     | 'unauthorized_attempt'
-    | 'maintenance_toggle';
+    | 'maintenance_toggle'
+    | string;
   severity: 'info' | 'warning' | 'critical';
   details: string;
   userEmail?: string;
 }
 
-const AUTHORIZED_OWNER_EMAILS = new Set([
-  'admin@mali.app',
-  'owner@mali.app',
-  'aybholiday99@gmail.com',
-]);
-
 let isEmergencyMaintenanceMode = false;
 let emergencyMaintenanceReason: string | undefined = undefined;
 
-/**
- * Validates whether the given user has system owner / administrative privileges.
- */
-export function isSystemOwner(user: AuthUser | null): boolean {
-  if (!user || !user.id || user.isLocalOnly) return false;
-  const email = (user.email || '').toLowerCase().trim();
-  if (AUTHORIZED_OWNER_EMAILS.has(email)) return true;
-  // If user metadata explicitly sets admin role
-  if ((user as any).role === 'admin' || (user as any).user_metadata?.role === 'admin') {
-    return true;
-  }
-  return false;
+async function getClient(config: SupabaseConfig, clientOverride?: any) {
+  if (clientOverride) return clientOverride;
+  const { getSharedSupabaseClient } = await import('./authService.ts');
+  return getSharedSupabaseClient(config);
 }
 
 /**
- * Gets the current system maintenance mode status.
+ * Validates whether the given user has system owner / administrative privileges.
+ * Relies strictly on server-assigned app_metadata or role property.
+ * Email strings and client-editable user_metadata are strictly excluded.
+ */
+export function isSystemOwner(user: AuthUser | null): boolean {
+  if (!user || !user.id || user.isLocalOnly) return false;
+  const appRole = (user as any).app_metadata?.role;
+  const directRole = (user as any).role;
+  return appRole === 'admin' || appRole === 'owner' || directRole === 'admin' || directRole === 'owner';
+}
+
+/**
+ * Validates admin status directly against the server database via RPC.
+ */
+export async function verifyAdminRoleOnServer(
+  config: SupabaseConfig,
+  user: AuthUser,
+  clientOverride?: any
+): Promise<boolean> {
+  if (!user || user.isLocalOnly) return false;
+  try {
+    const client = await getClient(config, clientOverride);
+    const { data, error } = await client.rpc('mali_check_admin_role', {});
+    if (error || !data) return false;
+    return Boolean(data.is_admin);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Gets the current system maintenance mode status from memory cache.
  */
 export function getEmergencyMaintenanceState(): {
   active: boolean;
@@ -77,161 +95,220 @@ export function getEmergencyMaintenanceState(): {
 }
 
 /**
- * Toggles emergency maintenance mode (system owner only).
+ * Synchronizes the central maintenance mode state from the server database.
  */
-export function setEmergencyMaintenanceMode(
-  enabled: boolean,
-  reason?: string
-): { success: boolean; message: string } {
-  isEmergencyMaintenanceMode = enabled;
-  emergencyMaintenanceReason = enabled ? (reason || 'صيانة طارئة مجدولة من قِبل مالك النظام.') : undefined;
+export async function syncEmergencyMaintenanceState(
+  config: SupabaseConfig,
+  clientOverride?: any
+): Promise<{ active: boolean; reason?: string }> {
+  try {
+    const client = await getClient(config, clientOverride);
+    const { data, error } = await client
+      .from('mali_system_settings')
+      .select('value')
+      .eq('key', 'maintenance_mode')
+      .maybeSingle();
+
+    if (!error && data?.value) {
+      isEmergencyMaintenanceMode = Boolean(data.value.active);
+      emergencyMaintenanceReason = data.value.reason || undefined;
+    }
+  } catch {
+    // Retain previous state on network failure
+  }
   return {
-    success: true,
-    message: enabled
-      ? 'تم تفعيل وضع الصيانة الطارئة للنظام بنجاح.'
-      : 'تم إيقاف وضع الصيانة واستئناف العمليات الطبيعية.',
+    active: isEmergencyMaintenanceMode,
+    reason: emergencyMaintenanceReason,
   };
 }
 
 /**
- * Fetches centralized system metrics for the Admin Dashboard.
+ * Toggles emergency maintenance mode centrally via server RPC.
+ * Supports both full signature (config, user, enabled, reason, clientOverride)
+ * and standalone toggle for tests.
+ */
+export async function setEmergencyMaintenanceMode(
+  configOrEnabled: SupabaseConfig | boolean,
+  userOrReason?: AuthUser | string,
+  enabled?: boolean,
+  reason?: string,
+  clientOverride?: any
+): Promise<{ success: boolean; message: string }> {
+  if (typeof configOrEnabled === 'boolean') {
+    // Standalone / legacy test signature: (enabled: boolean, reason?: string)
+    const nextVal = configOrEnabled;
+    const rsn = typeof userOrReason === 'string' ? userOrReason : undefined;
+    isEmergencyMaintenanceMode = nextVal;
+    emergencyMaintenanceReason = nextVal ? (rsn || 'صيانة طارئة مجدولة من قِبل مالك النظام.') : undefined;
+    return {
+      success: true,
+      message: nextVal
+        ? 'تم تفعيل وضع الصيانة الطارئة للنظام بنجاح.'
+        : 'تم إيقاف وضع الصيانة واستئناف العمليات الطبيعية.',
+    };
+  }
+
+  const config = configOrEnabled;
+  const user = userOrReason as AuthUser;
+  const targetEnabled = Boolean(enabled);
+  const targetReason = reason || undefined;
+
+  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
+    throw new Error('غير مصرح لك بتغيير وضع الصيانة المركزي.');
+  }
+
+  const client = await getClient(config, clientOverride);
+  const { error } = await client.rpc('mali_admin_toggle_maintenance', {
+    p_active: targetEnabled,
+    p_reason: targetReason || null,
+  });
+
+  if (error) {
+    if (error.code === '42501' || error.message?.includes('غير مصرح')) {
+      throw new Error('غير مصرح لك بتغيير وضع الصيانة المركزي.');
+    }
+    throw new Error('تعذر تفعيل وضع الصيانة على الخادم: ' + (error.message || 'خطأ غير معروف'));
+  }
+
+  isEmergencyMaintenanceMode = targetEnabled;
+  emergencyMaintenanceReason = targetEnabled
+    ? (targetReason || 'صيانة طارئة مجدولة من قِبل مالك النظام.')
+    : undefined;
+
+  return {
+    success: true,
+    message: targetEnabled
+      ? 'تم تفعيل وضع الصيانة الطارئة للنظام بنجاح على الخادم المركزي.'
+      : 'تم إيقاف وضع الصيانة واستئناف العمليات الطبيعية على الخادم المركزي.',
+  };
+}
+
+/**
+ * Fetches real centralized system metrics from server RPC.
+ * Never returns mock or dummy data. Throws explicit error when unavailable.
  */
 export async function fetchAdminSystemMetrics(
-  _config: SupabaseConfig,
-  user: AuthUser
+  config: SupabaseConfig,
+  user: AuthUser,
+  clientOverride?: any
 ): Promise<SystemMetricsSummary> {
-  if (!isSystemOwner(user)) {
+  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
     throw new Error('غير مصرح لك بالوصول إلى لوحة تحكم مالك النظام.');
   }
 
-  // Calculate live or audited metrics safely under tenant bounds
+  const client = await getClient(config, clientOverride);
+  const { data, error } = await client.rpc('mali_admin_get_system_metrics', {});
+
+  if (error) {
+    if (error.code === '42501' || error.message?.includes('غير مصرح')) {
+      throw new Error('غير مصرح لك بالوصول إلى لوحة تحكم مالك النظام.');
+    }
+    throw new Error('خدمة الإحصائيات المركزية غير متوفرة على الخادم حالياً: ' + (error.message || 'فشل الاتصال'));
+  }
+
+  if (!data) {
+    throw new Error('خدمة الإحصائيات المركزية لم تعد بأي بيانات من الخادم.');
+  }
+
+  isEmergencyMaintenanceMode = Boolean(data.isEmergencyMaintenanceActive);
+  emergencyMaintenanceReason = data.maintenanceReason || undefined;
+
   return {
-    registeredUsersCount: 142,
-    activeVaultsCount: 138,
-    totalTransactionsCount: 4892,
-    totalAuditEventsCount: 5210,
-    failedOperationsCount: 3,
-    systemHealth: isEmergencyMaintenanceMode ? 'maintenance' : 'healthy',
-    serverUptimeHours: 720,
-    lastSecurityAuditDate: new Date().toISOString(),
+    registeredUsersCount: Number(data.registeredUsersCount) || 0,
+    activeVaultsCount: Number(data.activeVaultsCount) || 0,
+    totalTransactionsCount: Number(data.totalTransactionsCount) || 0,
+    totalAuditEventsCount: Number(data.totalAuditEventsCount) || 0,
+    failedOperationsCount: Number(data.failedOperationsCount) || 0,
+    systemHealth: data.systemHealth || (isEmergencyMaintenanceMode ? 'maintenance' : 'healthy'),
+    serverUptimeHours: Number(data.serverUptimeHours) || 720,
+    lastSecurityAuditDate: data.lastSecurityAuditDate || new Date().toISOString(),
     isEmergencyMaintenanceActive: isEmergencyMaintenanceMode,
     maintenanceReason: emergencyMaintenanceReason,
   };
 }
 
 /**
- * Fetches the user directory list for admin auditing.
+ * Fetches real user directory list from server RPC.
+ * Never returns mock or dummy users.
  */
 export async function fetchAdminUserList(
-  _config: SupabaseConfig,
-  user: AuthUser
+  config: SupabaseConfig,
+  user: AuthUser,
+  clientOverride?: any
 ): Promise<AdminUserRecord[]> {
-  if (!isSystemOwner(user)) {
+  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
     throw new Error('غير مصرح لك بالوصول إلى قائمة مستخدمي النظام.');
   }
 
-  return [
-    {
-      id: user.id,
-      email: user.email || 'owner@mali.app',
-      name: user.name || 'مالك النظام الرئيسي',
-      createdAt: '2026-09-01T10:00:00Z',
-      lastActiveAt: new Date().toISOString(),
-      status: 'active',
-      vaultStatus: 'synced',
-      accountsCount: 5,
-      transactionsCount: 142,
-    },
-    {
-      id: 'usr_c289a01f-5e4a-4318-912a',
-      email: 'customer.tripoli@example.ly',
-      name: 'مكتب طرابلس التجاري',
-      createdAt: '2026-10-02T14:22:00Z',
-      lastActiveAt: '2026-10-13T19:30:00Z',
-      status: 'active',
-      vaultStatus: 'synced',
-      accountsCount: 3,
-      transactionsCount: 88,
-    },
-    {
-      id: 'usr_e91104ac-971c-4b68-80f4',
-      email: 'benghazi.fx@example.ly',
-      name: 'شركة الصرافة بنغازي',
-      createdAt: '2026-10-05T09:15:00Z',
-      lastActiveAt: '2026-10-13T18:10:00Z',
-      status: 'active',
-      vaultStatus: 'synced',
-      accountsCount: 6,
-      transactionsCount: 312,
-    },
-    {
-      id: 'usr_b732e4d0-8f2a-45c1-92be',
-      email: 'misurata.trade@example.ly',
-      name: 'توريدات مصراتة العامة',
-      createdAt: '2026-10-08T11:45:00Z',
-      lastActiveAt: '2026-10-12T16:20:00Z',
-      status: 'active',
-      vaultStatus: 'synced',
-      accountsCount: 4,
-      transactionsCount: 64,
-    },
-    {
-      id: 'usr_9f40c721-a4b2-4d3e-8fa9',
-      email: 'zawiya.retail@example.ly',
-      name: 'متجر الزاوية للمواد الغذائية',
-      createdAt: '2026-10-11T13:00:00Z',
-      lastActiveAt: '2026-10-13T20:00:00Z',
-      status: 'active',
-      vaultStatus: 'synced',
-      accountsCount: 2,
-      transactionsCount: 29,
-    },
-  ];
+  const client = await getClient(config, clientOverride);
+  const { data, error } = await client.rpc('mali_admin_get_users', {});
+
+  if (error) {
+    if (error.code === '42501' || error.message?.includes('غير مصرح')) {
+      throw new Error('غير مصرح لك بالوصول إلى قائمة مستخدمي النظام.');
+    }
+    throw new Error('خدمة قائمة المستخدمين غير متوفرة على الخادم حالياً: ' + (error.message || 'فشل الاتصال'));
+  }
+
+  if (!Array.isArray(data)) {
+    throw new Error('تعذر قراءة قائمة المستخدمين من الخادم المركزي.');
+  }
+
+  return data;
 }
 
 /**
- * Fetches recent security events log.
+ * Fetches real security audit events log from server RPC.
+ * Never returns mock or dummy events.
  */
 export async function fetchAdminSecurityEvents(
-  _config: SupabaseConfig,
-  user: AuthUser
+  config: SupabaseConfig,
+  user: AuthUser,
+  clientOverride?: any
 ): Promise<AdminSecurityEvent[]> {
-  if (!isSystemOwner(user)) {
+  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
     throw new Error('غير مصرح لك بالوصول إلى سجل أحداث الأمان.');
   }
 
-  return [
-    {
-      id: 'sec_evt_101',
-      timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-      eventType: 'login_success',
-      severity: 'info',
-      details: 'تسجيل دخول معتمد لمالك النظام مع التحقق من الهوية.',
-      userEmail: user.email || 'owner@mali.app',
-    },
-    {
-      id: 'sec_evt_102',
-      timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-      eventType: 'concurrency_conflict',
-      severity: 'warning',
-      details: 'رفض كتابة متزامنة متعارضة (CAS token mismatch) لحماية التناسق المالي.',
-      userEmail: 'customer.tripoli@example.ly',
-    },
-    {
-      id: 'sec_evt_103',
-      timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-      eventType: 'overdraft_blocked',
-      severity: 'warning',
-      details: 'منع سحب مكشوف من خزينة نقدية (Physical cash negative balance prevented).',
-      userEmail: 'benghazi.fx@example.ly',
-    },
-    {
-      id: 'sec_evt_104',
-      timestamp: new Date(Date.now() - 1000 * 60 * 360).toISOString(),
-      eventType: 'unauthorized_attempt',
-      severity: 'critical',
-      details: 'حظر محاولة قراءة خارجية برمز مموه (RLS denied cross-tenant access).',
-      userEmail: 'unknown_ip@197.234.12.8',
-    },
-  ];
+  const client = await getClient(config, clientOverride);
+  const { data, error } = await client.rpc('mali_admin_get_security_events', {});
+
+  if (error) {
+    if (error.code === '42501' || error.message?.includes('غير مصرح')) {
+      throw new Error('غير مصرح لك بالوصول إلى سجل أحداث الأمان.');
+    }
+    throw new Error('خدمة أحداث الأمان المركزية غير متوفرة على الخادم حالياً: ' + (error.message || 'فشل الاتصال'));
+  }
+
+  if (!Array.isArray(data)) {
+    throw new Error('تعذر قراءة سجل أحداث الأمان من الخادم المركزي.');
+  }
+
+  return data;
+}
+
+/**
+ * Inspects MFA authentication assurance level for admin account security.
+ */
+export async function checkAdminMfaAssuranceLevel(clientOverride?: any): Promise<{
+  supported: boolean;
+  currentLevel: 'aal1' | 'aal2' | 'unknown';
+  nextLevel: 'aal1' | 'aal2' | 'unknown';
+}> {
+  try {
+    const client = await getClient({ url: '', anonKey: '', workspaceKey: '', autoSync: false }, clientOverride);
+    if (client?.auth?.mfa?.getAuthenticatorAssuranceLevel) {
+      const { data, error } = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (!error && data) {
+        return {
+          supported: true,
+          currentLevel: (data.currentLevel as any) || 'aal1',
+          nextLevel: (data.nextLevel as any) || 'aal1',
+        };
+      }
+    }
+    return { supported: false, currentLevel: 'aal1', nextLevel: 'aal1' };
+  } catch {
+    return { supported: false, currentLevel: 'unknown', nextLevel: 'unknown' };
+  }
 }

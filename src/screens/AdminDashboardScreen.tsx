@@ -18,6 +18,7 @@ import {
   fetchAdminUserList,
   fetchAdminSecurityEvents,
   setEmergencyMaintenanceMode,
+  checkAdminMfaAssuranceLevel,
   type SystemMetricsSummary,
   type AdminUserRecord,
   type AdminSecurityEvent,
@@ -36,9 +37,37 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const [metrics, setMetrics] = useState<SystemMetricsSummary | null>(null);
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [events, setEvents] = useState<AdminSecurityEvent[]>([]);
+  const [mfaStatus, setMfaStatus] = useState<{ supported: boolean; currentLevel: string; nextLevel: string } | null>(null);
   const [maintenanceSwitch, setMaintenanceSwitch] = useState(false);
   const [maintenanceReasonText, setMaintenanceReasonText] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const handleRefresh = async () => {
+    if (!currentUser) return;
+    setLoading(true);
+    setStatusMessage(null);
+    try {
+      const [m, u, e, mfa] = await Promise.all([
+        fetchAdminSystemMetrics(state.supabaseConfig, currentUser).catch((err: any) => {
+          setStatusMessage(err.message || 'خدمة الإحصائيات المركزية غير متوفرة.');
+          return null;
+        }),
+        fetchAdminUserList(state.supabaseConfig, currentUser).catch(() => []),
+        fetchAdminSecurityEvents(state.supabaseConfig, currentUser).catch(() => []),
+        checkAdminMfaAssuranceLevel().catch(() => ({ supported: false, currentLevel: 'aal1', nextLevel: 'aal1' })),
+      ]);
+      setMetrics(m);
+      setUsers(u);
+      setEvents(e);
+      setMfaStatus(mfa);
+      if (m) {
+        setMaintenanceSwitch(m.isEmergencyMaintenanceActive);
+        setMaintenanceReasonText(m.maintenanceReason || '');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -48,20 +77,24 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
         return;
       }
       try {
-        const [m, u, e] = await Promise.all([
-          fetchAdminSystemMetrics(state.supabaseConfig, currentUser),
-          fetchAdminUserList(state.supabaseConfig, currentUser),
-          fetchAdminSecurityEvents(state.supabaseConfig, currentUser),
+        const [m, u, e, mfa] = await Promise.all([
+          fetchAdminSystemMetrics(state.supabaseConfig, currentUser).catch((err: any) => {
+            if (mounted) setStatusMessage(err.message || 'خدمة الإحصائيات المركزية غير متوفرة.');
+            return null;
+          }),
+          fetchAdminUserList(state.supabaseConfig, currentUser).catch(() => []),
+          fetchAdminSecurityEvents(state.supabaseConfig, currentUser).catch(() => []),
+          checkAdminMfaAssuranceLevel().catch(() => ({ supported: false, currentLevel: 'aal1', nextLevel: 'aal1' })),
         ]);
         if (!mounted) return;
         setMetrics(m);
         setUsers(u);
         setEvents(e);
-        setMaintenanceSwitch(m.isEmergencyMaintenanceActive);
-        setMaintenanceReasonText(m.maintenanceReason || '');
-      } catch (err: any) {
-        if (!mounted) return;
-        setStatusMessage(err.message || 'تعذر تحميل بيانات لوحة الإدارة.');
+        setMfaStatus(mfa);
+        if (m) {
+          setMaintenanceSwitch(m.isEmergencyMaintenanceActive);
+          setMaintenanceReasonText(m.maintenanceReason || '');
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -72,18 +105,28 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleToggleMaintenance = () => {
+  const handleToggleMaintenance = async () => {
+    if (!currentUser) return;
     const nextVal = !maintenanceSwitch;
-    const res = setEmergencyMaintenanceMode(nextVal, maintenanceReasonText);
-    setMaintenanceSwitch(nextVal);
-    setStatusMessage(res.message);
-    if (metrics) {
-      setMetrics({
-        ...metrics,
-        isEmergencyMaintenanceActive: nextVal,
-        systemHealth: nextVal ? 'maintenance' : 'healthy',
-        maintenanceReason: nextVal ? maintenanceReasonText : undefined,
-      });
+    try {
+      const res = await setEmergencyMaintenanceMode(
+        state.supabaseConfig,
+        currentUser,
+        nextVal,
+        maintenanceReasonText
+      );
+      setMaintenanceSwitch(nextVal);
+      setStatusMessage(res.message);
+      if (metrics) {
+        setMetrics({
+          ...metrics,
+          isEmergencyMaintenanceActive: nextVal,
+          systemHealth: nextVal ? 'maintenance' : 'healthy',
+          maintenanceReason: nextVal ? maintenanceReasonText : undefined,
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage(err.message || 'تعذر تحديث وضع الصيانة على الخادم المركزي.');
     }
   };
 
@@ -364,11 +407,49 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
             </View>
           )}
 
+          {activeTab === 'overview' && !metrics && (
+            <View style={styles.unavailableContainer}>
+              <Ionicons name="cloud-offline-outline" size={48} color="#DC2626" />
+              <Text style={[styles.unavailableTitle, { color: theme.text }]}>
+                خدمة الإحصائيات المركزية غير متوفرة
+              </Text>
+              <Text style={[styles.unavailableDesc, { color: theme.textSecondary }]}>
+                {statusMessage || 'تعذر جلب البيانات الحقيقية من الخادم المركزي. لن يتم عرض أي بيانات تجريبية وهمية.'}
+              </Text>
+              <TouchableOpacity
+                style={[styles.retryBtn, { backgroundColor: theme.primary }]}
+                onPress={handleRefresh}
+                accessibilityRole="button"
+                accessibilityLabel="إعادة محاولة الاتصال بالخادم"
+              >
+                <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.retryBtnText}>إعادة المحاولة</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {activeTab === 'users' && (
             <View style={styles.tabContent}>
               <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 12 }]}>
                 سجل حسابات العملاء المسجلين:
               </Text>
+              {users.length === 0 && (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="people-outline" size={36} color="#9CA3AF" />
+                  <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                    لا توجد حسابات مستخدمين مسترجعة من الخادم المركزي حالياً.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.retryBtn, { backgroundColor: theme.surfaceSoft, marginTop: 12 }]}
+                    onPress={handleRefresh}
+                    accessibilityRole="button"
+                    accessibilityLabel="إعادة محاولة تحميل المستخدمين"
+                  >
+                    <Ionicons name="refresh-outline" size={16} color={theme.text} />
+                    <Text style={[styles.retryBtnText, { color: theme.text }]}>تحديث القائمة</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {users.map((u) => (
                 <View
                   key={u.id}
@@ -426,9 +507,54 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
 
           {activeTab === 'security' && (
             <View style={styles.tabContent}>
+              {mfaStatus && (
+                <View
+                  style={[
+                    styles.mfaCard,
+                    {
+                      backgroundColor: mfaStatus.currentLevel === 'aal2' ? '#ECFDF5' : '#F9FAFB',
+                      borderColor: mfaStatus.currentLevel === 'aal2' ? '#A7F3D0' : '#E5E7EB',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={mfaStatus.currentLevel === 'aal2' ? 'shield-checkmark' : 'shield-outline'}
+                    size={22}
+                    color={mfaStatus.currentLevel === 'aal2' ? '#059669' : '#4B5563'}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.mfaTitle, { color: theme.text }]}>
+                      مستوى المصادقة المتعددة (MFA): {mfaStatus.currentLevel.toUpperCase()}
+                    </Text>
+                    <Text style={[styles.mfaSubtitle, { color: theme.textSecondary }]}>
+                      {mfaStatus.currentLevel === 'aal2'
+                        ? 'المصادقة الثنائية (MFA AAL2) مفعلة ومعتمدة على هذا الحساب.'
+                        : 'خادم Supabase جاهز لترقية المصادقة الثنائية (MFA) لحماية الحساب الإداري.'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 12 }]}>
                 سجل أحداث الأمان والتدقيق الحي:
               </Text>
+              {events.length === 0 && (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="shield-outline" size={36} color="#9CA3AF" />
+                  <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                    لا توجد أحداث أمان مسجلة حديثاً في سجل التدقيق المركزي.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.retryBtn, { backgroundColor: theme.surfaceSoft, marginTop: 12 }]}
+                    onPress={handleRefresh}
+                    accessibilityRole="button"
+                    accessibilityLabel="إعادة محاولة تحميل سجل الأمان"
+                  >
+                    <Ionicons name="refresh-outline" size={16} color={theme.text} />
+                    <Text style={[styles.retryBtnText, { color: theme.text }]}>تحديث السجل</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {events.map((evt) => (
                 <View
                   key={evt.id}
@@ -507,12 +633,23 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
 
                 <TouchableOpacity
                   style={styles.saveReasonBtn}
-                  onPress={() => {
-                    setEmergencyMaintenanceMode(maintenanceSwitch, maintenanceReasonText);
-                    Alert.alert('تم الحفظ', 'تم تحديث إعدادات الطوارئ بنجاح.');
+                  onPress={async () => {
+                    if (!currentUser) return;
+                    try {
+                      const res = await setEmergencyMaintenanceMode(
+                        state.supabaseConfig,
+                        currentUser,
+                        maintenanceSwitch,
+                        maintenanceReasonText
+                      );
+                      setStatusMessage(res.message);
+                      Alert.alert('تم الحفظ', res.message);
+                    } catch (err: any) {
+                      Alert.alert('خطأ', err.message || 'تعذر حفظ إعدادات الطوارئ على الخادم.');
+                    }
                   }}
                 >
-                  <Text style={styles.saveReasonBtnText}>حفظ إعدادات الطوارئ</Text>
+                  <Text style={styles.saveReasonBtnText}>حفظ إعدادات الطوارئ على الخادم</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -813,5 +950,66 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  unavailableContainer: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  unavailableTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  unavailableDesc: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 320,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginTop: 8,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  mfaCard: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+    gap: 10,
+  },
+  mfaTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    textAlign: 'right',
+  },
+  mfaSubtitle: {
+    fontSize: 12,
+    textAlign: 'right',
+    marginTop: 2,
+  },
+  emptyContainer: {
+    padding: 32,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyText: {
+    fontSize: 13,
+    textAlign: 'center',
   },
 });

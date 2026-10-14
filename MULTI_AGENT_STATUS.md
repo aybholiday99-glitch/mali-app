@@ -19,7 +19,7 @@
 | **Agent 4** | Frontend & UX Specialist | `self` | `src/screens/ProceduresDebtsScreen.tsx`, accessibility | **10 / 10 PASS** (48dp touch bounds, RTL, deficit cards) | **COMPLETED** |
 | **Agent 5** | QA & Test Automation Specialist | `self` | `tests/debtTreasuryIntegration.test.mjs`, `tests/financialEngine.regression.test.mjs`, `tests/legacyVaultMigration.test.mjs` | **642 / 642 PASS** (100% across all 57 test files) | **COMPLETED** |
 | **Agent 6** | DevOps & Release Engineer | `self` | CI, Web Export (`npm run build:web`), Standalone APK | Release APK built in Run 38457703515; gate status: **NOT PRODUCTION READY** | **COMPLETED** |
-| **Agent 7** | Central Architecture & Migration Specialist | `self` | `legacyVaultMigrationService.ts`, `LegacyVaultMigrationModal.tsx`, `AdminDashboardScreen.tsx`, `adminService.ts`, `OfflineBanner.tsx` | **13 / 13 PASS** across 3 new test suites; zero-device-data compliance | **COMPLETED** |
+| **Agent 7** | Central Architecture & Migration Specialist | `self` | `legacyVaultMigrationService.ts`, `LegacyVaultMigrationModal.tsx`, `AdminDashboardScreen.tsx`, `adminService.ts`, `OfflineBanner.tsx` | **19 / 19 PASS** across 4 test suites; server-authoritative RBAC & maintenance gate verified | **COMPLETED** |
 
 ---
 
@@ -63,10 +63,11 @@
   - `LegacyVaultMigrationModal.tsx`: User-facing Arabic modal presenting record counts, balance summaries in LYD and USD, payload hash, live progress indicator, and clear safety guarantees.
   - Test suite `tests/legacyVaultMigration.test.mjs`: 5/5 PASS.
 - [x] **System Owner Admin Dashboard:**
-  - `adminService.ts`: Strict RBAC (`isSystemOwner`), aggregate system metrics (`fetchAdminSystemMetrics`), registered user directory (`fetchAdminUserList`), audited security events stream (`fetchAdminSecurityEvents`), and emergency maintenance controls (`setEmergencyMaintenanceMode`).
-  - `AdminDashboardScreen.tsx`: Responsive RTL dashboard with 4 tabs with Arabic terminology, metric cards, and dark/light mode support.
+  - `adminService.ts`: Completely removed client-side email lists and `user_metadata.role` checks. Server-authoritative RBAC verified via `verifyAdminRoleOnServer` and `mali_check_admin_role` RPC. Real server RPCs for aggregate metrics, registered user directory, audited security stream, and central emergency maintenance mode.
+  - `AdminDashboardScreen.tsx`: Responsive RTL dashboard with 4 tabs with Arabic terminology, metric cards, dark/light mode, explicit error/retry states (no mock/dummy data), and MFA assurance indicator.
+  - `supabase/migrations/20261014120000_central_admin_rbac_and_maintenance.sql`: `mali_admin_roles` with RLS, `mali_system_settings`, immutable `mali_admin_audit_log`, and `mali_vault_snapshots_maintenance_check` database trigger (SQLSTATE 55000).
   - Integrated Gold Admin Pill in navigation header (`MaliVaultShell.tsx`) visible only for verified system owners/admins.
-  - Test suite `tests/adminDashboard.test.mjs`: 4/4 PASS.
+  - Test suites: `tests/adminDashboard.test.mjs` (6/6 PASS) and `tests/adminRbacPostgres.test.mjs` (6/6 PASS).
 - [x] **Offline Alert Banner & Mutation Guard:**
   - `OfflineBanner.tsx`: Visible Arabic banner when offline or under emergency maintenance.
   - Central mutation blocking in `MaliContext.tsx`: Rejects mutations when disconnected or during maintenance with clear Arabic alerts, preventing unsynchronized local divergence.
@@ -98,11 +99,11 @@
 ### F. Quality, Testing & CI
 - [x] TypeScript check (`npm run typecheck`): **0 errors**.
 - [x] Linter check (`npm run lint`): **0 errors, 0 warnings**.
-- [x] Unit & Integration test suite (`npm test`): **682 / 682 PASS** (100% across all 59 test files).
+- [x] Unit & Integration test suite (`npm test`): **707 / 707 PASS** (100% across all 60 test suites).
 - [x] Comprehensive End-to-End Suite (`tests/unifiedFinancialDossierE2E.test.mjs`): **33 / 33 PASS** (16/16 requirements).
 - [x] Accessibility suite (`tests/financialAccessibility.test.mjs`): **10 / 10 PASS**.
 - [x] Pagination suite (`tests/financialPagination.test.mjs`): **9 / 9 PASS**.
-- [x] PostgreSQL 17.11 isolated tests: **120 / 120 PASS** across all 3 suites.
+- [x] PostgreSQL 17.11 isolated tests: **143 / 143 PASS** across all 4 suites.
 - [x] Web Production export (`npm run build:web`): **PASS** (`dist/`).
 - [x] Android Standalone APK build: GitHub Actions Run 38457703515 PASS (`app-release.apk` artifact uploaded).
 
