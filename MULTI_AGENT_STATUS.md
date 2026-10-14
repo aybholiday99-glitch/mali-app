@@ -72,10 +72,35 @@
   - Central mutation blocking in `MaliContext.tsx`: Rejects mutations when disconnected or during maintenance with clear Arabic alerts, preventing unsynchronized local divergence.
   - Test suite `tests/offlineCentralBlocking.test.mjs`: 4/4 PASS.
 
-### E. Quality, Testing & CI
+### E. Unified Financial Profiles (الملفات المالية الموحدة)
+- [x] **Central Database & Tenant Isolation:**
+  - `supabase/migrations/20261014000000_contact_unified_indexes.sql`: Leading `workspace_key` search & lookup indexes on transactions, debts, deals, and contacts.
+  - Safe RLS multi-tenant isolation preserved. Real PostgreSQL 17.11 loopback: **120 / 120 PASS**.
+- [x] **Financial Position & Statement Calculation Engine:**
+  - `src/services/unifiedContactProfileService.ts`:
+    - Strict currency isolation: Separate balances and financial positions for LYD and USD; zero cross-currency netting; no mutual offsetting between active debts without an explicit settlement.
+    - USD deals accounting: Bought amount, LYD cost, sold amount, LYD revenue, and realized profit.
+    - Zero double-counting: Generic transactions isolated from debt/deal-generated transactions.
+    - Chronological statement compilation: Unified `timelineEntries` with running balances per currency, transaction type in Arabic, accounts, and payment methods.
+    - Non-cash settlement distinction: Explicit `settlementType: 'non_cash'` with mandatory `nonCashReason` kept strictly distinct from cash balances.
+    - Safe legacy record reconciliation & duplicate detection without destructive auto-merge.
+    - Formatted RTL PDF HTML template generator.
+  - Test suite `tests/unifiedContactProfile.test.mjs`: **7 / 7 PASS**.
+- [x] **UI Components & Screen Integration:**
+  - `src/components/UnifiedContactProfileModal.tsx`:
+    - Complete Arabic RTL dossier modal with KPI cards, quick actions bar (add debt, settle debt, buy/sell deal, direct transfer, edit notes, export PDF/CSV).
+    - Segmented tabs with unified "all" view rendering all 5 sections via `PagedRows` with bounded host node counts (`hosts < 1300`).
+    - Full accessibility compliance with 48dp minimum touch bounds on all actions and controls.
+  - `src/screens/ContactsScreen.tsx`: Integrated unified profile modal replacing legacy modal.
+  - `src/screens/ProceduresDebtsScreen.tsx`: Added dual contact selection modes (Option 1: select existing contact with search; Option 2: create new contact with auto-link and directory save), plus "الملف المالي" quick shortcut button on debt cards.
+  - `src/utils/exportHelper.ts`: Added `printContactStatement` and `printContactStatementWeb` for formatted PDF/print statement generation.
+
+### F. Quality, Testing & CI
 - [x] TypeScript check (`npm run typecheck`): **0 errors**.
 - [x] Linter check (`npm run lint`): **0 errors, 0 warnings**.
-- [x] Unit & Integration test suite (`npm test`): **642 / 642 PASS** (100% across all 57 test files).
+- [x] Unit & Integration test suite (`npm test`): **649 / 649 PASS** (100% across all 58 test files).
+- [x] Accessibility suite (`tests/financialAccessibility.test.mjs`): **10 / 10 PASS**.
+- [x] Pagination suite (`tests/financialPagination.test.mjs`): **9 / 9 PASS**.
 - [x] PostgreSQL 17.11 isolated tests: **120 / 120 PASS** across all 3 suites.
 - [x] Web Production export (`npm run build:web`): **PASS** (`dist/`).
 - [x] Android Standalone APK build: GitHub Actions Run 38457703515 PASS (`app-release.apk` artifact uploaded).

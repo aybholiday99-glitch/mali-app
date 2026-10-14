@@ -15,14 +15,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { ContactPerson, ContactRole } from '../types/mali';
 import { CalmDropdown } from '../components/CalmDropdown';
-import { ReceiptInlineStrip } from '../components/ReceiptImageAttachment';
+import { UnifiedContactProfileModal } from '../components/UnifiedContactProfileModal';
 import {
   exportFileOrShare,
   formatMoney,
-  formatRate,
   generateContactStatementCsv,
   matchesContact,
-  getPaymentMethodLabel,
 } from '../utils/exportHelper';
 
 const CONTACT_ROLES: ContactRole[] = [
@@ -40,8 +38,6 @@ export const ContactsScreen: React.FC = () => {
     addContact,
     updateContact,
     deleteContact,
-    updateDealBuyReceipts,
-    updateDealSaleReceipts,
   } = useMali();
 
 
@@ -68,8 +64,6 @@ export const ContactsScreen: React.FC = () => {
     setModalVisible(false); setEditingContact(null); setSelectedPerson(null);
     setNameInput(''); setPhoneInput(''); setBankInput(''); setNotesInput(''); setSearchQuery('');
   });
-
-  const accountMap = new Map(state.accounts.map((a) => [a.id, a]));
 
   // Helper to get all activity for a given contact
   const getPersonActivity = (person: ContactPerson) => {
@@ -249,10 +243,6 @@ export const ContactsScreen: React.FC = () => {
     0
   );
   const totalUsdSoldAll = state.deals.reduce((s, d) => s + d.soldUsd, 0);
-
-  const selectedPersonStats = selectedPerson
-    ? getPersonActivity(selectedPerson)
-    : null;
 
   return (
     <ScrollView
@@ -651,373 +641,12 @@ export const ContactsScreen: React.FC = () => {
         );
       }}</PagedRows>}
 
-      {/* Modal 1: Full Transaction History with Selected Person */}
-      <Modal
+      {/* Modal 1: Unified Financial Profile for Selected Person */}
+      <UnifiedContactProfileModal
         visible={Boolean(selectedPerson)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedPerson(null)}
-      >
-        <View
-          style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
-        >
-          <View
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                maxHeight: '90%',
-              },
-            ]}
-          >
-            <FinancialSaveNotice error={submissionError} />
-            <View style={styles.modalHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-                  سجل المعاملات مع: {selectedPerson?.name}
-                </Text>
-                <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
-                  رقم الهاتف: {selectedPerson?.phone || 'غير مسجل'} •{' '}
-                  {selectedPerson?.role}
-                  {selectedPerson?.bankDetails
-                    ? ` • ${selectedPerson.bankDetails}`
-                    : ''}
-                </Text>
-              </View>
-              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel="إغلاق كشف المتعامل" disabled={saving}
-                style={[
-                  styles.closeIconBtn,
-                  { backgroundColor: theme.cardAlt },
-                  styles.touchTarget,
-                ]}
-                onPress={() => setSelectedPerson(null)}
-              >
-                <Ionicons name="close" size={20} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{ marginTop: 8 }}>
-              {/* 1. Deals Bought from this Person */}
-              <Text
-                style={[styles.ledgerSectionTitle, { color: theme.primary }]}
-              >
-                1. عمليات شراء الدولار التي اشتريتها منه (
-                {selectedPersonStats?.boughtDeals.length || 0}):
-              </Text>
-              {selectedPersonStats?.boughtDeals.length === 0 ? (
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  لا توجد صفقات شراء مسجلة من هذا الشخص بعد.
-                </Text>
-              ) : (
-                <PagedRows items={selectedPersonStats?.boughtDeals ?? []} label="مشتريات المتعامل" disabled={saving} resetKey={selectedPerson?.id} pageSize={10}>{(d) => {
-                  const buyAcc = accountMap.get(d.sourceLydAccountId);
-                  return (
-                    <View
-                      key={d.id}
-                      style={[
-                        styles.historyItemCard,
-                        {
-                          backgroundColor: theme.cardAlt,
-                          borderColor: theme.border,
-                        },
-                      ]}
-                    >
-                      <View style={styles.historyTopRow}>
-                        <Text
-                          style={[
-                            styles.historyMainTitle,
-                            { color: theme.text },
-                          ]}
-                        >
-                          شراء {formatMoney(d.totalUsdBought, 'USD')} (صفقة{' '}
-                          {d.dealNumber})
-                        </Text>
-                        <Text
-                          style={[
-                            styles.historyDate,
-                            { color: theme.textMuted },
-                          ]}
-                        >
-                          {d.buyDate}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • سعر الشراء لحظة الشراء:{' '}
-                        <Text
-                          style={{ color: theme.primary, fontWeight: 'bold' }}
-                        >
-                          {formatRate(d.buyRate)}
-                        </Text>{' '}
-                        | الإجمالي المدفوع له:{' '}
-                        <Text
-                          style={{ color: theme.text, fontWeight: 'bold' }}
-                        >
-                          {formatMoney(d.totalLydCost, 'LYD')}
-                        </Text>
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • طريقة الدفع:{' '}
-                        <Text
-                          style={{ color: theme.blue, fontWeight: 'bold' }}
-                        >
-                          {getPaymentMethodLabel(d.buyPaymentMethod)}
-                        </Text>{' '}
-                        من حساب: {buyAcc?.name || ''}
-                      </Text>
-
-                      <ReceiptInlineStrip
-                        images={d.buyReceiptImages}
-                        title={`صور حوالة الشراء - الصفقة ${d.dealNumber}`}
-                        compactLabel="حوالة الشراء"
-                        accentColor={theme.primary}
-                        onUpdateImages={(imgs) =>
-                          updateDealBuyReceipts(d.id, imgs)
-                        }
-                      />
-                    </View>
-                  );
-                }}</PagedRows>
-              )}
-
-              {/* 2. Sales Sold to this Person */}
-              <Text style={[styles.ledgerSectionTitle, { color: theme.blue }]}>
-                2. عمليات بيع الدولار التي بعتها له (
-                {selectedPersonStats?.soldEntries.length || 0}):
-              </Text>
-              {selectedPersonStats?.soldEntries.length === 0 ? (
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  لا توجد عمليات بيع مسجلة لهذا الشخص بعد.
-                </Text>
-              ) : (
-                <PagedRows items={selectedPersonStats?.soldEntries ?? []} label="مبيعات المتعامل" disabled={saving} resetKey={selectedPerson?.id} pageSize={10}>{({ deal, sale }) => {
-                  const recAcc = accountMap.get(sale.targetLydAccountId);
-                  return (
-                    <View
-                      key={sale.id}
-                      style={[
-                        styles.historyItemCard,
-                        {
-                          backgroundColor: theme.cardAlt,
-                          borderColor: theme.border,
-                        },
-                      ]}
-                    >
-                      <View style={styles.historyTopRow}>
-                        <Text
-                          style={[
-                            styles.historyMainTitle,
-                            { color: theme.text },
-                          ]}
-                        >
-                          بيع {formatMoney(sale.usdAmount, 'USD')} (من الصفقة{' '}
-                          {deal.dealNumber})
-                        </Text>
-                        <Text
-                          style={[
-                            styles.historyDate,
-                            { color: theme.textMuted },
-                          ]}
-                        >
-                          {sale.date}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • سعر البيع لحظة البيع:{' '}
-                        <Text
-                          style={{ color: theme.blue, fontWeight: 'bold' }}
-                        >
-                          {formatRate(sale.sellRate)}
-                        </Text>{' '}
-                        (كان سعر شرائها: {formatRate(deal.buyRate)})
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • الصافي المستلم منه:{' '}
-                        <Text
-                          style={{ color: theme.text, fontWeight: 'bold' }}
-                        >
-                          {formatMoney(sale.netLydReceived, 'LYD')}
-                        </Text>{' '}
-                        | طريقة الاستلام:{' '}
-                        <Text
-                          style={{ color: theme.warning, fontWeight: 'bold' }}
-                        >
-                          {getPaymentMethodLabel(sale.paymentMethod)}
-                        </Text>{' '}
-                        في حساب: {recAcc?.name || ''}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • صافي الربح المحقق من هذه البيعة:{' '}
-                        <Text
-                          style={{
-                            color:
-                              sale.profitLyd >= 0
-                                ? theme.success
-                                : theme.danger,
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {sale.profitLyd >= 0 ? '+' : ''}
-                          {formatMoney(sale.profitLyd, 'LYD')}
-                        </Text>
-                      </Text>
-
-                      <ReceiptInlineStrip
-                        images={sale.receiptImages}
-                        title={`صور حوالة البيع - الصفقة ${deal.dealNumber}`}
-                        compactLabel="حوالة البيع"
-                        accentColor={theme.blue}
-                        onUpdateImages={(imgs) =>
-                          updateDealSaleReceipts(deal.id, sale.id, imgs)
-                        }
-                      />
-                    </View>
-                  );
-                }}</PagedRows>
-              )}
-
-              {/* 3. Debts & Trusts with this Person */}
-              <Text
-                style={[styles.ledgerSectionTitle, { color: theme.warning }]}
-              >
-                3. الديون والأمانات والدفعات المسجلة معه (
-                {selectedPersonStats?.personDebts.length || 0}):
-              </Text>
-              {selectedPersonStats?.personDebts.length === 0 ? (
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  لا توجد ديون أو أمانات مسجلة مع هذا الشخص.
-                </Text>
-              ) : (
-                <PagedRows items={selectedPersonStats?.personDebts ?? []} label="ديون المتعامل" disabled={saving} resetKey={selectedPerson?.id} pageSize={10}>{(db) => (
-                  <View
-                    key={db.id}
-                    style={[
-                      styles.historyItemCard,
-                      {
-                        backgroundColor: theme.cardAlt,
-                        borderColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <View style={styles.historyTopRow}>
-                      <Text
-                        style={[
-                          styles.historyMainTitle,
-                          { color: theme.text },
-                        ]}
-                      >
-                        {db.direction === 'receivable'
-                          ? 'دين لي عنده'
-                          : 'دين / أمانة له عندي'}{' '}
-                        بقيمة {formatMoney(db.totalAmount, db.currency)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDate,
-                          { color: theme.textMuted },
-                        ]}
-                      >
-                        {db.createdAt}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.historyDetail,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      • المسدد: {formatMoney(db.paidAmount, db.currency)} |
-                      المتبقي:{' '}
-                      <Text
-                        style={{ color: theme.warning, fontWeight: 'bold' }}
-                      >
-                        {formatMoney(db.remainingAmount, db.currency)}
-                      </Text>
-                    </Text>
-                    {db.notes ? (
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • {db.notes}
-                      </Text>
-                    ) : null}
-                  </View>
-                )}</PagedRows>
-              )}
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
-                style={[
-                  styles.cancelBtn,
-                  {
-                    backgroundColor: theme.cardAlt,
-                    borderColor: theme.border,
-                  },
-                  styles.touchTarget,
-                ]}
-                onPress={() => setSelectedPerson(null)}
-              >
-                <Text
-                  style={[
-                    styles.cancelBtnText,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  إغلاق
-                </Text>
-              </TouchableOpacity>
-              {selectedPerson && (
-                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
-                  onPress={() => {
-                    const csv = generateContactStatementCsv(
-                      state,
-                      selectedPerson
-                    );
-                    exportFileOrShare(
-                      `كشف_معاملات_${selectedPerson.name}.csv`,
-                      csv
-                    );
-                  }}
-                >
-                  <Text style={styles.saveBtnText}>
-                    تصدير كشف معاملات هذا الشخص (Excel)
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </View>
-      </Modal>
+        contact={selectedPerson}
+        onClose={() => setSelectedPerson(null)}
+      />
 
       {/* Modal 2: Add / Edit Person */}
       <Modal

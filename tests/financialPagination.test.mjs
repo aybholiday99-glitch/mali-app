@@ -12,7 +12,7 @@ installNativeTestLoader({ ui: true });
 const exportCore = new URL('../src/utils/exportCore.ts', import.meta.url).href;
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier.endsWith('/context/MaliContext')) return { url: 'data:text/javascript,export const useMali=()=>globalThis.maliPaginationContext;', shortCircuit: true };
-  if (specifier.endsWith('/utils/exportHelper')) return { url: 'data:text/javascript,' + encodeURIComponent(`export * from ${JSON.stringify(exportCore)}; export const exportFileOrShare=async(...args)=>{globalThis.maliPaginationExport=args;return true;};`), shortCircuit: true };
+  if (specifier.endsWith('/utils/exportHelper')) return { url: 'data:text/javascript,' + encodeURIComponent(`export * from ${JSON.stringify(exportCore)}; export const exportFileOrShare=async(...args)=>{globalThis.maliPaginationExport=args;return true;}; export const printContactStatement=async()=>true, printContactStatementWeb=()=>true;`), shortCircuit: true };
   if (specifier.endsWith('/components/ReceiptImageAttachment')) return { url: 'data:text/javascript,export const ReceiptAttachmentField=()=>null,ReceiptInlineStrip=()=>null;', shortCircuit: true };
   const resolved = nextResolve(specifier, context);
   if (specifier === 'react-native') return { ...resolved, url: resolved.url + encodeURIComponent('\nexport const Linking={openURL:async()=>{throw new Error("External navigation forbidden");}};') };

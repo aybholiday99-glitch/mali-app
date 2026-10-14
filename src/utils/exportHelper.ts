@@ -1,7 +1,8 @@
 import { Platform } from 'react-native';
 import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
-import type { MaliState } from '../types/mali';
+import type { ContactPerson, MaliState } from '../types/mali';
 import { generateFinancialStatementHtml } from './exportCore';
+import { generateContactStatementPdfHtml } from '../services/unifiedContactProfileService';
 import { createFileExportService, prepareTextExport } from './fileExportCore';
 import { nativeExportPorts } from './nativeFileExport';
 
@@ -56,7 +57,6 @@ export function printFinancialStatementWeb(state: MaliState): boolean {
   return true;
 }
 
-/** True means printing/sharing was initiated, not that another app saved the file. */
 export async function printFinancialStatement(state: MaliState): Promise<boolean> {
   if (CENTRAL_SERVER_ONLY) return false;
   try {
@@ -64,3 +64,25 @@ export async function printFinancialStatement(state: MaliState): Promise<boolean
     return await createFileExportService(await nativeExportPorts()).pdf(generateFinancialStatementHtml(state));
   } catch { return false; }
 }
+
+export function printContactStatementWeb(state: MaliState, contact: ContactPerson): boolean {
+  if (CENTRAL_SERVER_ONLY) return false;
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  const printWin = window.open('', '_blank', 'width=960,height=720');
+  if (!printWin) return false;
+  printWin.opener = null;
+  printWin.document.open();
+  printWin.addEventListener('load', () => printWin.print(), { once: true });
+  printWin.document.write(generateContactStatementPdfHtml(state, contact));
+  printWin.document.close();
+  return true;
+}
+
+export async function printContactStatement(state: MaliState, contact: ContactPerson): Promise<boolean> {
+  if (CENTRAL_SERVER_ONLY) return false;
+  try {
+    if (Platform.OS === 'web') return printContactStatementWeb(state, contact);
+    return await createFileExportService(await nativeExportPorts()).pdf(generateContactStatementPdfHtml(state, contact));
+  } catch { return false; }
+}
+

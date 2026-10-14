@@ -247,3 +247,41 @@ platformfixturesandseparateweb/nativecycles;32targetedPASS. Final newsource CIst
   - Web production bundle export (`npm run build:web`): **PASS** cleanly into `dist/`.
   - GitHub Actions Run 38457703515 (`android-standalone.yml`): ARM64 standalone release APK built and test-signed successfully in 20m15s (`android/app/build/outputs/apk/release/app-release.apk`), uploaded as artifact `mali-android-arm64-standalone-apk`.
 
+## 2026-10-14 Unified Financial Profiles (الملفات المالية الموحدة)
+
+- **Central Database & Tenant Indexing:**
+  - Added idempotent migration `supabase/migrations/20261014000000_contact_unified_indexes.sql`:
+    - `idx_mali_transactions_contact_lookup` on `(workspace_key, contact_id)`
+    - `idx_mali_debts_contact_lookup` on `(workspace_key, contact_id)`
+    - `idx_mali_usd_deals_contact_seller` on `(workspace_key, seller_contact_id)`
+    - `idx_mali_contacts_phone_lookup` on `(workspace_key, phone)`
+  - Preserved multi-tenant RLS boundaries (`workspace_key`, `user_id`) without altering table constraints. Production Supabase `evcwoaerlykghgdevrhb` untouched pending user approval.
+- **Core Financial Engine & Statement Service:**
+  - Implemented `src/services/unifiedContactProfileService.ts`:
+    - Strict currency isolation: Separate balances and positions for LYD and USD; zero cross-currency netting; no auto-offsetting between active debts without explicit settlements.
+    - USD deals metrics: Exact bought amount, LYD cost, sold amount, LYD revenue, and realized profit.
+    - Generic transaction isolation: Directly linked transfers, expenses, and income without double-counting transactions belonging to debts or deals.
+    - Chronological statement compilation: Unified `timelineEntries` with running balances per currency, transaction type in Arabic, accounts, and payment methods.
+    - Non-cash settlement distinction: Dedicated `settlementType: 'non_cash'` with mandatory `nonCashReason` separated from cash movements.
+    - Safe legacy reconciliation: Non-destructive contact linking and duplicate collision detection.
+    - PDF HTML generator: RTL styled statement template with summary KPI cards and complete chronological movements table.
+- **UI Components & Screen Integration:**
+  - Implemented `src/components/UnifiedContactProfileModal.tsx`:
+    - Full Arabic RTL financial profile dossier.
+    - Visual KPI cards for LYD and USD positions and USD deals summary.
+    - Quick actions bar: Add debt, record installment/settlement, buy/sell deal, direct transfer, edit notes, export PDF statement, export CSV statement.
+    - Comprehensive pagination using `PagedRows` for all sections (`سجل الحركات المالية الموحد`, `مشتريات المتعامل`, `مبيعات المتعامل`, `ديون المتعامل`, `معاملات المتعامل المباشرة`) maintaining bounded host node count (`hosts < 1300`).
+    - Full accessibility compliance with 48dp minimum touch bounds on all interactive elements.
+  - Updated `src/screens/ContactsScreen.tsx`: Integrated `UnifiedContactProfileModal` replacing legacy view.
+  - Updated `src/screens/ProceduresDebtsScreen.tsx`: Added dual contact selection modes (Option 1: select existing contact with search; Option 2: create new contact with auto-link and directory save), plus "الملف المالي" quick shortcut button on debt cards.
+  - Added statement printing in `src/utils/exportHelper.ts` (`printContactStatement`, `printContactStatementWeb`).
+- **Comprehensive Quality Verification:**
+  - Automated unit test suite `tests/unifiedContactProfile.test.mjs`: **7 / 7 PASS**.
+  - Accessibility test suite `tests/financialAccessibility.test.mjs`: **10 / 10 PASS**.
+  - Pagination test suite `tests/financialPagination.test.mjs`: **9 / 9 PASS**.
+  - Full application test suite `npm test`: **649 / 649 PASS** (100% across all 58 test files).
+  - PostgreSQL 17.11 loopback suite: **120 / 120 PASS** (`database.test.mjs`, `financialSqlValidation.test.mjs`, `financialAuditSql.test.mjs`).
+  - TypeScript (`npm run typecheck`): **0 errors**.
+  - ESLint (`npm run lint`): **0 errors, 0 warnings**.
+
+

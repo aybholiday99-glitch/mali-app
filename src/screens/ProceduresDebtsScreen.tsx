@@ -15,6 +15,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import {
+  ContactPerson,
+  ContactRole,
   Currency,
   DebtRecord,
   DebtSettlementType,
@@ -24,6 +26,7 @@ import {
 import { canDisburseFromAccount } from '../services/financialEngine';
 import { formatMoney, getPaymentMethodLabel } from '../utils/exportHelper';
 import { CalmDropdown } from '../components/CalmDropdown';
+import { UnifiedContactProfileModal } from '../components/UnifiedContactProfileModal';
 
 const PROCEDURE_TYPES: FinancialProcedure['procedureType'][] = [
   'صك مصدق / مقاصة',
@@ -39,6 +42,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const {
     state,
     theme,
+    addContact,
     addDebt,
     addDebtInstallment,
     deleteDebtInstallment,
@@ -68,6 +72,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
   );
   const [debtNotes, setDebtNotes] = useState('');
   const [debtError, setDebtError] = useState<string | null>(null);
+  const [contactSelectionMode, setContactSelectionMode] = useState<'existing' | 'new'>(
+    state.contacts.length > 0 ? 'existing' : 'new'
+  );
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [newContactRole, setNewContactRole] = useState<ContactRole>('شخصي / عميل');
+  const [profileModalContact, setProfileModalContact] = useState<ContactPerson | null>(null);
 
   // Debt Installment Modal State
   const [activeDebtForPay, setActiveDebtForPay] = useState<DebtRecord | null>(
@@ -152,8 +163,40 @@ export const ProceduresDebtsScreen: React.FC = () => {
     .reduce((s, d) => s + d.remainingAmount, 0);
 
   const handleSaveDebt = async () => {
+    let resolvedContactId: string | undefined = undefined;
+    let finalPersonName = personName.trim();
+    let finalPhone = phone.trim() || undefined;
+
+    if (contactSelectionMode === 'existing') {
+      const existing = state.contacts.find((c) => c.id === selectedContactId);
+      if (!existing) {
+        setDebtError('يرجى اختيار شخص من قائمة المتعاملين المسجلين، أو التبديل لإنشاء شخص جديد.');
+        return reject('اختر شخصاً مسجلاً أو أنشئ شخصاً جديداً.', 'personName');
+      }
+      resolvedContactId = existing.id;
+      finalPersonName = existing.name;
+      finalPhone = existing.phone || finalPhone;
+    } else {
+      if (!finalPersonName) {
+        setDebtError('أدخل اسم الشخص الجديد ثم أعد الحفظ.');
+        return reject('أدخل اسم صاحب الدين ثم أعد الحفظ.', 'personName');
+      }
+      const existingContact = state.contacts.find(
+        (c) => c.name.trim().toLowerCase() === finalPersonName.toLowerCase()
+      );
+      if (existingContact) {
+        resolvedContactId = existingContact.id;
+      } else {
+        await addContact({
+          name: finalPersonName,
+          phone: finalPhone || '',
+          role: newContactRole,
+          notes: debtNotes.trim() || undefined,
+        });
+      }
+    }
+
     const amt = parseFinancialInput(debtAmount);
-    if (!personName.trim()) return reject('أدخل اسم صاحب الدين ثم أعد الحفظ.', 'personName');
     if (amt === null || amt <= 0) return reject('أدخل مبلغ دين صحيحاً أكبر من صفر.', 'debtAmount');
     setDebtError(null);
 
@@ -179,8 +222,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
 
     if (!await submit(() => addDebt({
       idempotencyKey: submissionKey + ":addDebt",
-      personName: personName.trim(),
-      phone: phone.trim() || undefined,
+      contactId: resolvedContactId,
+      personName: finalPersonName,
+      phone: finalPhone,
       direction,
       currency: debtCurrency,
       totalAmount: amt,
@@ -193,12 +237,15 @@ export const ProceduresDebtsScreen: React.FC = () => {
     setSubmissionKey(nextSubmissionKey());
     setPersonName('');
     setPhone('');
+    setSelectedContactId(null);
+    setContactSearchQuery('');
     setDebtAmount('');
     setDebtDueDate('');
     setDebtNotes('');
     setAffectWallet(true);
     setNewDebtModal(false);
   };
+
 
   const handleSaveInstallment = async () => {
     if (!activeDebtForPay) return reject('اختر الدين الذي تريد تسجيل الدفعة له.');
@@ -448,6 +495,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               if (defaultAcc) {
                 setSelectedWalletId(defaultAcc.id);
               }
+              setContactSelectionMode(state.contacts.length > 0 ? 'existing' : 'new');
               setNewDebtModal(true);
             }}
           >
@@ -567,9 +615,41 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       )}
                     </View>
 
-                    <Text style={[styles.cardTitle, { color: theme.text }]}>
-                      {debt.personName}
-                    </Text>
+                    <View style={styles.debtPersonRow}>
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>
+                        {debt.personName}
+                      </Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.profilePillBtn,
+                          {
+                            backgroundColor: theme.primary + '18',
+                            borderColor: theme.primary + '40',
+                          },
+                        ]}
+                        onPress={() => {
+                          const matching = state.contacts.find(
+                            (c) =>
+                              c.id === debt.contactId ||
+                              (c.name &&
+                                c.name.trim().toLowerCase() ===
+                                  debt.personName.trim().toLowerCase())
+                          ) || {
+                            id: debt.contactId || debt.personName,
+                            name: debt.personName,
+                            phone: debt.phone || '',
+                            role: 'شخصي / عميل' as const,
+                            createdAt: debt.createdAt,
+                          };
+                          setProfileModalContact(matching);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`عرض الملف المالي لـ ${debt.personName}`}
+                      >
+                        <Ionicons name="folder-open-outline" size={13} color={theme.primary} />
+                        <Text style={[styles.profilePillText, { color: theme.primary }]}>الملف المالي</Text>
+                      </TouchableOpacity>
+                    </View>
                     {debt.notes ? (
                       <Text
                         style={[styles.cardSub, { color: theme.textSecondary }]}
@@ -1038,25 +1118,204 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 onSelect={(val) => setDirection(val as 'receivable' | 'payable')}
               />
 
-              <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
-                اسم الشخص أو الجهة
-              </Text>
-              <TextInput accessibilityLabel="اسم صاحب الدين" ref={fieldRef('personName')} editable={!saving}
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.inputBg,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                  styles.touchTarget,
-                ]}
-                value={personName}
-                onChangeText={setPersonName}
-                placeholder="مثال: محمد السنوسي / شركة..."
-                placeholderTextColor={theme.textMuted}
-              />
+              {/* Person Selection Mode Segmented Selector */}
+              <View style={[styles.contactModeSelector, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.contactModeTab,
+                    contactSelectionMode === 'existing' && [styles.contactModeTabActive, { backgroundColor: theme.card }],
+                  ]}
+                  onPress={() => {
+                    setContactSelectionMode('existing');
+                    setDebtError(null);
+                  }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: contactSelectionMode === 'existing' }}
+                >
+                  <Ionicons
+                    name="people-outline"
+                    size={16}
+                    color={contactSelectionMode === 'existing' ? theme.primary : theme.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.contactModeTabText,
+                      { color: contactSelectionMode === 'existing' ? theme.primary : theme.textSecondary },
+                    ]}
+                  >
+                    شخص مسجل ({state.contacts.length})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.contactModeTab,
+                    contactSelectionMode === 'new' && [styles.contactModeTabActive, { backgroundColor: theme.card }],
+                  ]}
+                  onPress={() => {
+                    setContactSelectionMode('new');
+                    setSelectedContactId(null);
+                    setDebtError(null);
+                  }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: contactSelectionMode === 'new' }}
+                >
+                  <Ionicons
+                    name="person-add-outline"
+                    size={16}
+                    color={contactSelectionMode === 'new' ? theme.primary : theme.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.contactModeTabText,
+                      { color: contactSelectionMode === 'new' ? theme.primary : theme.textSecondary },
+                    ]}
+                  >
+                    إنشاء شخص جديد
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {contactSelectionMode === 'existing' ? (
+                <View style={styles.existingContactContainer}>
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                    اختر المتعامل من القائمة أو ابحث باسمه/هاتفه
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text },
+                      styles.touchTarget,
+                    ]}
+                    value={contactSearchQuery}
+                    onChangeText={setContactSearchQuery}
+                    placeholder="ابحث بالاسم أو رقم الهاتف..."
+                    placeholderTextColor={theme.textMuted}
+                    accessibilityLabel="بحث في المتعاملين"
+                  />
+
+                  {/* Filtered contacts list */}
+                  <ScrollView
+                    nestedScrollEnabled
+                    style={[styles.contactPickerList, { maxHeight: 150, borderColor: theme.border }]}
+                  >
+                    {state.contacts
+                      .filter((c) => {
+                        if (!contactSearchQuery.trim()) return true;
+                        const q = contactSearchQuery.trim().toLowerCase();
+                        return (
+                          c.name.toLowerCase().includes(q) ||
+                          c.phone.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((c) => {
+                        const isSelected = selectedContactId === c.id;
+                        return (
+                          <TouchableOpacity
+                            key={c.id}
+                            style={[
+                              styles.contactPickerItem,
+                              {
+                                backgroundColor: isSelected ? theme.primary + '18' : theme.cardAlt,
+                                borderColor: isSelected ? theme.primary : theme.border,
+                              },
+                            ]}
+                            onPress={() => {
+                              setSelectedContactId(c.id);
+                              setPersonName(c.name);
+                              setPhone(c.phone || '');
+                              setDebtError(null);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`اختيار المتعامل ${c.name}`}
+                          >
+                            <Ionicons
+                              name={isSelected ? 'checkmark-circle' : 'person-outline'}
+                              size={18}
+                              color={isSelected ? theme.primary : theme.textSecondary}
+                            />
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text style={[styles.contactPickerName, { color: theme.text, fontWeight: isSelected ? 'bold' : 'normal' }]}>
+                                {c.name}
+                              </Text>
+                              <Text style={[styles.contactPickerSub, { color: theme.textSecondary }]}>
+                                {c.phone ? `${c.phone} • ` : ''}{c.role}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+
+                  {selectedContactId ? (
+                    <View style={[styles.selectedContactBadge, { backgroundColor: theme.primary + '15', borderColor: theme.primary }]}>
+                      <Ionicons name="checkmark-done-circle" size={18} color={theme.primary} />
+                      <Text style={[styles.selectedContactText, { color: theme.primary }]}>
+                        تم الربط بملف: {state.contacts.find((c) => c.id === selectedContactId)?.name}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.unselectedWarningText, { color: theme.warning }]}>
+                      ⚠️ يرجى النقر على شخص من القائمة أعلاه لربط الدين بملفه المالي.
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.newContactContainer}>
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                    اسم الشخص أو الجهة *
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="اسم صاحب الدين"
+                    ref={fieldRef('personName')}
+                    editable={!saving}
+                    style={[
+                      styles.input,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text },
+                      styles.touchTarget,
+                    ]}
+                    value={personName}
+                    onChangeText={setPersonName}
+                    placeholder="مثال: محمد السنوسي / شركة الأمل..."
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                    رقم الهاتف (اختياري)
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="رقم هاتف صاحب الدين"
+                    ref={fieldRef('phone')}
+                    editable={!saving}
+                    keyboardType="phone-pad"
+                    style={[
+                      styles.input,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text },
+                      styles.touchTarget,
+                    ]}
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="091xxxxxxx"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <CalmDropdown
+                    disabled={saving}
+                    label="نوع العلاقة مع الشخص:"
+                    value={newContactRole}
+                    options={[
+                      { value: 'شخصي / عميل', label: 'شخصي / عميل', icon: 'person-outline', badgeColor: theme.primary },
+                      { value: 'شركة / مورد', label: 'شركة / مورد', icon: 'business-outline', badgeColor: theme.warning },
+                      { value: 'تاجر عملة', label: 'تاجر عملة', icon: 'cash-outline', badgeColor: theme.blue },
+                      { value: 'مكتب صرافة', label: 'مكتب صرافة', icon: 'storefront-outline', badgeColor: '#8B5CF6' },
+                      { value: 'شريك تجاري', label: 'شريك تجاري', icon: 'hand-left-outline', badgeColor: theme.success },
+                    ]}
+                    onSelect={(val) => setNewContactRole(val as ContactRole)}
+                  />
+                </View>
+              )}
               {debtError && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={{ color: theme.danger, textAlign: 'right' }}>{debtError}</Text>}
+
 
               <View style={styles.twoColRow}>
                 <View style={{ flex: 2 }}>
@@ -1856,9 +2115,29 @@ export const ProceduresDebtsScreen: React.FC = () => {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Unified Financial Profile Modal */}
+      <UnifiedContactProfileModal
+        visible={Boolean(profileModalContact)}
+        contact={profileModalContact}
+        onClose={() => setProfileModalContact(null)}
+        onAddDebt={(c) => {
+          setProfileModalContact(null);
+          setContactSelectionMode('existing');
+          setSelectedContactId(c.id);
+          setPersonName(c.name);
+          setPhone(c.phone || '');
+          setNewDebtModal(true);
+        }}
+        onSettleDebt={(c, d) => {
+          setProfileModalContact(null);
+          if (d) setActiveDebtForPay(d);
+        }}
+      />
     </ScrollView>
   );
 };
+
 
 const styles = StyleSheet.create({
   touchTarget: { minHeight: 48, minWidth: 48 },
@@ -2275,4 +2554,101 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
+  contactModeSelector: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    padding: 3,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  contactModeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 7,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  contactModeTabActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  contactModeTabText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  existingContactContainer: {
+    marginBottom: 8,
+  },
+  contactPickerList: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 8,
+  },
+  contactPickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 4,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  contactPickerName: {
+    fontSize: 13,
+  },
+  contactPickerSub: {
+    fontSize: 11,
+  },
+  selectedContactBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  selectedContactText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  unselectedWarningText: {
+    fontSize: 11,
+    marginBottom: 8,
+    textAlign: 'right',
+  },
+  newContactContainer: {
+    marginBottom: 8,
+  },
+  debtPersonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  profilePillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  profilePillText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
 });
+
