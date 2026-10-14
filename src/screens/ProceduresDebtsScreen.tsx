@@ -11,6 +11,8 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
@@ -27,6 +29,7 @@ import { canDisburseFromAccount } from '../services/financialEngine';
 import { formatMoney, getPaymentMethodLabel } from '../utils/exportHelper';
 import { CalmDropdown } from '../components/CalmDropdown';
 import { UnifiedContactProfileModal } from '../components/UnifiedContactProfileModal';
+import { useResponsiveLayout } from '../theme/responsive';
 
 const PROCEDURE_TYPES: FinancialProcedure['procedureType'][] = [
   'صك مصدق / مقاصة',
@@ -38,6 +41,7 @@ const PROCEDURE_TYPES: FinancialProcedure['procedureType'][] = [
 ];
 
 export const ProceduresDebtsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
   const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
@@ -438,7 +442,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       {activeTab === 'debts' ? (
         <>
           {/* Debts KPI Cards */}
-          <View style={styles.kpiRow}>
+          <View style={[styles.kpiRow, isSmallPhone && { flexDirection: 'column' }]}>
             <View
               style={[
                 styles.kpiCard,
@@ -1079,7 +1083,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setNewDebtModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -1566,7 +1571,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 2: Record Debt Installment */}
@@ -1576,7 +1581,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setActiveDebtForPay(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -1585,12 +1591,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-              {activeDebtForPay?.direction === 'receivable'
-                ? `تحصيل دفعة من: ${activeDebtForPay?.personName}`
-                : `سداد دفعة إلى: ${activeDebtForPay?.personName}`}
-            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                {activeDebtForPay?.direction === 'receivable'
+                  ? `تحصيل دفعة من: ${activeDebtForPay?.personName}`
+                  : `سداد دفعة إلى: ${activeDebtForPay?.personName}`}
+              </Text>
             <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
               المبلغ المتبقي حالياً:{' '}
               {formatMoney(
@@ -1891,8 +1898,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 3: Add Financial Procedure */}
@@ -1902,7 +1910,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setNewProcModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -2113,7 +2122,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Unified Financial Profile Modal */}
@@ -2413,6 +2422,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: 540,
     width: '100%',
+    maxHeight: '90%',
     alignSelf: 'center',
   },
   modalTitle: {
@@ -2451,6 +2461,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
   },
   choiceBtnText: {
     fontSize: 12,
@@ -2476,6 +2489,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chipText: {
     fontSize: 12,
@@ -2491,6 +2507,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cancelBtnText: {
     fontSize: 13,
@@ -2500,6 +2520,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',
@@ -2553,9 +2577,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   contactModeSelector: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     borderRadius: 10,
     padding: 3,
     borderWidth: 1,
@@ -2563,7 +2589,7 @@ const styles = StyleSheet.create({
   },
   contactModeTab: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -2593,7 +2619,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   contactPickerItem: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     padding: 8,
     borderRadius: 6,
@@ -2609,7 +2635,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   selectedContactBadge: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
     padding: 8,
@@ -2630,13 +2656,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   debtPersonRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 4,
   },
   profilePillBtn: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,

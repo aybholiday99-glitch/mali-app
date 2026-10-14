@@ -10,7 +10,8 @@ export function installNativeTestLoader({ provider = false, ui = false } = {}) {
       let source;
       if (specifier === '@react-native-async-storage/async-storage') source = 'export default globalThis.maliTestStorage;';
       if (specifier === 'react-native') source = 'export const Platform = globalThis.maliTestPlatform;';
-      if (ui && specifier === 'react-native') source += "export const View='View',Text='Text',ScrollView='ScrollView',TouchableOpacity='TouchableOpacity',TextInput='TextInput',Modal='Modal',ActivityIndicator='ActivityIndicator'; export const StyleSheet={create:s=>s}; export const Share={share:async()=>({})};";
+      if (ui && specifier === 'react-native') source += "export const View='View',Text='Text',ScrollView='ScrollView',TouchableOpacity='TouchableOpacity',TextInput='TextInput',Modal='Modal',ActivityIndicator='ActivityIndicator',KeyboardAvoidingView='KeyboardAvoidingView',useWindowDimensions=()=>({width:412,height:914}); export const StyleSheet={create:s=>s}; export const Share={share:async()=>({})};";
+      if (specifier === 'react-native-safe-area-context') source = "export const SafeAreaView='SafeAreaView',useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});";
       if (ui && specifier === '@expo/vector-icons') source = "export const Ionicons='Ionicons';";
       if (specifier === '@supabase/supabase-js') source = 'export const createClient = (...args) => globalThis.maliTestCreateClient(...args);';
       if (specifier === 'expo-secure-store') source = 'export const WHEN_UNLOCKED_THIS_DEVICE_ONLY=1; export const isAvailableAsync=(...a)=>globalThis.maliTestSecureStore?.isAvailableAsync(...a); export const getItemAsync=(...a)=>globalThis.maliTestSecureStore?.getItemAsync(...a); export const setItemAsync=(...a)=>globalThis.maliTestSecureStore?.setItemAsync(...a); export const deleteItemAsync=(...a)=>globalThis.maliTestSecureStore?.deleteItemAsync(...a);';

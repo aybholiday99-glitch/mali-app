@@ -10,6 +10,8 @@ import {
   TextInput,
   Modal,
   Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
@@ -22,6 +24,7 @@ import {
   generateContactStatementCsv,
   matchesContact,
 } from '../utils/exportHelper';
+import { useResponsiveLayout, MIN_TOUCH_TARGET } from '../theme/responsive';
 
 const CONTACT_ROLES: ContactRole[] = [
   'مكتب صرافة',
@@ -32,6 +35,7 @@ const CONTACT_ROLES: ContactRole[] = [
 ];
 
 export const ContactsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
   const {
     state,
     theme,
@@ -299,7 +303,7 @@ export const ContactsScreen: React.FC = () => {
       </View>
 
       {/* Search, Filter Dropdown & Add Person Row */}
-      <View style={styles.searchAndAddRow}>
+      <View style={[styles.searchAndAddRow, isSmallPhone && { flexWrap: 'wrap' }]}>
         <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[styles.addPersonBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
           onPress={handleOpenAddModal}
@@ -308,7 +312,7 @@ export const ContactsScreen: React.FC = () => {
           <Text style={styles.addPersonBtnText}>+ إضافة شخص</Text>
         </TouchableOpacity>
 
-        <View style={{ width: 145 }}>
+        <View style={{ width: isSmallPhone ? '100%' : 145 }}>
           <CalmDropdown disabled={saving} label="تصفية تصنيف المتعامل"
             compact
             value={roleFilter}
@@ -655,11 +659,13 @@ export const ContactsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setModalVisible(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
             contentContainerStyle={{ justifyContent: 'center', flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
           >
             <View
               style={[
@@ -815,7 +821,7 @@ export const ContactsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -877,6 +883,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -897,6 +904,8 @@ const styles = StyleSheet.create({
   rolePill: {
     paddingHorizontal: 12,
     paddingVertical: 7,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 10,
     borderWidth: 1,
   },
@@ -1027,6 +1036,7 @@ const styles = StyleSheet.create({
     flex: 2,
     borderRadius: 10,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1041,6 +1051,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1061,6 +1072,7 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     maxWidth: 560,
+    maxHeight: '90%',
     width: '100%',
     alignSelf: 'center',
   },
@@ -1144,6 +1156,8 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
   },
@@ -1159,6 +1173,10 @@ const styles = StyleSheet.create({
   cancelBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
   },
@@ -1169,6 +1187,10 @@ const styles = StyleSheet.create({
   saveBtn: {
     paddingVertical: 10,
     paddingHorizontal: 18,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
   },
   saveBtnText: {

@@ -13,6 +13,8 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
@@ -28,8 +30,10 @@ import {
   generateTransactionsCsv,
   getPaymentMethodLabel,
 } from '../utils/exportHelper';
+import { useResponsiveLayout } from '../theme/responsive';
 
 export const ExpensesScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
   const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
@@ -325,7 +329,7 @@ export const ExpensesScreen: React.FC = () => {
         />
 
         {/* 2. الغرض + 3. الحساب في قوائم منسدلة متناسقة */}
-        <View style={styles.twoColRow}>
+        <View style={[styles.twoColRow, isSmallPhone && { flexDirection: 'column' }]}>
           <View style={{ flex: 1 }}>
             <CalmDropdown disabled={saving}
               label="2. لأي غرض؟"
@@ -910,7 +914,8 @@ export const ExpensesScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setOtherTxModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -919,10 +924,11 @@ export const ExpensesScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-              تسجيل إيراد وارد أو تحويل بين حساباتك
-            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                تسجيل إيراد وارد أو تحويل بين حساباتك
+              </Text>
 
             <CalmDropdown disabled={saving}
               label="نوع العملية:"
@@ -1067,8 +1073,9 @@ export const ExpensesScreen: React.FC = () => {
                 <Text style={styles.saveBtnText}>حفظ العملية</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 2: Edit Monthly Budget Limit */}
@@ -1078,7 +1085,8 @@ export const ExpensesScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setEditingBudgetCat(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -1087,10 +1095,11 @@ export const ExpensesScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-              تحديد السقف الشهري لغرض: {editingBudgetCat}
-            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                تحديد السقف الشهري لغرض: {editingBudgetCat}
+              </Text>
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               الميزانية الشهرية بالدينار الليبي
             </Text>
@@ -1143,8 +1152,9 @@ export const ExpensesScreen: React.FC = () => {
                 <Text style={styles.saveBtnText}>حفظ الميزانية</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -1237,6 +1247,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginTop: 8,
+    minHeight: 48,
   },
   submitQuickBtnText: {
     color: '#FFFFFF',
@@ -1258,6 +1269,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   secondaryActionBtnText: {
     fontWeight: '600',
@@ -1273,6 +1286,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   exportBtnText: {
     fontWeight: 'bold',
@@ -1316,6 +1331,8 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 9,
     borderRadius: 8,
+    minHeight: 48,
+    minWidth: 48,
   },
   subTabText: {
     fontSize: 12,
@@ -1406,10 +1423,13 @@ const styles = StyleSheet.create({
   deleteSmallBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
+    minHeight: 48,
+    minWidth: 48,
   },
   budgetIntro: {
     fontSize: 12,
@@ -1445,11 +1465,14 @@ const styles = StyleSheet.create({
   editBudgetBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 7,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   editBudgetText: {
     fontSize: 11,
@@ -1485,6 +1508,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: 500,
     width: '100%',
+    maxHeight: '90%',
     alignSelf: 'center',
   },
   modalTitle: {
@@ -1524,6 +1548,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cancelBtnText: {
     fontSize: 13,
@@ -1533,6 +1561,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',

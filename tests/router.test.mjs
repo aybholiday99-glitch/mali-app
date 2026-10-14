@@ -22,8 +22,8 @@ globalThis.maliRealValidator=require('expo-router/build/react-navigation/core/va
 installNativeTestLoader({provider:true,ui:true});
 registerHooks({resolve(specifier,context,next){
   let source;
-  if(specifier==='react-native')source="export const Platform=globalThis.maliTestPlatform;export const View='View',Text='Text',ScrollView='ScrollView',TouchableOpacity='TouchableOpacity',StatusBar='StatusBar',Modal='Modal',ActivityIndicator='ActivityIndicator',Switch='Switch',TextInput='TextInput';export const StyleSheet={create:s=>s};";
-  if(specifier==='react-native-safe-area-context')source="export const SafeAreaView='SafeAreaView';";
+  if(specifier==='react-native')source="export const Platform=globalThis.maliTestPlatform;export const View='View',Text='Text',ScrollView='ScrollView',TouchableOpacity='TouchableOpacity',StatusBar='StatusBar',Modal='Modal',ActivityIndicator='ActivityIndicator',Switch='Switch',TextInput='TextInput',KeyboardAvoidingView='KeyboardAvoidingView',useWindowDimensions=()=>({width:412,height:914});export const StyleSheet={create:s=>s};";
+  if(specifier==='react-native-safe-area-context')source="export const SafeAreaView='SafeAreaView',useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});";
   if(specifier==='expo-router')source="export const router={navigate:p=>{globalThis.maliRouterPath=p;}},usePathname=()=>globalThis.maliRouterPath,Link='Link',Slot='Slot',Redirect='Redirect';export function Stack({children}){globalThis.maliRouterProbe?.();return globalThis.maliRouterReact.createElement('Stack',null,children);}Stack.Screen='RouteEntry';Stack.Protected=({children,guard})=>guard?children:null;";
   if(specifier==='expo-router/js-tabs')source="export function Tabs({children}){return globalThis.maliRouterReact.createElement('Tabs',null,children);}Tabs.Screen='TabRouteEntry';";
   if(specifier.endsWith('/services/authService')&&context.parentURL?.includes('/navigation/'))source='export const launchSocialOAuthWindow=async()=>({success:false,message:"isolated failure"});';

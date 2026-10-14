@@ -12,6 +12,8 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
@@ -23,8 +25,10 @@ import {
   formatMoney,
   generateTransactionsCsv,
 } from '../utils/exportHelper';
+import { useResponsiveLayout } from '../theme/responsive';
 
 export const AccountsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
   const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
@@ -320,7 +324,7 @@ export const AccountsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <View style={{ width: 155 }}>
+        <View style={{ width: isSmallPhone ? '100%' : 155 }}>
           <CalmDropdown disabled={saving} label="تصفية الحسابات"
             compact
             value={filterType}
@@ -520,7 +524,8 @@ export const AccountsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setTransferModalVisible(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -529,10 +534,11 @@ export const AccountsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-              تحويل مباشر بين حساباتي
-            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                تحويل مباشر بين حساباتي
+              </Text>
             <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
               انقل الأموال بسهولة بين حساباتك المصرفية وخزائن الكاش بدون عمولة
             </Text>
@@ -645,8 +651,9 @@ export const AccountsScreen: React.FC = () => {
                 <Text style={styles.saveBtnText}>تنفيذ التحويل الآن</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 1: Cheque Liquidation (تسييل الصكوك إلى كاش) */}
@@ -656,7 +663,8 @@ export const AccountsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setLiqModalVisible(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -665,10 +673,11 @@ export const AccountsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-              تسييل صك مصرفي / تحويل رصيد مصرفي إلى كاش
-            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                تسييل صك مصرفي / تحويل رصيد مصرفي إلى كاش
+              </Text>
             <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
               يخصم قيمة الصك من حسابك المصرفي ويودع الصافي النقدي في خزينة الكاش بعد احتساب نسبة الخصم تلقائياً
             </Text>
@@ -840,8 +849,9 @@ export const AccountsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 2: Add New Account */}
@@ -851,7 +861,8 @@ export const AccountsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setAddModalVisible(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -1048,7 +1059,7 @@ export const AccountsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 3: Edit Account Balance */}
@@ -1058,7 +1069,8 @@ export const AccountsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setEditingAccount(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -1067,64 +1079,66 @@ export const AccountsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
-              تعديل ومطابقة رصيد: {editingAccount?.name}
-            </Text>
-            <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
-              الرصيد الفعلي الحالي ({editingAccount?.currency})
-            </Text>
-            <TextInput accessibilityLabel="الرصيد المصحح" ref={fieldRef('newBalanceStr')} editable={!saving}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.inputBg,
-                  borderColor: theme.border,
-                  color: theme.text,
-                },
-                styles.touchTarget,
-              ]}
-              keyboardType="numeric"
-              value={newBalanceStr}
-              onChangeText={setNewBalanceStr}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                تعديل ومطابقة رصيد: {editingAccount?.name}
+              </Text>
+              <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                الرصيد الفعلي الحالي ({editingAccount?.currency})
+              </Text>
+              <TextInput accessibilityLabel="الرصيد المصحح" ref={fieldRef('newBalanceStr')} editable={!saving}
                 style={[
-                  styles.cancelBtn,
+                  styles.input,
                   {
-                    backgroundColor: theme.cardAlt,
+                    backgroundColor: theme.inputBg,
                     borderColor: theme.border,
+                    color: theme.text,
                   },
                   styles.touchTarget,
                 ]}
-                onPress={() => setEditingAccount(null)}
-              >
-                <Text
+                keyboardType="numeric"
+                value={newBalanceStr}
+                onChangeText={setNewBalanceStr}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
-                    styles.cancelBtnText,
-                    { color: theme.textSecondary },
+                    styles.cancelBtn,
+                    {
+                      backgroundColor: theme.cardAlt,
+                      borderColor: theme.border,
+                    },
+                    styles.touchTarget,
                   ]}
+                  onPress={() => setEditingAccount(null)}
                 >
-                  إلغاء
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
-                onPress={async () => {
-                  if (editingAccount) {
-                    const val = parseFinancialInput(newBalanceStr);
-                    if (val === null) return reject('أدخل رصيداً صحيحاً.', 'newBalanceStr');
-                    if (!await submit(() => updateAccountBalance(editingAccount.id, val))) return;
-                    setEditingAccount(null);
-                  }
-                }}
-              >
-                <Text style={styles.saveBtnText}>تحديث الرصيد</Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={[
+                      styles.cancelBtnText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    إلغاء
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
+                  onPress={async () => {
+                    if (editingAccount) {
+                      const val = parseFinancialInput(newBalanceStr);
+                      if (val === null) return reject('أدخل رصيداً صحيحاً.', 'newBalanceStr');
+                      if (!await submit(() => updateAccountBalance(editingAccount.id, val))) return;
+                      setEditingAccount(null);
+                    }
+                  }}
+                >
+                  <Text style={styles.saveBtnText}>تحديث الرصيد</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -1170,7 +1184,8 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     flex: 1,
-    minWidth: 150,
+    minWidth: 100,
+    minHeight: 48,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -1186,7 +1201,8 @@ const styles = StyleSheet.create({
   },
   secondaryBtn: {
     flex: 1,
-    minWidth: 150,
+    minWidth: 100,
+    minHeight: 48,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -1212,6 +1228,9 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 9,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
   },
   filterTabText: {
     fontSize: 12,
@@ -1289,11 +1308,14 @@ const styles = StyleSheet.create({
   accActionBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   accActionText: {
     fontSize: 11,
@@ -1310,6 +1332,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: 540,
     width: '100%',
+    maxHeight: '90%',
     alignSelf: 'center',
   },
   modalTitle: {
@@ -1353,6 +1376,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 9,
     borderWidth: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chipText: {
     fontSize: 12,
@@ -1363,6 +1389,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
   },
   choiceBtnText: {
     fontSize: 12,
@@ -1397,6 +1426,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cancelBtnText: {
     fontSize: 13,
@@ -1406,6 +1439,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 10,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',

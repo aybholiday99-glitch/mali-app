@@ -25,6 +25,7 @@ import {
   generateTransactionsCsv,
   printFinancialStatement,
 } from '../utils/exportHelper';
+import { MIN_TOUCH_TARGET } from '../theme/responsive';
 
 interface CloudModalProps {
   visible: boolean;
@@ -669,10 +670,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   closeBtn: {
-    minHeight:44,
-    minWidth:44,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
     padding: 6,
     borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollArea: {
     padding: 16,
@@ -719,8 +722,10 @@ const styles = StyleSheet.create({
     minWidth: '46%',
     borderRadius: 12,
     padding: 12,
+    minHeight: MIN_TOUCH_TARGET,
     borderWidth: 1,
     alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   exportBtnTitle: {
     fontSize: 13,
@@ -745,6 +750,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 9,
+    minHeight: MIN_TOUCH_TARGET,
     textAlign: 'right',
     fontSize: 13,
   },
@@ -753,6 +759,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 12,
+    minHeight: MIN_TOUCH_TARGET,
   },
   checkboxText: {
     fontSize: 12,
@@ -769,6 +776,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -785,6 +793,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -799,6 +808,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -810,8 +821,10 @@ const styles = StyleSheet.create({
   sqlToggleBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     marginTop: 12,
+    minHeight: MIN_TOUCH_TARGET,
   },
   sqlToggleText: {
     fontSize: 12,

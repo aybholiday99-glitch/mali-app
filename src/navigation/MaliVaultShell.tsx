@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View,Text,StyleSheet,TouchableOpacity,StatusBar,Platform,Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View,Text,StyleSheet,TouchableOpacity,StatusBar,Modal } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Link,router,usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
+import { useResponsiveLayout, MIN_TOUCH_TARGET } from '../theme/responsive';
 import { CloudAndExportModal } from '../screens/CloudAndExportModal';
 import { LegacyVaultMigrationModal } from '../components/LegacyVaultMigrationModal';
 import { OfflineBanner } from '../components/OfflineBanner';
@@ -31,6 +32,8 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
     performLegacyVaultMigration,
     cancelLegacyVaultMigration,
   } = useMali();
+  const insets = useSafeAreaInsets();
+  const { isSmallPhone } = useResponsiveLayout();
   const activeTab=sectionFromPath(usePathname());
   const [cloudModalVisible, setCloudModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
@@ -125,7 +128,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             <Text style={[styles.appTitle, { color: theme.text }]}>مالي</Text>
           </View>
 
-          <View style={styles.headerActions}>
+          <View style={[styles.headerActions, isSmallPhone && styles.headerActionsSmall]}>
             <TouchableOpacity
               style={[
                 styles.iconActionBtn,
@@ -140,7 +143,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             >
               <Ionicons
                 name={isDarkMode ? 'sunny-outline' : 'moon-outline'}
-                size={16}
+                size={18}
                 color={isDarkMode ? '#FBBF24' : theme.textSecondary}
               />
             </TouchableOpacity>
@@ -148,6 +151,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             <TouchableOpacity
               style={[
                 styles.cloudPill,
+                isSmallPhone && styles.cloudPillCompact,
                 {
                   backgroundColor: isCloudConfigured
                     ? theme.primarySoft
@@ -161,21 +165,24 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             >
               <Ionicons
                 name="cloud-outline"
-                size={15}
+                size={16}
                 color={isCloudConfigured ? theme.primary : theme.blue}
               />
-              <Text
-                style={[
-                  styles.cloudPillText,
-                  {
-                    color: isCloudConfigured
-                      ? theme.primary
-                      : theme.textSecondary,
-                  },
-                ]}
-              >
-                {currentUser?.isLocalOnly ? 'محلي / تصدير' : isSyncing ? 'المزامنة…' : isCloudConfigured ? 'السحابة / تصدير' : 'إعدادات السحابة'}
-              </Text>
+              {!isSmallPhone && (
+                <Text
+                  style={[
+                    styles.cloudPillText,
+                    {
+                      color: isCloudConfigured
+                        ? theme.primary
+                        : theme.textSecondary,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {currentUser?.isLocalOnly ? 'تصدير' : isSyncing ? 'المزامنة…' : isCloudConfigured ? 'السحابة' : 'إعدادات'}
+                </Text>
+              )}
             </TouchableOpacity>
 
             {isSystemOwner(currentUser) && (
@@ -198,6 +205,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             <TouchableOpacity
               style={[
                 styles.userPill,
+                isSmallPhone && styles.userPillCompact,
                 {
                   backgroundColor: theme.cardAlt,
                   borderColor: theme.border,
@@ -209,7 +217,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
             >
               <Ionicons
                 name={getProviderIcon() as any}
-                size={14}
+                size={15}
                 color={theme.primary}
               />
               <Text
@@ -420,6 +428,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
           {
             backgroundColor: theme.headerBg,
             borderTopColor: theme.border,
+            paddingBottom: Math.max(insets.bottom, 10),
           },
         ]}
       >
@@ -699,38 +708,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  headerActionsSmall: {
+    gap: 4,
+  },
   iconActionBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 17,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    borderRadius: MIN_TOUCH_TARGET / 2,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
   },
   userPill: {
-    minHeight:44,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 18,
+    paddingVertical: 8,
+    borderRadius: 24,
     borderWidth: 1,
     maxWidth: 110,
+  },
+  userPillCompact: {
+    maxWidth: 80,
+    paddingHorizontal: 6,
   },
   userPillText: {
     fontSize: 11,
     fontWeight: '600',
   },
   cloudPill: {
-    minHeight:44,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 18,
+    paddingVertical: 8,
+    borderRadius: 24,
     borderWidth: 1,
+  },
+  cloudPillCompact: {
+    paddingHorizontal: 12,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
   },
   cloudPillText: {
     fontSize: 11,
@@ -752,13 +773,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   subNavBtn: {
-    minHeight:44,
+    minHeight: MIN_TOUCH_TARGET,
     flex: 1,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 7,
+    paddingVertical: 10,
     borderRadius: 9,
     borderWidth: 1,
     borderColor: 'transparent',
@@ -777,8 +798,7 @@ const styles = StyleSheet.create({
   },
   bottomNav: {
     borderTopWidth: 1,
-    paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 18 : 10,
+    paddingVertical: 6,
     alignItems: 'center',
   },
   bottomNavInner: {
@@ -788,21 +808,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
   },
   navItem: {
-    minHeight:44,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
     paddingHorizontal: 4,
+    paddingVertical: 4,
   },
   navIconWrap: {
     paddingHorizontal: 14,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 14,
   },
   navLabel: {
     fontSize: 11,
-    marginTop: 3,
+    marginTop: 2,
     fontWeight: '500',
+    lineHeight: 14,
   },
   modalBackdrop: {
     flex: 1,
@@ -873,16 +896,20 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   closeProfileBtn: {
+    minHeight: MIN_TOUCH_TARGET,
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   closeProfileBtnText: {
     fontSize: 13,
     fontWeight: '600',
   },
   logoutBtn: {
+    minHeight: MIN_TOUCH_TARGET,
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 16,

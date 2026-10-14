@@ -8,8 +8,11 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MIN_TOUCH_TARGET } from '../theme/responsive';
 import { AuthUser, SupabaseConfig } from '../types/mali';
 import { useMali } from '../context/MaliContext';
 import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
@@ -166,10 +169,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.bg }]}
-      contentContainerStyle={styles.scrollContent}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
     >
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.bg }]}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
       <View
         style={[
           styles.authCard,
@@ -561,13 +569,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         transparent
         animationType="fade"
       >
-        <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
-            ]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <ScrollView
+            contentContainerStyle={{ justifyContent: 'center', flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
           >
+            <View
+              style={[
+                styles.modalCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+              ]}
+            >
             <View style={styles.socialModalHeader}>
               <View
                 style={[
@@ -820,10 +835,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               )}
             </View>
           </View>
-        </View>
-      </Modal>
-    </ScrollView>
-  );
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  </ScrollView>
+</KeyboardAvoidingView>
+);
 };
 
 const styles = StyleSheet.create({
@@ -854,6 +871,8 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 16,
     borderWidth: 1,
   },
@@ -893,6 +912,8 @@ const styles = StyleSheet.create({
   modeTab: {
     flex: 1,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 9,
     alignItems: 'center',
   },
@@ -926,6 +947,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 8,
@@ -947,6 +969,7 @@ const styles = StyleSheet.create({
   submitBtn: {
     borderRadius: 12,
     paddingVertical: 13,
+    minHeight: MIN_TOUCH_TARGET,
     marginTop: 16,
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -978,6 +1001,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 14,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -993,6 +1017,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 14,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1007,6 +1032,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 14,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1041,6 +1067,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     maxWidth: 440,
+    maxHeight: '90%',
     width: '100%',
     alignSelf: 'center',
   },
@@ -1073,6 +1100,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     borderRadius: 10,
     borderWidth: 1,
     marginTop: 12,
@@ -1090,6 +1118,10 @@ const styles = StyleSheet.create({
   cancelBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
   },
   cancelBtnText: {
@@ -1100,6 +1132,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 16,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',

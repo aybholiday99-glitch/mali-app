@@ -11,6 +11,8 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
@@ -28,8 +30,10 @@ import {
   generateDealsCsv,
   getPaymentMethodLabel,
 } from '../utils/exportHelper';
+import { useResponsiveLayout } from '../theme/responsive';
 
 export const UsdDealsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
   const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
@@ -489,7 +493,7 @@ export const UsdDealsScreen: React.FC = () => {
       </View>
 
       {/* Top KPI Cards */}
-      <View style={styles.kpiRow}>
+      <View style={[styles.kpiRow, isSmallPhone && { flexDirection: 'column' }]}>
         <View
           style={[
             styles.kpiCard,
@@ -1037,7 +1041,8 @@ export const UsdDealsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setDealToDelete(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -1050,44 +1055,46 @@ export const UsdDealsScreen: React.FC = () => {
               },
             ]}
           >
-            <FinancialSaveNotice error={submissionError} />
-            <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.danger }]}>
-              إلغاء وحذف الصفقة {dealToDelete?.dealNumber}
-            </Text>
-            <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
-              هل تريد حذف هذه الصفقة واسترجاع كافة أرصدة الحسابات (الدينار والدولار) إلى وضعها قبل الصفقة؟
-            </Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
-                style={[
-                  styles.cancelBtn,
-                  { backgroundColor: theme.cardAlt, borderColor: theme.border },
-                  styles.touchTarget,
-                ]}
-                onPress={() => setDealToDelete(null)}
-              >
-                <Text
-                  style={[styles.cancelBtnText, { color: theme.textSecondary }]}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.danger }]}>
+                إلغاء وحذف الصفقة {dealToDelete?.dealNumber}
+              </Text>
+              <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
+                هل تريد حذف هذه الصفقة واسترجاع كافة أرصدة الحسابات (الدينار والدولار) إلى وضعها قبل الصفقة؟
+              </Text>
+              <View style={styles.modalActions}>
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[
+                    styles.cancelBtn,
+                    { backgroundColor: theme.cardAlt, borderColor: theme.border },
+                    styles.touchTarget,
+                  ]}
+                  onPress={() => setDealToDelete(null)}
                 >
-                  تراجع
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
-                style={[styles.saveBtn, { backgroundColor: theme.danger }, styles.touchTarget]}
-                onPress={async () => {
-                  if (dealToDelete) {
-                    if (!await submit(() => deleteUsdDeal(dealToDelete.id, true))) return;
-                    setDealToDelete(null);
-                  }
-                }}
-              >
-                <Text style={styles.saveBtnText}>
-                  نعم، حذف الصفقة واسترجاع الأرصدة
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={[styles.cancelBtnText, { color: theme.textSecondary }]}
+                  >
+                    تراجع
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.danger }, styles.touchTarget]}
+                  onPress={async () => {
+                    if (dealToDelete) {
+                      if (!await submit(() => deleteUsdDeal(dealToDelete.id, true))) return;
+                      setDealToDelete(null);
+                    }
+                  }}
+                >
+                  <Text style={styles.saveBtnText}>
+                    نعم، حذف الصفقة واسترجاع الأرصدة
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 1: Open New USD Deal */}
@@ -1097,7 +1104,8 @@ export const UsdDealsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setNewDealModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -1732,7 +1740,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 2: Record Sale on Existing Deal */}
@@ -1742,7 +1750,8 @@ export const UsdDealsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setActiveDealForSale(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -2176,7 +2185,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -2499,6 +2508,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    minHeight: 48,
+    minWidth: 48,
   },
   sellActionBtnText: {
     color: '#FFFFFF',
@@ -2514,6 +2525,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   personalTakeBtnText: {
     fontSize: 12,
@@ -2530,6 +2543,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: 580,
     width: '100%',
+    maxHeight: '90%',
     alignSelf: 'center',
   },
   modalTitle: {
@@ -2556,7 +2570,10 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
+    minHeight: 48,
+    minWidth: 48,
   },
   modeBigBtnTitle: {
     fontSize: 13,
@@ -2591,6 +2608,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
   },
   choiceBtnText: {
     fontSize: 12,
@@ -2606,6 +2626,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chipText: {
     fontSize: 12,
@@ -2654,6 +2677,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   portionChipText: {
     fontSize: 11,
@@ -2689,6 +2716,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cancelBtnText: {
     fontSize: 13,
@@ -2698,6 +2729,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',

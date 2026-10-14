@@ -23,6 +23,7 @@ import {
   type AdminUserRecord,
   type AdminSecurityEvent,
 } from '../services/adminService';
+import { MIN_TOUCH_TARGET } from '../theme/responsive';
 
 interface AdminDashboardScreenProps {
   onClose: () => void;
@@ -680,6 +681,10 @@ const styles = StyleSheet.create({
   closeBtn: {
     paddingHorizontal: 24,
     paddingVertical: 12,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 12,
   },
   closeBtnText: {
@@ -716,9 +721,9 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   closeIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    borderRadius: MIN_TOUCH_TARGET / 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -732,6 +737,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 12,
+    minHeight: MIN_TOUCH_TARGET,
     gap: 6,
   },
   tabText: {
@@ -943,6 +949,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#D97706',
     paddingVertical: 12,
     paddingHorizontal: 24,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 12,
     marginTop: 8,
   },

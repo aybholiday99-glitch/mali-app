@@ -8,9 +8,13 @@ import {
   Modal,
   Linking,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
+import { useResponsiveLayout, MIN_TOUCH_TARGET } from '../theme/responsive';
 import { ContactPerson, DebtRecord, DealSale, UsdDeal } from '../types/mali';
 import {
   computeUnifiedContactProfile,
@@ -48,6 +52,7 @@ export const UnifiedContactProfileModal: React.FC<UnifiedContactProfileModalProp
   onAddSale,
   onAddTransfer,
 }) => {
+  const { isSmallPhone } = useResponsiveLayout();
   const { state, theme, updateContact } = useMali();
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [exporting, setExporting] = useState(false);
@@ -167,7 +172,7 @@ export const UnifiedContactProfileModal: React.FC<UnifiedContactProfileModalProp
 
         <ScrollView style={styles.scrollBody} contentContainerStyle={styles.scrollContent}>
           {/* Quick Info & Notes Card */}
-          <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.infoCard, isSmallPhone && { padding: 12 }, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.infoRow}>
               <Ionicons name="calendar-outline" size={16} color={theme.textSecondary} />
               <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>تاريخ الإضافة:</Text>
@@ -875,7 +880,10 @@ export const UnifiedContactProfileModal: React.FC<UnifiedContactProfileModalProp
 
         {/* Note Editor Modal */}
         <Modal visible={noteEditVisible} transparent animationType="fade" onRequestClose={() => setNoteEditVisible(false)}>
-          <View style={[styles.noteModalBackdrop, { backgroundColor: theme.overlay }]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={[styles.noteModalBackdrop, { backgroundColor: theme.overlay }]}
+          >
             <View style={[styles.noteModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text accessibilityRole="header" style={[styles.noteModalTitle, { color: theme.text }]}>
                 تعديل ملاحظات المتعامل: {contact.name}
@@ -909,7 +917,7 @@ export const UnifiedContactProfileModal: React.FC<UnifiedContactProfileModalProp
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     </Modal>
@@ -921,7 +929,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -929,20 +938,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   closeBtn: {
-    width: 48,
-    height: 48,
-    minWidth: 48,
-    minHeight: 48,
-    borderRadius: 24,
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    minHeight: MIN_TOUCH_TARGET,
+    borderRadius: MIN_TOUCH_TARGET / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
   },
   headerInfo: {
     flex: 1,
+    alignItems: 'flex-end',
+    marginLeft: 12,
   },
   headerTitleRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
@@ -950,6 +960,7 @@ const styles = StyleSheet.create({
   contactName: {
     fontSize: 18,
     fontWeight: 'bold',
+    textAlign: 'right',
   },
   roleBadge: {
     paddingHorizontal: 8,
@@ -961,19 +972,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   phoneRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
     marginTop: 4,
-    minHeight: 48,
-    minWidth: 48,
+    minHeight: MIN_TOUCH_TARGET,
   },
   phoneText: {
     fontSize: 13,
     fontWeight: '500',
   },
   statusBanner: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 16,
@@ -983,6 +993,8 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 13,
     fontWeight: '500',
+    textAlign: 'right',
+    flex: 1,
   },
   scrollBody: {
     flex: 1,
@@ -998,17 +1010,19 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   infoRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
   },
   infoLabel: {
     fontSize: 12,
     fontWeight: '600',
+    textAlign: 'right',
   },
   infoValue: {
     fontSize: 13,
     flex: 1,
+    textAlign: 'right',
   },
   quickActionsContainer: {
     marginBottom: 16,
@@ -1016,22 +1030,23 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: 13,
     fontWeight: '600',
+    textAlign: 'right',
     marginBottom: 8,
   },
   actionButtonsRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     gap: 8,
     paddingVertical: 4,
   },
   actionBtn: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 8,
-    minHeight: 48,
-    minWidth: 48,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
   },
   actionBtnText: {
     color: '#FFFFFF',
@@ -1045,7 +1060,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   kpiHeader: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
@@ -1053,7 +1068,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   kpiCurrencyBadge: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
   },
@@ -1071,7 +1086,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   kpiGrid: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     gap: 10,
   },
   kpiBox: {
@@ -1099,7 +1114,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   dealsStatRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
   },
   dealsStatLabel: {
@@ -1109,7 +1124,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   tabsRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     borderRadius: 10,
     padding: 3,
     borderWidth: 1,
@@ -1160,12 +1175,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   timelineTopRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   timelineTypeBadge: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
   },
@@ -1191,7 +1206,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   timelineDetailsRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexWrap: 'wrap',
@@ -1210,7 +1225,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   timelineBalanceRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
     marginTop: 4,
@@ -1234,12 +1249,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   debtHeaderRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   debtBadgeGroup: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 6,
   },
@@ -1257,7 +1272,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   debtAmountsRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     paddingVertical: 4,
   },
@@ -1285,7 +1300,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   installmentRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
@@ -1304,7 +1319,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   settleBtn: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -1326,7 +1341,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   dealTopRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
@@ -1339,7 +1354,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   dealMetricsRow: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     flexWrap: 'wrap',
     gap: 8,
@@ -1355,7 +1370,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   directTxHeader: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
@@ -1367,7 +1382,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   directTxDetails: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
@@ -1412,8 +1427,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   noteModalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: 'row-reverse',
+    justifyContent: 'flex-start',
     gap: 10,
   },
   noteCancelBtn: {
