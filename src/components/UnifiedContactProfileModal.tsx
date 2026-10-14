@@ -32,6 +32,7 @@ interface UnifiedContactProfileModalProps {
   onAddDebt?: (contact: ContactPerson) => void;
   onSettleDebt?: (contact: ContactPerson, debt?: DebtRecord) => void;
   onAddDeal?: (contact: ContactPerson) => void;
+  onAddSale?: (contact: ContactPerson) => void;
   onAddTransfer?: (contact: ContactPerson) => void;
 }
 
@@ -44,6 +45,7 @@ export const UnifiedContactProfileModal: React.FC<UnifiedContactProfileModalProp
   onAddDebt,
   onSettleDebt,
   onAddDeal,
+  onAddSale,
   onAddTransfer,
 }) => {
   const { state, theme, updateContact } = useMali();
@@ -222,10 +224,22 @@ export const UnifiedContactProfileModal: React.FC<UnifiedContactProfileModalProp
                   style={[styles.actionBtn, { backgroundColor: '#F59E0B' }]}
                   onPress={() => onAddDeal(contact)}
                   accessibilityRole="button"
-                  accessibilityLabel="شراء صفقة دولار من المتعامل"
+                  accessibilityLabel="شراء دولار من المتعامل"
+                >
+                  <Ionicons name="cart-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.actionBtnText}>شراء</Text>
+                </TouchableOpacity>
+              )}
+
+              {onAddSale && (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: '#3B82F6' }]}
+                  onPress={() => onAddSale(contact)}
+                  accessibilityRole="button"
+                  accessibilityLabel="بيع دولار للمتعامل"
                 >
                   <Ionicons name="cash-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.actionBtnText}>شراء صفقة</Text>
+                  <Text style={styles.actionBtnText}>بيع</Text>
                 </TouchableOpacity>
               )}
 
