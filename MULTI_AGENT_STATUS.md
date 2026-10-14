@@ -98,7 +98,8 @@
 ### F. Quality, Testing & CI
 - [x] TypeScript check (`npm run typecheck`): **0 errors**.
 - [x] Linter check (`npm run lint`): **0 errors, 0 warnings**.
-- [x] Unit & Integration test suite (`npm test`): **649 / 649 PASS** (100% across all 58 test files).
+- [x] Unit & Integration test suite (`npm test`): **682 / 682 PASS** (100% across all 59 test files).
+- [x] Comprehensive End-to-End Suite (`tests/unifiedFinancialDossierE2E.test.mjs`): **33 / 33 PASS** (16/16 requirements).
 - [x] Accessibility suite (`tests/financialAccessibility.test.mjs`): **10 / 10 PASS**.
 - [x] Pagination suite (`tests/financialPagination.test.mjs`): **9 / 9 PASS**.
 - [x] PostgreSQL 17.11 isolated tests: **120 / 120 PASS** across all 3 suites.

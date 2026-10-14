@@ -276,12 +276,14 @@ platformfixturesandseparateweb/nativecycles;32targetedPASS. Final newsource CIst
   - Updated `src/screens/ProceduresDebtsScreen.tsx`: Added dual contact selection modes (Option 1: select existing contact with search; Option 2: create new contact with auto-link and directory save), plus "الملف المالي" quick shortcut button on debt cards.
   - Added statement printing in `src/utils/exportHelper.ts` (`printContactStatement`, `printContactStatementWeb`).
 - **Comprehensive Quality Verification:**
-  - Automated unit test suite `tests/unifiedContactProfile.test.mjs`: **7 / 7 PASS**.
+  - Unit test suite `tests/unifiedContactProfile.test.mjs`: **7 / 7 PASS**.
   - Accessibility test suite `tests/financialAccessibility.test.mjs`: **10 / 10 PASS**.
   - Pagination test suite `tests/financialPagination.test.mjs`: **9 / 9 PASS**.
-  - Full application test suite `npm test`: **649 / 649 PASS** (100% across all 58 test files).
+  - End-to-end integration test suite `tests/unifiedFinancialDossierE2E.test.mjs`: **33 / 33 PASS** (covering all 16 architectural requirements from dual-mode contact linking and non-cash settlements to multi-currency isolation, zero auto-offsetting, and PostgreSQL loopback RLS).
+  - Full application test suite `npm test`: **682 / 682 PASS** (100% across all 59 test files, 0 failures).
   - PostgreSQL 17.11 loopback suite: **120 / 120 PASS** (`database.test.mjs`, `financialSqlValidation.test.mjs`, `financialAuditSql.test.mjs`).
   - TypeScript (`npm run typecheck`): **0 errors**.
   - ESLint (`npm run lint`): **0 errors, 0 warnings**.
+
 
 
