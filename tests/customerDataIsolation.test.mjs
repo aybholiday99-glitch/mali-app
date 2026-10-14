@@ -23,6 +23,7 @@ test('initial context and cloud backup validation use scrubbed state rather than
   assert.match(context, /useState<MaliState>\(\(\) => emptyFinancialState\(INITIAL_MALI_STATE\)\)/);
   assert.match(sync, /fallbackState: emptyFinancialState\(INITIAL_MALI_STATE\)/);
   assert.doesNotMatch(context, /useState<MaliState>\(INITIAL_MALI_STATE\)/);
+  assert.match(context, /hasVerifiedLocalVault/, 'A verified cache is required before allowing financial mutations after a failed pull');
 });
 
 test('switching owners never mutates the source template or inherits another owner records', () => {

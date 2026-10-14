@@ -16,7 +16,9 @@ globalThis.maliTestStorage={getItem:async key=>stored.get(key)??null,setItem:asy
 globalThis.maliProviderAuth={clearAuthSession:async()=>{},consumeOAuthRedirectIfPresent:async()=>null,getPersistedSessionUser:async()=>null,
   savePersistedSessionUser:async()=>{},subscribeToAuthIdentity:callback=>{identityChanged=callback;return()=>{};}};
 const offline={ok:false,success:false,failureKind:'transient',message:'offline'};
-let push=async()=>offline,pull=async()=>offline;
+const verifiedEmpty={ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty cloud'};
+// Successful identity-verified empty cloud is the default test fixture. Network failure is explicit.
+let push=async()=>offline,pull=async()=>verifiedEmpty;
 globalThis.maliProviderSync={pull:(...args)=>pull(...args),push:(...args)=>push(...args)};
 installNativeTestLoader({provider:true});
 registerHooks({resolve(specifier,context,next){
@@ -37,7 +39,7 @@ let api;
 function Probe(){api=useMali();return null;}
 async function mount(clock){let tree;await act(async()=>{tree=renderer.create(React.createElement(MaliProvider,{syncScheduler:clock.scheduler},React.createElement(Probe)));});return tree;}
 async function advance(clock,ms){await act(async()=>{await clock.advance(ms);});}
-function reset(){globalThis.maliTestPlatform.OS='ios';stored.clear();writeFailure=false;noOpWrite=false;push=async()=>offline;pull=async()=>offline;globalThis.maliTestAppState.currentState='active';}
+function reset(){globalThis.maliTestPlatform.OS='ios';stored.clear();writeFailure=false;noOpWrite=false;push=async()=>offline;pull=async()=>verifiedEmpty;globalThis.maliTestAppState.currentState='active';}
 const cache=async user=>JSON.parse(await financialStorage.getItem(key(user)));
 
 test('actual provider persists latest payload before upload and resumes bounded retries after restart',async()=>{
