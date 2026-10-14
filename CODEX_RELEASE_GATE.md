@@ -30,3 +30,15 @@ Remaining registry advisory: [node-forge](https://github.com/advisories/GHSA-86w
 Historical [braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) is closed on candidate.
 No merge/publish/cutover with failing or pending gates. Sensitive production actions require
 successful acceptance, proven production backup/data safety and explicit user approval.
+
+## Independent production isolation review — 2026-10-15
+
+Release status remains **NOT PRODUCTION READY**. This section reflects a read-only review of Supabase project `evcwoaerlykghgdevrhb`, not migration or deployment approval.
+
+- Verified: the seven existing `public.mali_*` financial tables have RLS enabled and forced, with authenticated SELECT/INSERT/UPDATE/DELETE restricted to `auth.uid() = user_id`; the unowned archive has no client policies. The actual JWT cross-owner integration test against production has **not** been performed.
+- Blocker: no `public.mali_*` stored procedures were present in production at review time. Candidate RPC-based sync, privileged administrative reads and maintenance enforcement are **not** thereby deployed to production.
+- Blocker: no Storage buckets were configured. Receipt uploads must not be declared centrally stored or safe for customers until a **private** tenant-scoped bucket, upload/download RLS and end-to-end integrity tests are implemented and approved.
+- Android acceptance: candidate `3eb7667` APK assembled, but Android emulator install/restart CI failed; Chromium device emulation screenshots are not equivalent to native Android UI acceptance.
+- Security remediation in subsequent candidate: remove bundled demo contacts/balances/debts/transactions/budgets from `INITIAL_MALI_STATE`; start with a blank vault and blank cloud-validation fallback; do not treat failed cloud reads with no verified local snapshot as proof that the customer vault is empty.
+- Expo SDK alignment is a candidate update only. Maintain the npm audit failure and node-forge advisory until conclusively resolved; do not bypass audit.
+- Next gates: clean CI, owner-A/owner-B real-server isolation and attachment tests, proven backups, verified migration/cutover, physical Android login/restart/reinstall/failure-mode acceptance, and owner approval before production changes or PR merge.

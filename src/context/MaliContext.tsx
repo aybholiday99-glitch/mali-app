@@ -281,7 +281,7 @@ function mergePartialCloudState(base: MaliState, cloud: Partial<MaliState>, upda
 }
 
 export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?: SyncScheduler }> = ({ children, syncScheduler }) => {
-  const [state, setState] = useState<MaliState>(INITIAL_MALI_STATE);
+  const [state, setState] = useState<MaliState>(() => emptyFinancialState(INITIAL_MALI_STATE));
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -1449,6 +1449,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
         return;
       }
       let cacheLoaded = false;
+      let hasVerifiedLocalVault = false;
       let identityVerified = false;
       let outbox: SyncOutbox<MaliState> | null = null;
       try {
@@ -1479,6 +1480,7 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           }
           const pending = typeof parsed.pendingCloudSync === 'boolean' ? parsed.pendingCloudSync :
             Boolean(parsed.lastModifiedAt && (!parsed.supabaseConfig?.lastSyncedAt || Date.parse(parsed.lastModifiedAt) > Date.parse(parsed.supabaseConfig.lastSyncedAt)));
+          hasVerifiedLocalVault = true;
           userState = { ...validation.state, localRevision: localRevision.current, pendingCloudSync: pending, supabaseConfig: {
             ...userState.supabaseConfig,
             autoSync: typeof parsed.supabaseConfig?.autoSync === 'boolean' ? parsed.supabaseConfig.autoSync : userState.supabaseConfig.autoSync,
@@ -1505,18 +1507,24 @@ export const MaliProvider: React.FC<{ children: React.ReactNode; syncScheduler?:
           applyState(merged);
           if (outbox) outbox = { ...outbox, syncedAt: merged.supabaseConfig.lastSyncedAt };
           await saveCache(merged, user.id, outbox);
-        } else if (res.isEmpty) {
+        } else if (res.ok && res.isEmpty && identityVerified) {
           // New cloud users keep an empty vault; no demo data is uploaded on login.
           const cleared = { ...stateRef.current, supabaseConfig: { ...stateRef.current.supabaseConfig, lastSyncedAt: undefined } };
           applyState(cleared);
           if (outbox && !outbox.stop) outbox = { ...outbox, syncedAt: undefined, pending: outbox.pending ? { ...outbox.pending, payload: { ...outbox.pending.payload, supabaseConfig: { ...outbox.pending.payload.supabaseConfig, lastSyncedAt: undefined } } } : null };
           await saveCache(cleared, user.id, outbox);
+        } else if (!hasVerifiedLocalVault) {
+          // A failed server read is not evidence that the customer vault is empty.
+          // Never allow a blank local state to replace unknown remote financial records.
+          recoveryRequired.current = true;
+          setMutationStatus({ phase: 'storage-error' });
+          setLastSyncMessage('تعذر التحقق من الخزنة على الخادم. تم منع العمليات المالية حتى استعادة اتصال موثوق.');
         } else if (hasPendingLocal) {
           setLastSyncMessage('توجد تعديلات محلية غير مرفوعة. تم الاحتفاظ بها؛ ارفعها أو صدّر نسخة احتياطية قبل استرجاع السحابة.');
         }
       } catch {
         if (scope.current.isCurrent(token)) {
-          if (!cacheLoaded) recoveryRequired.current = true;
+          if (!hasVerifiedLocalVault) recoveryRequired.current = true;
           setLastSyncMessage(cacheLoaded ? 'تعذر تحميل السحابة. تم الاحتفاظ بالتعديلات المحلية.' : 'تعذر قراءة الخزنة المحلية. تم إيقاف التعديلات لحماية البيانات؛ استرجع نسخة صحيحة.');
         }
       } finally {

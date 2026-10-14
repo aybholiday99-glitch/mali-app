@@ -1,4 +1,5 @@
 import { INITIAL_MALI_STATE } from '../data/initialData';
+import { emptyFinancialState } from './sessionScope';
 import { getSharedSupabaseClient } from './authService';
 import { validateAndSanitizeBackupPayload } from './financialEngine';
 import { createSupabaseSyncService, type SyncClient } from './supabaseSyncCore';
@@ -11,7 +12,7 @@ export const SUPABASE_SQL_SCHEMA = `-- See supabase/schema.sql and ordered migra
 
 const service = createSupabaseSyncService({
   getClient: (config) => getSharedSupabaseClient(config) as unknown as SyncClient,
-  fallbackState: INITIAL_MALI_STATE,
+  fallbackState: emptyFinancialState(INITIAL_MALI_STATE),
   validateBackup: validateAndSanitizeBackupPayload,
 });
 

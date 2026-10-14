@@ -33,7 +33,16 @@ async function nativePorts(): Promise<ReceiptPickerPorts> {
         const saved = await image.saveAsync({format:Manipulator.SaveFormat.JPEG,compress:quality,base64:true});
         try { return {base64:saved.base64,width:saved.width,height:saved.height}; }
         finally { removeCached(saved.uri); }
-      } finally { image?.release(); context.release(); }
+      } finally {
+        // Expo 57 native image refs are garbage-collected on some runtimes.
+        // Older builds exposed release(); call it only when actually present.
+        const releaseIfAvailable = (value: unknown) => {
+          const releasable = value as { release?: () => void } | undefined;
+          if (typeof releasable?.release === 'function') releasable.release();
+        };
+        releaseIfAvailable(image);
+        releaseIfAvailable(context);
+      }
     },
     async cleanup() { for (const uri of sources) { try { removeCached(uri); } catch { /* OS cache cleanup can retry. */ } } },
   };

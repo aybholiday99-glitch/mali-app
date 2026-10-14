@@ -17,8 +17,8 @@ export class SessionScope {
 
 export function emptyFinancialState<T extends {
   accounts: unknown[]; contacts: unknown[]; transactions: unknown[]; deals: unknown[];
-  debts: unknown[]; procedures: unknown[]; lastModifiedAt?: string;
+  debts: unknown[]; procedures: unknown[]; budgets?: unknown[]; lastModifiedAt?: string;
 }>(base: T): T {
   return { ...base, accounts: [], contacts: [], transactions: [], deals: [], debts: [],
-    procedures: [], financialAudit: undefined, lastModifiedAt: undefined };
+    procedures: [], ...(Array.isArray(base.budgets) ? { budgets: [] } : {}), financialAudit: undefined, lastModifiedAt: undefined };
 }

@@ -24,5 +24,6 @@ test('new cloud vault never inherits demo balances or financial records', () => 
   const cloud = emptyFinancialState(demo);
   for (const key of ['accounts','contacts','transactions','deals','debts','procedures']) assert.deepEqual(cloud[key], []);
   assert.deepEqual(demo.accounts, [{ balance: 5000 }]);
-  assert.deepEqual(cloud.budgets, demo.budgets);
+  assert.deepEqual(cloud.budgets, [], 'New accounts must not inherit sample budgets');
+  assert.deepEqual(demo.budgets, [{ category: 'food' }], 'Source template must remain unchanged');
 });
