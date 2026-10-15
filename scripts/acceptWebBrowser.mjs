@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { stripTypeScriptTypes } from 'node:module';
+import { existsSync } from 'node:fs';
 import { readFile, mkdtemp, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -47,11 +48,31 @@ let child;
 let websocket;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 function chromeExecutable() {
-  for (const name of [process.env.CHROME_BIN, 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-    if (!name) continue;
-    const safePath = process.platform === 'win32' ? (process.env.PATH || '') : '/usr/bin:/bin:/usr/local/bin';
-    try { return execFileSync('which', [name], { encoding: 'utf8', env: { PATH: safePath } }).trim(); } catch {
-      if (path.isAbsolute(name)) return name;
+  if (process.env.CHROME_BIN && (path.isAbsolute(process.env.CHROME_BIN) || existsSync(process.env.CHROME_BIN))) {
+    return process.env.CHROME_BIN;
+  }
+  const knownLocations = process.platform === 'win32'
+    ? [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        (process.env.LOCALAPPDATA || '') + '\\Google\\Chrome\\Application\\chrome.exe',
+      ]
+    : [
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/snap/bin/chromium',
+      ];
+  for (const location of knownLocations) {
+    if (location && existsSync(location)) return location;
+  }
+  if (process.platform !== 'win32' && existsSync('/usr/bin/which')) {
+    for (const name of ['google-chrome', 'chromium']) {
+      try {
+        const out = execFileSync('/usr/bin/which', [name], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } }).trim();
+        if (out && existsSync(out)) return out;
+      } catch {}
     }
   }
   throw Error('Real Chrome browser required for browser acceptance');

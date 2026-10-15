@@ -8,11 +8,11 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const inputDir = process.argv[2] || '.audit/matcher-baseline';
-if (typeof inputDir !== 'string' || inputDir.includes('..') || path.isAbsolute(inputDir)) {
-  throw new Error('Path traversal protection: directory must be relative to project');
+const BASELINE_DIR = path.resolve('.audit/matcher-baseline');
+if (process.argv[2] && path.resolve(process.argv[2]) !== BASELINE_DIR) {
+  throw new Error('Path traversal protection: directory must be .audit/matcher-baseline');
 }
-const directory = path.resolve(inputDir);
+const directory = BASELINE_DIR;
 const fixture = fileURLToPath(new URL('../tests/fixtures/metroMatcherBaseline.json', import.meta.url));
 const baseline = JSON.parse(readFileSync(fixture, 'utf8'));
 const originals = createRequire(path.join(directory, 'baseline.cjs'));
