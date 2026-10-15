@@ -188,3 +188,22 @@ test('actual Expo certificate/CSR lifecycle and CLI manifest signing remain comp
   const cliParsed = cliRequire('node-forge').pki.certificateFromPem(maliciousPem);
   assert.throws(()=>cliParsed.verify(cliParsed),/DigestInfo/,'actual CLI PEM parsing preserves rejection during certificate verification');
 });
+
+test('noncanonical trailing bytes cannot bypass DigestInfo validation even with relaxed parser flags', () => {
+  const validAlgorithm = Buffer.concat([oid, Buffer.from('0500', 'hex')]);
+  const canonical = digestInfo(validAlgorithm);
+  const paddedButInvalid = Buffer.concat([canonical, Buffer.from('0500', 'hex')]);
+  const forgedSignature = signatureFor(paddedButInvalid).toString('latin1');
+  assert.equal(verify('sha256', message, rsaPair.publicKey, Buffer.from(forgedSignature, 'latin1')), false);
+  assert.throws(
+    () => publicKey.verify(digest.toString('latin1'), forgedSignature,
+      'RSASSA-PKCS1-V1_5', { _parseAllDigestBytes: false }),
+    /DigestInfo/,
+    'parser compatibility flags must never turn signature verification into a prefix match');
+  const cliPublicKey = cliRequire('node-forge').pki.publicKeyFromPem(publicPem);
+  assert.throws(
+    () => cliPublicKey.verify(digest.toString('latin1'), forgedSignature,
+      'RSASSA-PKCS1-V1_5', { _parseAllDigestBytes: false }),
+    /DigestInfo/,
+    'actual Expo CLI signer dependency must also reject the trailing-byte bypass');
+});

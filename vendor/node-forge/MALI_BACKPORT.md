@@ -6,10 +6,16 @@ is safe. The source is the official npm 1.4.0 archive, whose published SHA-512
 integrity was verified before extraction. All Node library files and the full
 dual-license notice are preserved. Only `lib/rsa.js` changes at runtime.
 
-The RSA change is exactly the patch proposed in official upstream PR 1159,
-commit `db05494352dd3c9a5a07c5270333dcc78866cad2`. The resulting file is byte-for-byte
-identical to that commit after line-ending normalization. That PR remains open
-and unmerged; it has no claimed maintainer approval or published fixed release.
+The base RSA backport derives from official upstream PR 1159, commit
+`db05494352dd3c9a5a07c5270333dcc78866cad2`. That PR remains
+open/unmerged/unpublished. Mali now adds a separately reviewed local
+fail-closed improvement: the decrypted DigestInfo must match the complete
+canonical encoding, even when a caller passes the non-default
+`_parseAllDigestBytes: false` parser option. The upstream PR used a prefix
+comparison for this option, which left extra trailing digest bytes accepted
+in that mode; a verified negative regression reproduces that bypass
+before the Mali hardening and rejects it afterwards. This is *not*
+byte-for-byte upstream code or an official patched npm release.
 It rejects non-canonical DigestInfo bytes, including nested extra elements,
 nonempty NULL parameters and non-minimal DER lengths. Valid encodings with and
 without NULL parameters remain supported.

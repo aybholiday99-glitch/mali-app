@@ -1262,15 +1262,14 @@ pki.setRsaPublicKey = pki.rsa.setPublicKey = function(n, e) {
           // (produced by forge and OpenSSL) and the parameter-less form.
           // See CVE-2026-33894 and CVE-2026-85393.
           //
-          // A prefix comparison is used so that the behaviour of the
-          // unsupported _parseAllDigestBytes=false testing flag is preserved:
-          // in the default strict mode asn1.fromDer() has already rejected any
-          // trailing bytes, so this is an exact match; any slack *within* the
-          // DigestInfo changes its length octets and fails the comparison.
+          // Always compare the complete decrypted DigestInfo bytes. The
+          // optional _parseAllDigestBytes=false parser setting is *not*
+          // permission to accept extra bytes after the signature digest.
+          // This prevents prefix-match bypasses with relaxed parser flags.
           var expectedWithParams = _encodeDigestInfo(oid, capture.digest, true);
           var expectedNoParams = _encodeDigestInfo(oid, capture.digest, false);
-          if(d.substring(0, expectedWithParams.length) !== expectedWithParams &&
-            d.substring(0, expectedNoParams.length) !== expectedNoParams) {
+          if(d !== expectedWithParams &&
+            d !== expectedNoParams) {
             throw new Error(
               'ASN.1 object does not contain a valid RSASSA-PKCS1-v1_5 ' +
               'DigestInfo value.');
