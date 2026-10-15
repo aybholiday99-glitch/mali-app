@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Modal,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
@@ -19,7 +18,6 @@ import {
   launchSocialOAuthWindow,
   resetUserPasswordLocal,
   signInWithEmail,
-  signInWithSocialProvider,
   signUpWithEmail,
 } from '../services/authService';
 
@@ -46,13 +44,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const [socialModalProvider, setSocialModalProvider] = useState<
-    'google' | 'facebook' | null
-  >(null);
-  const [showCustomSocialForm, setShowCustomSocialForm] = useState(false);
-  const [socialName, setSocialName] = useState('');
-  const [socialEmail, setSocialEmail] = useState('');
 
   const handleEmailAuth = async () => {
     setErrorMessage(null);
@@ -128,36 +119,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickSelectSocialAccount = async (
-    chosenProvider: 'google' | 'facebook',
-    chosenAccount: { name: string; email: string }
-  ) => {
-    setLoading(true);
-    try {
-      const res = await signInWithSocialProvider(
-        chosenProvider,
-        chosenAccount,
-        supabaseConfig
-      );
-      if (res.success && res.user) {
-        setSocialModalProvider(null);
-        onAuthenticated(res.user);
-      } else {
-        setErrorMessage(res.message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmSocialLogin = async () => {
-    if (!socialModalProvider) return;
-    await handleQuickSelectSocialAccount(socialModalProvider, {
-      name: socialName,
-      email: socialEmail,
-    });
   };
 
   return (
@@ -537,281 +498,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </View>
       </View>
 
-      {/* Modal for Google / Facebook OAuth Account Chooser (Mobile / Standalone PWA) */}
-      <Modal
-        visible={Boolean(socialModalProvider)}
-        transparent
-        animationType="fade"
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalBackdrop}
-        >
-          <ScrollView
-            contentContainerStyle={{ justifyContent: 'center', flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View
-              style={[
-                styles.modalCard,
-                { backgroundColor: theme.surface, borderColor: theme.border },
-              ]}
-            >
-            <View style={styles.socialModalHeader}>
-              <View
-                style={[
-                  styles.socialBadgeCircle,
-                  {
-                    backgroundColor:
-                      socialModalProvider === 'google'
-                        ? theme.surfaceSoft
-                        : '#1877F2',
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    socialModalProvider === 'google'
-                      ? 'logo-google'
-                      : 'logo-facebook'
-                  }
-                  size={24}
-                  color={
-                    socialModalProvider === 'google' ? '#EA4335' : '#FFFFFF'
-                  }
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
-                  اختيار حساب{' '}
-                  {socialModalProvider === 'google' ? 'Google' : 'Facebook'}
-                </Text>
-                <Text style={[styles.modalSub, { color: theme.textMuted }]}>
-                  اضغط على حسابك للدخول التلقائي الفوري إلى تطبيق مالي
-                </Text>
-              </View>
-            </View>
 
-            {/* 1-Tap Account Chooser Cards */}
-            {(socialModalProvider === 'google'
-              ? [
-                  {
-                    name: 'حساب Google الفعلي المتصل (aybholiday99)',
-                    email: 'aybholiday99@gmail.com',
-                  },
-                  {
-                    name: 'صلاح أحمد (حساب Google)',
-                    email: 'salahahmd119@gmail.com',
-                  },
-                ]
-              : [
-                  {
-                    name: 'صلاح أحمد (Facebook)',
-                    email: 'salahahmd119@gmail.com',
-                  },
-                  {
-                    name: 'حساب Facebook المتصل',
-                    email: 'aybholiday99@gmail.com',
-                  },
-                ]
-            ).map((acc) => (
-              <TouchableOpacity
-                key={acc.email}
-                style={[
-                  styles.oauthBrowserBtn,
-                  {
-                    backgroundColor: theme.surfaceSoft,
-                    borderColor: theme.border,
-                    justifyContent: 'space-between',
-                    marginTop: 8,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                  },
-                ]}
-                onPress={() =>
-                  socialModalProvider &&
-                  handleQuickSelectSocialAccount(socialModalProvider, acc)
-                }
-              >
-                <View
-                  style={{
-                    flexDirection: 'row-reverse',
-                    alignItems: 'center',
-                    gap: 10,
-                    flex: 1,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor:
-                        socialModalProvider === 'google'
-                          ? theme.primary
-                          : '#1877F2',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: '#FFFFFF',
-                        fontWeight: 'bold',
-                        fontSize: 15,
-                      }}
-                    >
-                      {acc.name.charAt(0)}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        color: theme.text,
-                        fontWeight: 'bold',
-                        fontSize: 13,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {acc.name}
-                    </Text>
-                    <Text
-                      style={{
-                        color: theme.textMuted,
-                        fontSize: 12,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {acc.email}
-                    </Text>
-                  </View>
-                </View>
-                <Ionicons
-                  name="chevron-back"
-                  size={16}
-                  color={theme.textMuted}
-                />
-              </TouchableOpacity>
-            ))}
-
-            <TouchableOpacity
-              style={[
-                styles.oauthBrowserBtn,
-                {
-                  backgroundColor: 'transparent',
-                  borderColor: theme.border,
-                  marginTop: 10,
-                },
-              ]}
-              onPress={() => setShowCustomSocialForm(!showCustomSocialForm)}
-            >
-              <Ionicons
-                name="person-add-outline"
-                size={16}
-                color={theme.primary}
-              />
-              <Text
-                style={[styles.oauthBrowserBtnText, { color: theme.primary }]}
-              >
-                + استخدام حساب{' '}
-                {socialModalProvider === 'google' ? 'Google' : 'Facebook'} آخر
-              </Text>
-            </TouchableOpacity>
-
-            {showCustomSocialForm && (
-              <>
-                <Text
-                  style={[styles.inputLabel, { color: theme.textSecondary }]}
-                >
-                  الاسم
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.surfaceSoft,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.input, { color: theme.text }]}
-                    value={socialName}
-                    onChangeText={setSocialName}
-                    placeholder="الاسم الكامل"
-                    placeholderTextColor={theme.textMuted}
-                  />
-                </View>
-
-                <Text
-                  style={[styles.inputLabel, { color: theme.textSecondary }]}
-                >
-                  البريد الإلكتروني
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.surfaceSoft,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.input, { color: theme.text }]}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={socialEmail}
-                    onChangeText={setSocialEmail}
-                    placeholder={
-                      socialModalProvider === 'google'
-                        ? 'name@gmail.com'
-                        : 'name@example.com'
-                    }
-                    placeholderTextColor={theme.textMuted}
-                  />
-                </View>
-              </>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.cancelBtn,
-                  { backgroundColor: theme.surfaceSoft },
-                ]}
-                onPress={() => setSocialModalProvider(null)}
-              >
-                <Text
-                  style={[styles.cancelBtnText, { color: theme.textSecondary }]}
-                >
-                  إغلاق
-                </Text>
-              </TouchableOpacity>
-
-              {showCustomSocialForm && (
-                <TouchableOpacity
-                  style={[
-                    styles.confirmSocialBtn,
-                    {
-                      backgroundColor:
-                        socialModalProvider === 'google'
-                          ? theme.primary
-                          : '#1877F2',
-                    },
-                  ]}
-                  onPress={handleConfirmSocialLogin}
-                >
-                  <Text style={styles.confirmSocialBtnText}>
-                    متابعة وتسجيل الدخول
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </Modal>
   </ScrollView>
 </KeyboardAvoidingView>
 );

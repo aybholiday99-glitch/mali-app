@@ -163,30 +163,19 @@ try {
     "document.readyState === 'complete' && document.body && document.body.innerText.trim().length > 10"),
   'Mali actual web UI mount');
   console.log('PASS real Chromium renders Mali web app', await evaluate(call, 'document.title'));
-  let guestEntered = false;
-  try {
-    guestEntered = await until(async () => {
-      try {
-        return await evaluate(call, "(() => { const label = 'الدخول السريع المباشر إلى خزنتي المحلية'; const entry = [...document.querySelectorAll('div,span,button,a')].find(el => !el.children.length && (el.textContent || '').trim() === label); if (!entry) return false; const target = entry.closest('button,[role=button],[tabindex]') || entry.parentElement; if (!target) return false; target.click(); return true; })()");
-      } catch { return false; }
-    }, 'offline guest entry after provider bootstrap', 18000);
-  } catch (error) {
-    // This browser uses a disposable profile: only UI labels and router URL
-    // are recorded, never persisted account payloads or authentication tokens.
-    const snapshot = await evaluate(call,
-      "({ url:location.pathname, title:document.title, text:document.body.innerText.slice(0,500), buttons:[...document.querySelectorAll('button,[role=button]')].slice(0,15).map(x=>(x.textContent||'').slice(0,80)) })");
-    console.error('AUTH_BOOTSTRAP_DIAGNOSTICS', JSON.stringify(snapshot));
-    throw error;
-  }
-  assert.equal(guestEntered, true, 'The real web UI must expose the offline guest entry button');
-  await until(async () => {
+  // The production candidate intentionally refuses offline/guest entry.
+  // Exercise the real unauthenticated UI without test credentials or remote auth.
+  const loginReady = await until(async () => {
     try {
       return await evaluate(call,
-        "!document.body.innerText.includes('الدخول السريع المباشر إلى خزنتي المحلية') && document.body.innerText.trim().length > 50");
+        "(() => { const inputs = [...document.querySelectorAll('input')]; return inputs.some(el => el.type === 'password') && inputs.some(el => el.type !== 'password'); })()");
     } catch { return false; }
-  }, 'offline guest vault navigation');
-  console.log('PASS real Chrome offline guest session navigates to the financial vault');
-  // Keep the isolated storage acceptance on a stable same-origin page, without
+  }, 'authenticated email/password sign-in controls after provider bootstrap', 18000);
+  assert.equal(loginReady, true, 'The unauthenticated app must show real sign-in controls, not enter a guest financial vault');
+  const exposedConfig = await evaluate(call,
+    "document.body.innerText.includes('Workspace Key') || document.body.innerText.includes('SQL Schema')");
+  assert.equal(exposedConfig, false, 'Developer connection settings must not be exposed on the login UI');
+  console.log('PASS real Chrome requires authenticated sign-in and hides developer cloud settings');  // Keep the isolated storage acceptance on a stable same-origin page, without
   // Expo Router redirecting the location during a full-page navigation.
   await call('Page.navigate', { url: address + '__storage_probe.html' });
   await until(async () => {

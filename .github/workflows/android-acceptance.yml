@@ -10,12 +10,12 @@ on:
       - 'package-lock.json'
       - 'plugins/**'
       - '.github/workflows/android-acceptance.yml'
-      - 'scripts/androidSmoke.sh'
+      - 'scripts/androidStandaloneSmoke.sh'
 permissions:
   contents: read
 jobs:
-  android-debug:
-    name: Android native APK and emulator smoke
+  android-standalone-smoke:
+    name: Standalone Android candidate and emulator smoke
     runs-on: ubuntu-latest
     timeout-minutes: 49
     env:
@@ -43,11 +43,11 @@ jobs:
           "$SDKMANAGER" --version
       - name: Generate isolated Android native project
         run: npx expo prebuild --platform android --no-install
-      - name: Compile native debug APK
+      - name: Compile test-signed standalone release APK
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew :app:assembleDebug --no-daemon --max-workers=2 -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
       - name: Run Mali APK on real Android emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         timeout-minutes: 31
@@ -59,13 +59,13 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -memory 2048 -cores 2
-          script: bash scripts/androidSmoke.sh
-      - name: Upload debug and emulator evidence (never a production release)
+          script: bash scripts/androidStandaloneSmoke.sh
+      - name: Upload test-signed release candidate and emulator evidence (never production)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mali-android-debug-emulator-evidence
+          name: mali-android-release-emulator-evidence
           if-no-files-found: warn
           path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
-            android-acceptance-evidence/
+            android/app/build/outputs/apk/release/app-release.apk
+            android-standalone-evidence/
