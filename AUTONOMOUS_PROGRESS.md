@@ -5,7 +5,7 @@
 **Workspace:** `C:\Users\salah\.gemini\antigravity\scratch\mali-app`  
 **Git Branch:** `codex/mali-production-audit`  
 **PR:** [Draft PR #2](https://github.com/aybholiday99-glitch/mali-app/pull/2)  
-**Latest Baseline Commit:** `f0efdff`  
+**Latest Commit:** `b20fabf`  
 
 ---
 
@@ -13,12 +13,12 @@
 
 | Check / Workflow | Result | Notes |
 |---|---|---|
-| Standalone Android APK build | **SUCCESS** | GitHub Actions Run 38792725328 |
-| Android AOSP emulator standalone install & restart | **SUCCESS** | Run 38792725328 (`androidStandaloneSmoke.sh`) |
-| Types, lint, regression and web build | **SUCCESS** | Run 38792730643 |
-| PostgreSQL 17 RLS and atomic recovery | **SUCCESS** | Run 38792730643 |
-| Source and secret scan (Semgrep) | **SUCCESS** | Run 38792730643 |
-| SonarCloud Code Analysis | **REMEDIATED** | 12 Bugs & 10 Vulnerabilities fixed locally |
+| Standalone Android APK build | **SUCCESS** | GitHub Actions Run 38792725328 / 38808850428 |
+| Android AOSP emulator standalone install & restart | **SUCCESS** | Run 38792725328 / Run 38808850340 (`android-acceptance.yml`) |
+| Types, lint, regression and web build | **SUCCESS** | Run 38810061887 (2m 17s clean) |
+| PostgreSQL 17 RLS and atomic recovery | **SUCCESS** | Run 38810061887 (50s clean) |
+| Source and secret scan (Semgrep) | **SUCCESS** | Run 38810061887 (27s clean) |
+| SonarCloud Code Analysis | **SUCCESS (PASSED)** | All Quality Gate conditions OK: Reliability 1 (A), Security 1 (A), Maintainability 1 (A) |
 | Dependency security gate (`npm audit --audit-level=high`) | **FAIL (BLOCKED)** | Upstream advisory `GHSA-86w9-cpqp-85rv` has no published fixed version (> 1.4.0) |
 | Local Application Test Suite | **793 / 793 PASS** | 100% passing across all 60 test suites |
 | Local TypeScript Typecheck | **0 errors** | `tsc --noEmit` clean |
