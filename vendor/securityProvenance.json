@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewDate": "2026-10-13",
+  "reviewDate": "2026-10-15",
   "auditLimit": "npm registry advisories may omit local file packages; mandatory integrity and exploit tests qualify these substitutes separately",
   "forge": {
     "identity": "node-forge@1.4.0",
@@ -99,7 +99,7 @@
   },
   "consumers": {
     "@expo/cli": {
-      "version": "57.0.29",
+      "version": "57.0.30",
       "files": {
         "build/src/utils/codesigning.js": "935fadac6f1dc56bc088acb04416d1fc83bd70505f368b87dd210d0aa4617de2",
         "build/src/run/ios/codeSigning/Security.js": "af3f12dfb57ef87ae4cb3903af4398eeb034750c08d4fe523bc6a7d3062998b2"

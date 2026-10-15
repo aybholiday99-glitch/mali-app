@@ -79,3 +79,11 @@ Release status remains **NOT PRODUCTION READY**. This section reflects a read-on
   - Full test suite now **788/788 PASS** (`npm test`, 100% across all suites).
 - `tests/providerIntegration.test.mjs` and `tests/providerMutationDurability.test.mjs` together **32/32 PASS**; finance history and screen submission suites **7/7 PASS**; admin/data isolation earlier **12/12 PASS**.
 - Important: successful local tests do **not** establish production readiness; native Android emulator success, real-server two-account isolation, verified production backup/restore and migrations, private attachments, central-only data policy, OAuth providers and unresolved npm high-severity audit remain release blockers.
+
+## Expo SDK 57 compatibility CI repair — 2026-10-15
+
+- Pre-fix PR CI run 38777422108: `npx expo install --check` FAIL (expo 57.0.29, expected ~57.0.30; expo-router 57.0.27, expected ~57.0.28). Typecheck/lint/test passed on that run, but the web build and browser acceptance were skipped.
+- Updated only the same SDK 57 family: `expo` 57.0.30, `expo-router` 57.0.28 and the direct CLI override `@expo/cli` 57.0.30, including npm package-lock.json.
+- Consumer integrity/provenance reviewed: both tracked CLI code-signing and iOS security source-file SHA256 values are byte-for-byte unchanged from their verified hashes. Updated only the reviewed CLI version and review date in `vendor/securityProvenance.json` so the integrity gate still rejects source edits and unexpected consumers.
+- Local `npx expo install --check` PASS; specialized dependency compatibility/integrity/security tests 6/6 PASS; `npm run build:web` PASS; earlier pre-provenance full suite 786/788 PASS, with exactly two expected CLI-version pin failures that the provenance update addresses. Await clean-install full-suite and PR CI for final confirmation.
+- `npm audit --audit-level=high` still FAIL: four high findings through node-forge GHSA-86w9-cpqp-85rv, no official patched release. Do not bypass npm audit, apply breaking Expo downgrade, merge PR, publish, or alter Supabase production. APK/device acceptance and approved financial cutover remain pending.
