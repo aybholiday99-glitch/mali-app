@@ -6,8 +6,16 @@ export interface SyncScheduler {
   setTimeout(callback: () => void, milliseconds: number): unknown;
   clearTimeout(handle: unknown): void;
 }
+function secureRandom(): number {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const buffer = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(buffer);
+    return buffer[0] / 4294967296;
+  }
+  return 0.5;
+}
 const scheduler: SyncScheduler = {
-  now: () => Date.now(), random: () => Math.random(),
+  now: () => Date.now(), random: () => secureRandom(),
   setTimeout: (callback, ms) => setTimeout(callback, ms),
   clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };

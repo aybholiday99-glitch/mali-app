@@ -38,7 +38,7 @@ function assertInstalledIntegrity(location, expected, root) {
   const actual = realpathSync(location);
   const relative = path.relative(root, actual);
   assert.equal(path.isAbsolute(relative) || relative === '..' || relative.startsWith('..'+path.sep), false, 'override escaped the private project');
-  assert.deepEqual(packageFiles(actual).sort(), Object.keys(expected.files).sort(), 'unexpected/missing override source file');
+  assert.deepEqual(packageFiles(actual).sort((a, b) => a.localeCompare(b)), Object.keys(expected.files).sort((a, b) => a.localeCompare(b)), 'unexpected/missing override source file');
   for (const [file, digest] of Object.entries(expected.files)) {
     assert.equal(sha256(path.join(actual, file)), digest, `override integrity mismatch: ${file}`);
   }
@@ -88,8 +88,8 @@ export function verifyDependencyOverrides(root = defaultRoot) {
   const packages = installedPackages(path.join(root, 'node_modules'));
   const forgeConsumers = packages.filter(({ metadata }) => metadata.dependencies?.['node-forge']);
   const matcherConsumers = packages.filter(({ metadata }) => metadata.dependencies?.micromatch);
-  assert.deepEqual(forgeConsumers.map(p => p.metadata.name).sort(), ['@expo/cli', '@expo/code-signing-certificates'], 'forge consumer inventory changed');
-  assert.deepEqual(matcherConsumers.map(p => p.metadata.name).sort(), ['metro-file-map'], 'matcher consumer inventory changed');
+  assert.deepEqual(forgeConsumers.map(p => p.metadata.name).sort((a, b) => a.localeCompare(b)), ['@expo/cli', '@expo/code-signing-certificates'], 'forge consumer inventory changed');
+  assert.deepEqual(matcherConsumers.map(p => p.metadata.name).sort((a, b) => a.localeCompare(b)), ['metro-file-map'], 'matcher consumer inventory changed');
   for (const consumer of [...forgeConsumers,...matcherConsumers]) {
     const expected = provenance.consumers[consumer.metadata.name];
     assert.equal(consumer.metadata.version,expected.version,'consumer version changed without compatibility review');

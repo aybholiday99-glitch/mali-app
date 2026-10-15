@@ -23,7 +23,7 @@ test('admin screen cannot render privileged account listings from a previous sco
 
 test('admin RPC verification binds role to the exact authenticated owner', async () => {
   const src = await readSource('src/services/adminService.ts');
-  assert.match(src, /data\.user_id !== user\.id/);
+  assert.match(src, /data(?:\.|\?\.)user_id !== user\.id/);
   assert.doesNotMatch(src, /directRole === 'admin'/);
   assert.match(src, /authorizedAdminClient\(config, user, clientOverride\)/);
   assert.match(src, /data\.serverUptimeHours === 'number'/);

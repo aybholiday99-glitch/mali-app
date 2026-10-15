@@ -96,7 +96,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
+    void (async () => {
       if (!currentUser || authorizedScope !== adminScope) {
         if (mounted) setLoading(false);
         return;

@@ -29,7 +29,7 @@ const formatArabicSyncTime = (timestamp?: string): string | null => {
   if (!timestamp) return null;
   try {
     const d = new Date(timestamp);
-    if (isNaN(d.getTime())) return null;
+    if (Number.isNaN(d.getTime())) return null;
     return d.toLocaleString('ar-LY', {
       year: 'numeric',
       month: 'short',
@@ -49,7 +49,7 @@ const sanitizeSyncMessage = (msg?: string | null): string | null => {
   sanitized = sanitized.replace(/[A-Za-z0-9_-]{25,}/g, '');
   sanitized = sanitized.replace(/PGRST\w+/gi, '');
   sanitized = sanitized.replace(/error:\s*/gi, '');
-  sanitized = sanitized.replace(/\{.*?\}|\[.*?\]/g, '');
+  sanitized = sanitized.replace(/\{[^{}]*\}|\[[^[\]]*\]/g, '');
   sanitized = sanitized.replace(/\s+/g, ' ').trim();
   if (!sanitized) return null;
   return sanitized;

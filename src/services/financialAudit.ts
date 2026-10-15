@@ -9,7 +9,15 @@ const invalid = () => new Error('سجل التدقيق المالي غير صا�
 const text = (value: unknown, maximum: number): value is string => typeof value === 'string' && !!value.trim() && value.length <= maximum;
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 let sequence = 0;
-const eventId = () => `fa-${Date.now()}-${++sequence}-${Math.random().toString(36).slice(2, 14)}`;
+function secureRandomHex(bytes: number = 6): string {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const buffer = new Uint8Array(bytes);
+    globalThis.crypto.getRandomValues(buffer);
+    return Array.from(buffer, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return (++sequence).toString(16).padStart(bytes * 2, '0');
+}
+const eventId = () => `fa-${Date.now()}-${++sequence}-${secureRandomHex(6)}`;
 
 /** Canonical JSON evidence omits optional undefined object fields, never numbers. */
 function canonical(value: unknown, depth = 0): any {
@@ -19,7 +27,7 @@ function canonical(value: unknown, depth = 0): any {
   if (Array.isArray(value)) return value.map(item => canonical(item, depth + 1));
   if (!record(value)) throw invalid();
   const result: Record<string, unknown> = {};
-  for (const key of Object.keys(value).sort()) {
+  for (const key of Object.keys(value).sort((a, b) => a.localeCompare(b))) {
     if (value[key] !== undefined) Object.defineProperty(result, key, { value: canonical(value[key], depth + 1), enumerable: true });
   }
   return result;
@@ -139,7 +147,7 @@ export function appendFinancialAudit(previous: MaliState, next: MaliState, metad
   // Candidate mutators/imports cannot supply a replacement for existing history.
   if (next.financialAudit !== undefined && !equal(next.financialAudit, previous.financialAudit ?? [])) throw invalid();
   const before = rows(previous), after = rows(next), changes: FinancialAuditChange[] = [];
-  for (const key of [...new Set([...before.keys(), ...after.keys()])].sort()) {
+  for (const key of [...new Set([...before.keys(), ...after.keys()])].sort((a, b) => a.localeCompare(b))) {
     const old = before.get(key), fresh = after.get(key);
     if (equal(old?.value ?? null, fresh?.value ?? null)) continue;
     const row = fresh ?? old!;

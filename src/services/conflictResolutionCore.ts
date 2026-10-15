@@ -96,7 +96,7 @@ function freeze<T>(value: T): T {
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
   if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.keys(value).sort().filter(key => (value as Record<string, unknown>)[key] !== undefined)
+  return Object.fromEntries(Object.keys(value).sort((a, b) => a.localeCompare(b)).filter(key => (value as Record<string, unknown>)[key] !== undefined)
     .map(key => [key, canonical((value as Record<string, unknown>)[key])]));
 }
 export function sameFinancialState(a: MaliState, b: MaliState) {

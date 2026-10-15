@@ -112,3 +112,26 @@ Release status remains **NOT PRODUCTION READY**. This section reflects a read-on
 - Repacked tracked `vendor/node-forge-1.4.0.tgz`, updated source SHA-256 inventory, archive SHA-512, and lockfile integrity. Verified no unreviewed signer/CLI copy: `npm ci --ignore-scripts` PASS, `node --test tests/dependencyOverrides.test.mjs` **7/7 PASS** including signature forgery rejection, certificate/CSR lifecycle, and real Expo CLI manifest signing. `npm run typecheck` PASS; `npm run lint` PASS; full `npm test` **793/793 PASS**; `npx expo install --check` PASS.
 - The independent registry scan remains intentionally **RED**: `npm audit --audit-level=high` exit 1, 4 HIGH findings, advisory GHSA-86w9-cpqp-85rv, npm suggesting unsafe Expo 44.0.6 downgrade. Keep this required release gate failing until an officially verified fix replaces the local backport (or a separately reviewed, genuinely vulnerability-free dependency replacement eliminates the affected package). Local exploit-test PASS does not close the registry advisory.
 - Only a Draft PR development-branch change: no Supabase production migration/data deletion, no deploy, no PR merge, and no final APK release. Production backup/cutover approval and prior Android/Supabase release blockers remain.
+
+## Static Security, SonarCloud Remediation & Cryptographic Hardening — 2026-10-15
+
+- **SonarCloud Quality Gate Remediation**:
+  - Addressed all 12 BUGS (`typescript:S9383`, `typescript:S2871`, `javascript:S2871`):
+    - Added explicit deterministic string comparators (`localeCompare`) to all `.sort()` calls in `legacyVaultMigrationService.ts`, `financialInputSnapshot.ts`, `conflictResolutionCore.ts`, `financialAudit.ts`, and `verifyDependencyOverrides.mjs`.
+    - Marked async IIFE promise in `AdminDashboardScreen.tsx` with `void` operator.
+  - Addressed all 10 VULNERABILITIES (`typescript:S2245`, `shell:S6505`, `javascript:S4036`, `jssecurity:S8707`, `githubactions:S6505`, `githubactions:S8543`, `githubactions:S8541`):
+    - Replaced pseudorandom `Math.random()` in `financialEngine.ts`, `financialAudit.ts`, `submissionKey.ts`, `durableSyncWorker.ts`, and `nativeFileExport.ts` with cryptographically secure random values via Web Crypto API (`crypto.getRandomValues`).
+    - Added `--no-install` to `npx` invocations in `scripts/androidSmoke.sh` and `.github/workflows/ci.yml`.
+    - Sanitized `PATH` environment in `scripts/acceptWebBrowser.mjs` `execFileSync`.
+    - Added path traversal guards in `scripts/recordMatcherBaseline.mjs`.
+    - Added `--only-binary :all:` to `pip install semgrep` in `.github/workflows/ci.yml`.
+  - Addressed Code Smells:
+    - Replaced `isNaN` with `Number.isNaN` and eliminated super-linear regex backtracking in `CloudAndExportModal.tsx`.
+    - Removed unused `onOpenCloudConfig` prop from `AuthScreen.tsx`.
+    - Adopted optional chaining in `adminService.ts`.
+- **Verification**:
+  - Full app test suite: **793 / 793 PASS** (100% across all 60 suites).
+  - TypeScript: **0 errors** (`npm run typecheck`).
+  - ESLint: **0 errors, 0 warnings** (`npm run lint`).
+  - Dependency overrides: **7 / 7 PASS** (`npm run test:dependencies`).
+- **Release Status**: Draft PR #2 development branch update. Unpatched upstream `node-forge` registry advisory remains active blocker for raw npm audit. Production migration/cutover approval remains required.

@@ -1,5 +1,14 @@
 import { MAX_EXPORT_BYTES, utf8ByteLength, type ExportPorts } from './fileExportCore';
 
+function secureRandomHex(bytes: number = 6): string {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const buffer = new Uint8Array(bytes);
+    globalThis.crypto.getRandomValues(buffer);
+    return Array.from(buffer, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return Date.now().toString(16).slice(-bytes * 2);
+}
+
 export async function nativeExportPorts(): Promise<ExportPorts> {
   const Sharing=await import('expo-sharing');
   const { File,Directory,Paths }=await import('expo-file-system');
@@ -20,7 +29,7 @@ export async function nativeExportPorts(): Promise<ExportPorts> {
       if (Number(oldest.name.split('-')[1]) > now-120000) throw new Error('export cache busy');
       oldest.delete();retained.shift();
     }
-    const directory=new Directory(cache,`export-${now}-${Math.random().toString(36).slice(2,12) || 'file'}`);
+    const directory=new Directory(cache,`export-${now}-${secureRandomHex(6)}`);
     directory.create();return directory;
   }
   return {

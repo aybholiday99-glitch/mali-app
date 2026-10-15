@@ -13,7 +13,7 @@ adb reverse tcp:8081 tcp:8081
 adb logcat -c
 
 # Debug builds require Metro. This process is restricted to the isolated CI runner.
-CI=1 EXPO_NO_TELEMETRY=1 npx expo start --localhost --port 8081 > android-acceptance-evidence/metro.log 2>&1 &
+CI=1 EXPO_NO_TELEMETRY=1 npx --no-install expo start --localhost --port 8081 > android-acceptance-evidence/metro.log 2>&1 &
 METRO_PID=$!
 cleanup() {
   kill "$METRO_PID" 2>/dev/null || true
@@ -39,7 +39,7 @@ fi
 # Non-streaming install avoids ADB package streaming stalls on cloud emulators.
 timeout 360 adb install --no-streaming -r "$APK" > android-acceptance-evidence/install.txt 2>&1 || {
   cat android-acceptance-evidence/install.txt
-  echo "ERROR: debug APK installation failed or timed out"
+  echo "ERROR: debug APK installation failed or timed out" >&2
   exit 1
 }
 grep -q 'Success' android-acceptance-evidence/install.txt || {

@@ -77,7 +77,7 @@ export async function verifyAdminRoleOnServer(
     const { data, error } = await client.rpc('mali_check_admin_role', {});
     // A verified admin role for a different Supabase session must never grant
     // this profile access (A -> B -> A races and stale native credentials).
-    if (error || !data || data.user_id !== user.id) return false;
+    if (error || data?.user_id !== user.id) return false;
     return data.is_admin === true;
   } catch {
     return false;

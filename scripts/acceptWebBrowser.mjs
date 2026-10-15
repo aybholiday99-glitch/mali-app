@@ -49,7 +49,8 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 function chromeExecutable() {
   for (const name of [process.env.CHROME_BIN, 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
     if (!name) continue;
-    try { return execFileSync('which', [name], { encoding: 'utf8' }).trim(); } catch {
+    const safePath = process.platform === 'win32' ? (process.env.PATH || '') : '/usr/bin:/bin:/usr/local/bin';
+    try { return execFileSync('which', [name], { encoding: 'utf8', env: { PATH: safePath } }).trim(); } catch {
       if (path.isAbsolute(name)) return name;
     }
   }

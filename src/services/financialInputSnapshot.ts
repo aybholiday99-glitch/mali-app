@@ -44,7 +44,7 @@ export function snapshotFinancialInput<T extends object>(input: T, kind: 'object
         return { value: Object.freeze(result), tag: ['array', tags] };
       }
       const result = Object.create(null) as Record<string, unknown>, tags: [string, TaggedValue][] = [];
-      for (const key of (keys as string[]).sort()) {
+      for (const key of (keys as string[]).sort((a, b) => a.localeCompare(b))) {
         const entry = copy(descriptors[key].value, depth + 1);
         Object.defineProperty(result, key, { value: entry.value, enumerable: true });
         tags.push([key, entry.tag]);

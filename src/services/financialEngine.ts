@@ -295,8 +295,16 @@ export function calculateUsdDealCostBasis(deal: UsdDeal, usdAmount: number): num
 }
 
 let identitySequence = 0;
+function secureRandomHex(bytes: number = 4): string {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const buffer = new Uint8Array(bytes);
+    globalThis.crypto.getRandomValues(buffer);
+    return Array.from(buffer, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return (++identitySequence).toString(16).padStart(bytes * 2, '0');
+}
 export function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${++identitySequence}-${Math.random().toString(36).substring(2, 8)}`;
+  return `${prefix}-${Date.now()}-${++identitySequence}-${secureRandomHex(4)}`;
 }
 
 export function deleteContactMutation(state: MaliState, contactId: string): MaliState {

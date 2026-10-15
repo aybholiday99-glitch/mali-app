@@ -43,10 +43,10 @@ export function getLegacyReceiptKeyForUser(userId: string): string {
  */
 export function computeVaultChecksum(payload: MaliState): string {
   const content = JSON.stringify({
-    acc: (payload.accounts || []).map(a => [a.id, a.currency, a.balance]).sort(),
-    tx: (payload.transactions || []).map(t => [t.id, t.amount, t.currency]).sort(),
-    debts: (payload.debts || []).map(d => [d.id, d.totalAmount, d.remainingAmount]).sort(),
-    deals: (payload.deals || []).map(dl => [dl.id, dl.totalUsdBought, dl.totalLydCost]).sort(),
+    acc: (payload.accounts || []).map(a => [a.id, a.currency, a.balance]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    tx: (payload.transactions || []).map(t => [t.id, t.amount, t.currency]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    debts: (payload.debts || []).map(d => [d.id, d.totalAmount, d.remainingAmount]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    deals: (payload.deals || []).map(dl => [dl.id, dl.totalUsdBought, dl.totalLydCost]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
   });
   let hash = 0;
   for (let i = 0; i < content.length; i++) {

@@ -24,7 +24,6 @@ import {
 interface AuthScreenProps {
   supabaseConfig: SupabaseConfig;
   onAuthenticated: (user: AuthUser) => void;
-  onOpenCloudConfig?: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
