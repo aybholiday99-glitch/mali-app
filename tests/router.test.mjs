@@ -125,7 +125,7 @@ test('actual route shell derives active controls from the URL and renders safe l
   assert.deepEqual(shell.root.findAllByType('Link').map(link=>link.props.href),['/dashboard','/expenses','/deals','/contacts']);
   const controls=shell.root.findAllByType('TouchableOpacity');
   assert.ok(controls.some(control=>control.props.accessibilityLabel==='المصاريف والحسابات'&&control.props.accessibilityState.selected));
-  assert.ok(controls.some(control=>control.props.accessibilityLabel==='السحابة والتصدير'));
+  assert.ok(controls.some(control=>control.props.accessibilityLabel==='تصدير التقارير والنسخ الاحتياطي'));
   const theme=controls.find(control=>control.props.accessibilityLabel==='تفعيل المظهر الداكن');
   await act(async()=>theme.props.onPress());assert.equal(api.isDarkMode,true);
   await act(async()=>shell.unmount());

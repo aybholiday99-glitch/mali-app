@@ -21,7 +21,6 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
     isDarkMode,
     toggleTheme,
     currentUser,
-    isSyncing,
     lastSyncMessage,
     loginUser,
     logoutUser,
@@ -44,10 +43,6 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
 
   const adminScope = currentUser ? [currentUser.id, state.supabaseConfig.url, state.supabaseConfig.anonKey].join('|') : null;
   const adminAuthorized = adminAuthorizedKey !== null && adminAuthorizedKey === adminScope;
-
-  const isCloudConfigured = !currentUser?.isLocalOnly && Boolean(
-    state.supabaseConfig.url.trim() && state.supabaseConfig.anonKey.trim()
-  );
 
   // The client-side user profile is not an authorization source. Only a
   // server-checked administrative role can reveal the privileged entry point.
@@ -174,34 +169,30 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
                 styles.cloudPill,
                 isSmallPhone && styles.cloudPillCompact,
                 {
-                  backgroundColor: isCloudConfigured
-                    ? theme.primarySoft
-                    : theme.cardAlt,
-                  borderColor: isCloudConfigured ? theme.primary : theme.border,
+                  backgroundColor: theme.cardAlt,
+                  borderColor: theme.border,
                 },
               ]}
               onPress={() => setCloudModalVisible(true)}
               accessibilityRole="button"
-              accessibilityLabel="السحابة والتصدير"
+              accessibilityLabel="تصدير التقارير والنسخ الاحتياطي"
             >
               <Ionicons
-                name="cloud-outline"
+                name="document-text-outline"
                 size={16}
-                color={isCloudConfigured ? theme.primary : theme.blue}
+                color={theme.primary}
               />
               {!isSmallPhone && (
                 <Text
                   style={[
                     styles.cloudPillText,
                     {
-                      color: isCloudConfigured
-                        ? theme.primary
-                        : theme.textSecondary,
+                      color: theme.primary,
                     },
                   ]}
                   numberOfLines={1}
                 >
-                  {currentUser?.isLocalOnly ? 'تصدير' : isSyncing ? 'المزامنة…' : isCloudConfigured ? 'السحابة' : 'إعدادات'}
+                  تصدير التقارير
                 </Text>
               )}
             </TouchableOpacity>
@@ -574,10 +565,10 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
                   { color: theme.textSecondary },
                 ]}
               >
-                معرف الخزنة السحابية المرتبط بحسابك:
+                حالة الحساب:
               </Text>
               <Text style={[styles.profileInfoVal, { color: theme.primary }]}>
-                {state.supabaseConfig.workspaceKey}
+                موثق
               </Text>
             </View>
 

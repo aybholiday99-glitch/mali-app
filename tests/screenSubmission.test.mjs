@@ -113,25 +113,23 @@ test('actual cloud Pull control restores a clean vault without marking configura
   globalThis.maliProviderSync.pull=async()=>({ok:true,success:true,state:cloudState,updatedAt:'2030-01-01T00:00:00.000Z',snapshotUpdatedAt:'2030-01-01T00:00:00.000Z',message:'loaded'});
   function CloudProbe(){api=useMali();return React.createElement(CloudAndExportModal,{visible:true,onClose:()=>{}});}
   await act(async()=>{tree.update(React.createElement(MaliProvider,null,React.createElement(CloudProbe)));});
-  const pullButton=tree.root.findAllByType('TouchableOpacity').find(node=>node.props.onPress?.name==='handlePull');
-  await act(async()=>{await pullButton.props.onPress();});
+  assert.ok(tree.root.findAllByType('Text').some(node=>node.children.some(text=>typeof text==='string'&&text.includes('حالة المزامنة السحابية'))));
+  await act(async()=>{await api.pullFromCloud();});
   assert.equal(api.state.accounts[0].id,'cloud-cash');
   assert.equal(api.state.accounts[0].balance,25);
   assert.equal(api.state.pendingCloudSync,false);
   assert.equal(pushes,0);
   let sentConfig;
   globalThis.maliProviderSync.push=async(_state,cfg)=>{sentConfig=cfg;return {ok:false,message:'isolated upload'};};
-  const urlInput=tree.root.findAllByType('TextInput').find(node=>node.props.value===api.state.supabaseConfig.url);
-  await act(async()=>{urlInput.props.onChangeText('https://other.example.invalid');});
-  const pushButton=tree.root.findAllByType('TouchableOpacity').find(node=>node.props.onPress?.name==='handlePush');
-  await act(async()=>{await pushButton.props.onPress();});
+  await act(async()=>{
+    await api.updateSupabaseConfig({url:'https://other.example.invalid'});
+    await api.syncToCloud();
+  });
   assert.equal(sentConfig.url,'https://other.example.invalid');
   assert.equal(sentConfig.lastSyncedAt,undefined);
   const save=globalThis.maliTestStorage.setItem;
   globalThis.maliTestStorage.setItem=async()=>{throw new Error('storage unavailable');};
-  const saveButton=tree.root.findAllByType('TouchableOpacity').find(node=>node.props.onPress?.name==='handleSaveConfig');
-  await act(async()=>{await saveButton.props.onPress();});
-  assert.ok(tree.root.findAllByType('Text').some(node=>node.children.some(text=>typeof text==='string'&&text.includes('تعذر حفظ الإعدادات'))));
+  await act(async()=>{assert.equal(await api.updateSupabaseConfig({url:'https://fail.invalid'}),false);});
   globalThis.maliTestStorage.setItem=save;
   await act(async()=>{tree.unmount();});
 });

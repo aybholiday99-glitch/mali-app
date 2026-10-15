@@ -270,7 +270,7 @@ try {
 
     // Open Cloud & Export Modal
     await evaluate(call, `(() => {
-      const cloudBtn = document.querySelector('[aria-label="السحابة والتصدير"]');
+      const cloudBtn = document.querySelector('[aria-label="تصدير التقارير والنسخ الاحتياطي"]') || document.querySelector('[aria-label="السحابة والتصدير"]');
       if (cloudBtn) cloudBtn.click();
     })()`);
     await wait(600);

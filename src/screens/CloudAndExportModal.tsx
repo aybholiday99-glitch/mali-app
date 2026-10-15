@@ -1,4 +1,4 @@
-import React, { useRef,useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
-  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,8 +15,7 @@ import { FinancialHistoryPanel } from '../components/FinancialHistoryPanel';
 import { ConflictResolutionPanel } from '../components/ConflictResolutionPanel';
 import { RecoveryArchivePanel } from '../components/RecoveryArchivePanel';
 import { createSafeDiagnostics } from '../services/diagnosticsCore';
-import { pickBackupFile,type BackupFileResult } from '../utils/backupFilePicker';
-import { SUPABASE_SQL_SCHEMA } from '../services/supabaseSync';
+import { pickBackupFile, type BackupFileResult } from '../utils/backupFilePicker';
 import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
 import {
   exportFileOrShare,
@@ -26,6 +24,36 @@ import {
   printFinancialStatement,
 } from '../utils/exportHelper';
 import { MIN_TOUCH_TARGET } from '../theme/responsive';
+
+const formatArabicSyncTime = (timestamp?: string): string | null => {
+  if (!timestamp) return null;
+  try {
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleString('ar-LY', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeSyncMessage = (msg?: string | null): string | null => {
+  if (!msg) return null;
+  let sanitized = msg;
+  sanitized = sanitized.replace(/https?:\/\/[^\s)]+/g, '');
+  sanitized = sanitized.replace(/[A-Za-z0-9_-]{25,}/g, '');
+  sanitized = sanitized.replace(/PGRST\w+/gi, '');
+  sanitized = sanitized.replace(/error:\s*/gi, '');
+  sanitized = sanitized.replace(/\{.*?\}|\[.*?\]/g, '');
+  sanitized = sanitized.replace(/\s+/g, ' ').trim();
+  if (!sanitized) return null;
+  return sanitized;
+};
 
 interface CloudModalProps {
   visible: boolean;
@@ -49,61 +77,29 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
     currentUser,
     mutationStatus,
     retryPendingMutation,
-    updateSupabaseConfig,
-    syncToCloud,
     pullFromCloud,
     importStateJson,
   } = useMali();
 
-  const [urlInput, setUrlInput] = useState(state.supabaseConfig.url);
-  const [anonKeyInput, setAnonKeyInput] = useState(
-    state.supabaseConfig.anonKey
-  );
-  const [workspaceKeyInput, setWorkspaceKeyInput] = useState(
-    state.supabaseConfig.workspaceKey || 'mali-personal-vault'
-  );
-  const [autoSync, setAutoSync] = useState(state.supabaseConfig.autoSync);
-  const [showSql, setShowSql] = useState(false);
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
   const [importJsonText, setImportJsonText] = useState('');
   const [showImportBox, setShowImportBox] = useState(false);
   const [pickedBackup,setPickedBackup]=useState<Extract<BackupFileResult,{status:'selected'}>|null>(null);
   const [readingBackup,setReadingBackup]=useState(false);
   const backupPickerPending=useRef(false);
+
+  const isConnected = !currentUser?.isLocalOnly && Boolean(
+    state.supabaseConfig.url?.trim() && state.supabaseConfig.anonKey?.trim()
+  );
+  const formattedLastSyncTime = formatArabicSyncTime(state.supabaseConfig.lastSyncedAt);
+  const sanitizedLastSyncMessage = sanitizeSyncMessage(lastSyncMessage);
+  const sanitizedStatusBanner = sanitizeSyncMessage(statusBanner);
+
   const handleBackupFile = async () => {
     if(backupPickerPending.current)return;backupPickerPending.current=true;setReadingBackup(true);
     try{const result=await pickBackupFile();if(result.status==='selected'){setPickedBackup(result);setImportJsonText('');setShowImportBox(true);setStatusBanner('تمت قراءة الملف. راجع الاختيار ثم أكد الاسترجاع؛ لم تتغير الخزنة بعد.');}
       else if(result.status==='error')setStatusBanner(result.message);
     }finally{backupPickerPending.current=false;setReadingBackup(false);}
-  };
-
-  const buildCurrentConfig = () => ({
-    url: urlInput.trim(),
-    anonKey: anonKeyInput.trim(),
-    workspaceKey: workspaceKeyInput.trim() || 'mali-personal-vault',
-    autoSync,
-    lastSyncedAt: state.supabaseConfig.lastSyncedAt,
-  });
-
-  const handleSaveConfig = async () => {
-    const cfg = buildCurrentConfig();
-    setStatusBanner(await updateSupabaseConfig(cfg) ? 'تم حفظ إعدادات المزامنة على هذا الجهاز.' : 'تعذر حفظ الإعدادات. راجع التخزين وانتظر تحميل الخزنة أو استرجع نسخة صحيحة.');
-  };
-
-  const handlePush = async () => {
-    const cfg = buildCurrentConfig();
-    if (!await updateSupabaseConfig(cfg)) {
-      setStatusBanner('تعذر اعتماد الإعدادات. انتظر تحميل الخزنة أو استرجع نسخة صحيحة.');
-      return;
-    }
-    const res = await syncToCloud();
-    setStatusBanner(res.message);
-  };
-
-  const handlePull = async () => {
-    const cfg = buildCurrentConfig();
-    const res = await pullFromCloud(cfg);
-    setStatusBanner(res.message);
   };
 
   if (CENTRAL_SERVER_ONLY) {
@@ -115,14 +111,14 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
             <Text style={{ color: theme.textSecondary, marginTop: 12, marginBottom: 16, textAlign: 'right' }}>
               جميع السجلات المالية الجديدة تُعتمد مباشرة على الخادم. لا توجد مزامنة محلية أو تنزيل تقارير إلى هاتف العميل. يلزم الاتصال بالإنترنت.
             </Text>
-            {lastSyncMessage ? <Text style={{ color: theme.text, marginBottom: 12, textAlign: 'right' }}>{lastSyncMessage}</Text> : null}
+            {lastSyncMessage ? <Text style={{ color: theme.text, marginBottom: 12, textAlign: 'right' }}>{sanitizedLastSyncMessage}</Text> : null}
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="تحديث البيانات من الخادم"
               disabled={isSyncing} onPress={() => { void pullFromCloud(); }}
-              style={[styles.closeBtn, { backgroundColor: theme.cardAlt, marginBottom: 10, minHeight: 45, justifyContent: 'center' }]}>
+              style={[styles.closeBtn, { backgroundColor: theme.cardAlt, marginBottom: 10, minHeight: MIN_TOUCH_TARGET, justifyContent: 'center' }]}>
               <Text style={{ color: theme.text, textAlign: 'center' }}>{isSyncing ? 'جارٍ تحديث البيانات…' : 'تحديث البيانات من الخادم'}</Text>
             </TouchableOpacity>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="إغلاق إعدادات الخادم"
-              onPress={onClose} style={[styles.closeBtn, { minHeight: 45, justifyContent: 'center' }]}>
+              onPress={onClose} style={[styles.closeBtn, { minHeight: MIN_TOUCH_TARGET, justifyContent: 'center' }]}>
               <Text style={{ color: theme.text, textAlign: 'center' }}>إغلاق</Text>
             </TouchableOpacity>
           </View>
@@ -155,7 +151,7 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
             ]}
           >
             <Text style={[styles.title, { color: theme.text }]}>
-              المزامنة السحابية (Supabase) وتصدير التقارير
+              المزامنة السحابية وتصدير التقارير
             </Text>
             <TouchableOpacity
               accessibilityRole="button" accessibilityLabel="إغلاق المزامنة والتصدير"
@@ -182,7 +178,7 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
                 setStatusBanner(ok?'تم فتح تنزيل أو مشاركة تقرير حالة التطبيق. يحتوي أعداد السجلات وحالة الحفظ فقط.':'تعذر تجهيز أو مشاركة تقرير الحالة.');
               }}><Text style={[styles.sqlToggleText,{color:theme.primary}]}>تصدير تقرير الحالة للدعم دون أسماء أو أرصدة أو صور أو مفاتيح</Text></TouchableOpacity>
             </View>
-            {statusBanner || lastSyncMessage ? (
+            {sanitizedStatusBanner || sanitizedLastSyncMessage ? (
               <View
                 style={[
                   styles.bannerBox,
@@ -198,7 +194,7 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
                   color={theme.blue}
                 />
                 <Text style={[styles.bannerText, { color: theme.blue }]}>
-                  {statusBanner || lastSyncMessage}
+                  {sanitizedStatusBanner || sanitizedLastSyncMessage}
                 </Text>
               </View>
             ) : null}
@@ -358,7 +354,7 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
               </View>
             </View>
 
-            {/* Section 2: Supabase Cloud Sync */}
+            {/* Section 2: Cloud Sync Status (Read-Only) */}
             <View
               style={[
                 styles.sectionBox,
@@ -366,188 +362,87 @@ const CloudModalContents: React.FC<CloudModalProps> = ({
               ]}
             >
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                2. إعداد المزامنة السحابية الفورية (Supabase Cloud)
+                2. حالة المزامنة السحابية
               </Text>
               <Text
                 style={[styles.sectionSub, { color: theme.textSecondary }]}
               >
-                التطبيق يعمل بنظام Offline-First (يحفظ على جهازك فوراً)، وعند إدخال بيانات مشروعك في Supabase يزامن بين الهاتف والكمبيوتر تلقائياً.
+                المزامنة السحابية التلقائية تحافظ على تحديث بياناتك المالية بأمان وفورية
               </Text>
 
-              <Text
-                style={[styles.inputLabel, { color: theme.textSecondary }]}
-              >
-                رابط مشروع Supabase (Project URL)
-              </Text>
-              <TextInput
-                accessibilityLabel="رابط مشروع المزامنة"
+              <View
                 style={[
-                  styles.input,
+                  styles.syncStatusCard,
                   {
-                    backgroundColor: theme.inputBg,
+                    backgroundColor: theme.card,
                     borderColor: theme.border,
-                    color: theme.text,
                   },
                 ]}
-                value={urlInput}
-                onChangeText={setUrlInput}
-                placeholder="https://xyzcompany.supabase.co"
-                placeholderTextColor={theme.textMuted}
-              />
-
-              <Text
-                style={[styles.inputLabel, { color: theme.textSecondary }]}
               >
-                مفتاح الوصول العام (Anon Public Key)
-              </Text>
-              <TextInput
-                accessibilityLabel="مفتاح الوصول العام للمزامنة"
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.inputBg,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                value={anonKeyInput}
-                onChangeText={setAnonKeyInput}
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-                placeholderTextColor={theme.textMuted}
-              />
-
-              <Text
-                style={[styles.inputLabel, { color: theme.textSecondary }]}
-              >
-                معرف الخزنة الخاصة بك (Workspace Key للمزامنة بين أجهزتك)
-              </Text>
-              <TextInput
-                accessibilityLabel="معرف الخزنة"
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.inputBg,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                value={workspaceKeyInput}
-                onChangeText={setWorkspaceKeyInput}
-                placeholder="mali-personal-vault"
-                placeholderTextColor={theme.textMuted}
-              />
-
-              <TouchableOpacity
-                accessibilityRole="switch" accessibilityLabel="المزامنة التلقائية" accessibilityState={{checked:autoSync}}
-                style={styles.checkboxRow}
-                onPress={() => setAutoSync(!autoSync)}
-              >
-                <Ionicons
-                  name={autoSync ? 'checkbox' : 'square-outline'}
-                  size={20}
-                  color={theme.primary}
-                />
-                <Text
-                  style={[
-                    styles.checkboxText,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  تفعيل المزامنة السحابية التلقائية عند كل حركة جديدة
-                </Text>
-              </TouchableOpacity>
-
-              <View style={styles.syncActionsRow}>
-                <TouchableOpacity
-                  accessibilityRole="button" accessibilityState={{disabled:isSyncing,busy:isSyncing}}
-                  style={[
-                    styles.pushBtn,
-                    { backgroundColor: theme.primary },
-                  ]}
-                  onPress={handlePush}
-                  disabled={isSyncing}
-                >
-                  {isSyncing ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons
-                      name="cloud-upload-outline"
-                      size={18}
-                      color="#FFFFFF"
-                    />
-                  )}
-                  <Text style={styles.pushBtnText}>
-                    رفع البيانات للسحابة (Push)
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  accessibilityRole="button" accessibilityState={{disabled:isSyncing,busy:isSyncing}}
-                  style={[
-                    styles.pullBtn,
-                    {
-                      backgroundColor: theme.blueSoft,
-                      borderColor: theme.blue,
-                    },
-                  ]}
-                  onPress={handlePull}
-                  disabled={isSyncing}
-                >
-                  <Ionicons
-                    name="cloud-download-outline"
-                    size={18}
-                    color={theme.blue}
-                  />
-                  <Text style={[styles.pullBtnText, { color: theme.blue }]}>
-                    جلب من السحابة (Pull)
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  style={[
-                    styles.saveCfgBtn,
-                    { backgroundColor: theme.card, borderColor: theme.border },
-                  ]}
-                  onPress={handleSaveConfig}
-                >
-                  <Text
+                <View style={styles.syncBadgeRow}>
+                  <View
                     style={[
-                      styles.saveCfgBtnText,
-                      { color: theme.textSecondary },
+                      styles.syncBadge,
+                      {
+                        backgroundColor: isConnected ? (theme.successSoft || '#DCFCE7') : theme.surfaceSoft,
+                        borderColor: isConnected ? (theme.success || '#16A34A') : theme.border,
+                      },
                     ]}
                   >
-                    حفظ الإعدادات
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                accessibilityRole="button" accessibilityState={{expanded:showSql}}
-                style={styles.sqlToggleBtn}
-                onPress={() => setShowSql(!showSql)}
-              >
-                <Ionicons
-                  name="code-slash-outline"
-                  size={16}
-                  color={theme.primary}
-                />
-                <Text
-                  style={[styles.sqlToggleText, { color: theme.primary }]}
-                >
-                  {showSql
-                    ? 'إخفاء كود تهيئة جدول قاعدة بيانات Supabase (SQL)'
-                    : 'عرض كود تهيئة جدول قاعدة بيانات Supabase (SQL Schema)'}
-                </Text>
-              </TouchableOpacity>
-
-              {showSql && (
-                <View style={styles.sqlBox}>
-                  <Text selectable style={styles.sqlCode}>
-                    {SUPABASE_SQL_SCHEMA}
-                  </Text>
+                    <Ionicons
+                      name={isConnected ? 'cloud-done-outline' : 'cloud-offline-outline'}
+                      size={18}
+                      color={isConnected ? (theme.success || '#16A34A') : theme.textMuted}
+                    />
+                    <Text
+                      style={[
+                        styles.syncBadgeText,
+                        {
+                          color: isConnected ? (theme.success || '#16A34A') : theme.textSecondary,
+                        },
+                      ]}
+                    >
+                      {isConnected ? 'المزامنة السحابية التلقائية مفعلة' : 'غير متصل بالسحابة'}
+                    </Text>
+                  </View>
                 </View>
-              )}
+
+                {formattedLastSyncTime ? (
+                  <View style={styles.syncMetaRow}>
+                    <Ionicons name="time-outline" size={16} color={theme.textMuted} />
+                    <Text style={[styles.syncMetaLabel, { color: theme.textSecondary }]}>
+                      آخر مزامنة ناجحة:
+                    </Text>
+                    <Text style={[styles.syncMetaVal, { color: theme.text }]}>
+                      {formattedLastSyncTime}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.syncMetaRow}>
+                    <Ionicons name="time-outline" size={16} color={theme.textMuted} />
+                    <Text style={[styles.syncMetaLabel, { color: theme.textMuted }]}>
+                      لم يتم تسجيل مزامنة سابقة بعد
+                    </Text>
+                  </View>
+                )}
+
+                {sanitizedLastSyncMessage ? (
+                  <View
+                    style={[
+                      styles.syncMessageBanner,
+                      {
+                        backgroundColor: theme.surfaceSoft,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="information-circle-outline" size={16} color={theme.primary} />
+                    <Text style={[styles.syncMessageText, { color: theme.textSecondary }]}>
+                      {sanitizedLastSyncMessage}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
 
             {/* Section 3: Restore Backup or Reset Demo Data */}
@@ -754,15 +649,56 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     fontSize: 13,
   },
-  checkboxRow: {
+  syncStatusCard: {
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    gap: 12,
+  },
+  syncBadgeRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+  },
+  syncBadge: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    minHeight: MIN_TOUCH_TARGET,
+  },
+  syncBadgeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  syncMetaRow: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
-    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: 4,
   },
-  checkboxText: {
+  syncMetaLabel: {
     fontSize: 12,
+    fontWeight: '600',
+  },
+  syncMetaVal: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  syncMessageBanner: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  syncMessageText: {
+    fontSize: 12,
+    flex: 1,
+    textAlign: 'right',
   },
   syncActionsRow: {
     flexDirection: 'row-reverse',
@@ -804,20 +740,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 12,
   },
-  saveCfgBtn: {
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    minHeight: MIN_TOUCH_TARGET,
-    minWidth: MIN_TOUCH_TARGET,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveCfgBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
   sqlToggleBtn: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -829,18 +751,5 @@ const styles = StyleSheet.create({
   sqlToggleText: {
     fontSize: 12,
     fontWeight: '600',
-  },
-  sqlBox: {
-    backgroundColor: '#0F172A',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  sqlCode: {
-    color: '#38BDF8',
-    fontFamily: 'monospace',
-    fontSize: 11,
   },
 });

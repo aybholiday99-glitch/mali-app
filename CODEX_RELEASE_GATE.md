@@ -58,5 +58,24 @@ Release status remains **NOT PRODUCTION READY**. This section reflects a read-on
 
 - Full app suite now **725/725 PASS** (`npm test`, Node 24, four test workers, 52.6s), following four fixture corrections where older tests incorrectly treated a failed/unverified remote read as a verified empty customer vault. These changes do **not** relax the production fail-closed policy.
 - Hardened integration's synthetic financial-storage write stub to tolerate chunked storage metadata that is intentionally not JSON, and bounded its acknowledgement wait so future regressions surface as failed tests rather than CI hangs.
+
+## Technical Settings Purge & Multi-Account Isolation Hardening — 2026-10-15
+
+- **Purged Technical Settings from UI**:
+  - Removed Section 2 from `CloudAndExportModal.tsx`: all text inputs for Supabase URL, Anon Key, Workspace Key, AutoSync checkbox, manual Push and Pull buttons, and manual Save Config button are deleted.
+  - Removed SQL Schema toggle button and raw `SUPABASE_SQL_SCHEMA` code container from client view.
+  - Replaced with read-only "حالة المزامنة السحابية" (Cloud Sync Status) box showing connection badge, Arabic last-sync time, and sanitized status messages (`sanitizeSyncMessage`).
+  - Removed `إعدادات الربط السحابي (Supabase)` from `AuthScreen.tsx` and removed `CloudAndExportModal` from unauthenticated `MaliAuthShell.tsx`.
+  - Replaced unauthenticated guest direct start with security notice requiring authenticated login to access the vault.
+  - Removed `workspaceKey` display from `MaliVaultShell.tsx` Profile Modal.
+- **Private Receipts Storage Migration (`mali-receipts`)**:
+  - Created `supabase/migrations/20261015000000_private_receipts_storage.sql` with private bucket (`public = false`), 5MB file ceiling (`5242880` bytes), and strict MIME whitelist (`image/jpeg`, `image/png`, `image/webp`, `application/pdf`).
+  - Implemented RLS policies requiring path ownership: `(storage.foldername(name))[1] = auth.uid()::text`.
+  - Explicitly revoked all permissions from `anon` on storage objects and buckets.
+  - Verified migration in disposable test database (never applied to live production).
+- **Two-Account Isolation & Storage Tests**:
+  - Added `tests/twoAccountDataIsolation.test.mjs` (37 tests) verifying User A vs User B on all financial tables, workspace_key manipulation defense, anon blocking, and memory session scrub on logout.
+  - Added `tests/receiptsStorageSecurity.test.mjs` (26 tests) verifying private bucket tenant isolation, cross-folder upload blocking, file size ceiling, and MIME whitelist.
+  - Full test suite now **788/788 PASS** (`npm test`, 100% across all suites).
 - `tests/providerIntegration.test.mjs` and `tests/providerMutationDurability.test.mjs` together **32/32 PASS**; finance history and screen submission suites **7/7 PASS**; admin/data isolation earlier **12/12 PASS**.
 - Important: successful local tests do **not** establish production readiness; native Android emulator success, real-server two-account isolation, verified production backup/restore and migrations, private attachments, central-only data policy, OAuth providers and unresolved npm high-severity audit remain release blockers.

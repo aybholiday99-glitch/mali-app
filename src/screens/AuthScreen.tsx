@@ -15,26 +15,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { MIN_TOUCH_TARGET } from '../theme/responsive';
 import { AuthUser, SupabaseConfig } from '../types/mali';
 import { useMali } from '../context/MaliContext';
-import { CENTRAL_SERVER_ONLY } from '../services/centralStoragePolicy';
 import {
   launchSocialOAuthWindow,
   resetUserPasswordLocal,
   signInWithEmail,
   signInWithSocialProvider,
   signUpWithEmail,
-  startOfflineGuestSession,
 } from '../services/authService';
 
 interface AuthScreenProps {
   supabaseConfig: SupabaseConfig;
   onAuthenticated: (user: AuthUser) => void;
-  onOpenCloudConfig: () => void;
+  onOpenCloudConfig?: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   supabaseConfig,
   onAuthenticated,
-  onOpenCloudConfig,
 }) => {
   const { theme, isDarkMode, toggleTheme } = useMali();
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
@@ -161,11 +158,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       name: socialName,
       email: socialEmail,
     });
-  };
-
-  const handleQuickGuestStart = async () => {
-    const guestUser = await startOfflineGuestSession();
-    onAuthenticated(guestUser);
   };
 
   return (
@@ -527,40 +519,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </Text>
           </TouchableOpacity>
 
-          {/* Server-only customer data: guest/offline vaults are disabled. */}
-          {!CENTRAL_SERVER_ONLY ? <TouchableOpacity
+          {/* Security Notice: Verified Account Required */}
+          <View
             style={[
-              styles.quickEntryBtn,
+              styles.accountRequiredBox,
               {
-                backgroundColor: theme.primarySoft,
-                borderColor: theme.primary,
+                backgroundColor: theme.surfaceSoft,
+                borderColor: theme.border,
               },
             ]}
-            accessibilityRole="button"
-            accessibilityLabel="الدخول السريع المباشر إلى خزنتي المحلية"
-            onPress={handleQuickGuestStart}
           >
-            <Ionicons name="flash-outline" size={18} color={theme.primary} />
-            <Text style={[styles.quickEntryText, { color: theme.primary }]}>
-              الدخول السريع المباشر إلى خزنتي المحلية
+            <Ionicons name="shield-checkmark-outline" size={18} color={theme.primary} />
+            <Text style={[styles.accountRequiredText, { color: theme.textSecondary }]}>
+              لحماية بياناتك المالية، يلزم تسجيل الدخول أو إنشاء حساب للوصول إلى الخزنة.
             </Text>
-          </TouchableOpacity> : <Text style={[styles.quickEntryText, { color: theme.textSecondary }]}>
-            بيانات العملاء تُحفظ على خادم مالي المركزي، ويلزم حساب واتصال بالإنترنت.
-          </Text>}
+          </View>
         </View>
-
-        {/* Bottom Cloud Setup Link */}
-        {!CENTRAL_SERVER_ONLY && <TouchableOpacity
-          style={[styles.cloudSetupRow, { borderTopColor: theme.border }]}
-          accessibilityRole="button"
-          accessibilityLabel="إعدادات الربط السحابي"
-          onPress={onOpenCloudConfig}
-        >
-          <Ionicons name="cloud-outline" size={16} color={theme.primary} />
-          <Text style={[styles.cloudSetupText, { color: theme.primary }]}>
-            إعدادات الربط السحابي (Supabase)
-          </Text>
-        </TouchableOpacity>}
       </View>
 
       {/* Modal for Google / Facebook OAuth Account Chooser (Mobile / Standalone PWA) */}
@@ -1028,32 +1002,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: 'bold',
   },
-  quickEntryBtn: {
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    minHeight: MIN_TOUCH_TARGET,
+  accountRequiredBox: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
+    marginTop: 6,
   },
-  quickEntryText: {
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  cloudSetupRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: 1,
-  },
-  cloudSetupText: {
+  accountRequiredText: {
     fontSize: 12,
+    flex: 1,
+    textAlign: 'right',
+    lineHeight: 18,
     fontWeight: '600',
   },
   modalBackdrop: {
