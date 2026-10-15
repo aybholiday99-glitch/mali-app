@@ -5,10 +5,10 @@ export interface SystemMetricsSummary {
   activeVaultsCount: number;
   totalTransactionsCount: number;
   totalAuditEventsCount: number;
-  failedOperationsCount: number;
+  failedOperationsCount: number | null;
   systemHealth: 'healthy' | 'warning' | 'maintenance';
-  serverUptimeHours: number;
-  lastSecurityAuditDate: string;
+  serverUptimeHours: number | null;
+  lastSecurityAuditDate: string | null;
   isEmergencyMaintenanceActive: boolean;
   maintenanceReason?: string;
 }
@@ -57,9 +57,10 @@ async function getClient(config: SupabaseConfig, clientOverride?: any) {
  */
 export function isSystemOwner(user: AuthUser | null): boolean {
   if (!user || !user.id || user.isLocalOnly) return false;
+  // A free-form top-level role on a locally constructed object is never proof
+  // of server authorization. The RPC remains the only access decision.
   const appRole = (user as any).app_metadata?.role;
-  const directRole = (user as any).role;
-  return appRole === 'admin' || appRole === 'owner' || directRole === 'admin' || directRole === 'owner';
+  return appRole === 'admin' || appRole === 'owner';
 }
 
 /**
@@ -74,13 +75,28 @@ export async function verifyAdminRoleOnServer(
   try {
     const client = await getClient(config, clientOverride);
     const { data, error } = await client.rpc('mali_check_admin_role', {});
-    if (error || !data) return false;
-    return Boolean(data.is_admin);
+    // A verified admin role for a different Supabase session must never grant
+    // this profile access (A -> B -> A races and stale native credentials).
+    if (error || !data || data.user_id !== user.id) return false;
+    return data.is_admin === true;
   } catch {
     return false;
   }
 }
 
+/** Never authorize admin APIs from a cached client user profile. */
+async function authorizedAdminClient(
+  config: SupabaseConfig,
+  user: AuthUser,
+  clientOverride?: any
+): Promise<any> {
+  if (!user?.id || user.isLocalOnly) throw new Error('غير مصرح باستخدام لوحة الإدارة.');
+  const client = await getClient(config, clientOverride);
+  if (!(await verifyAdminRoleOnServer(config, user, client))) {
+    throw new Error('غير مصرح باستخدام لوحة الإدارة.');
+  }
+  return client;
+}
 /**
  * Gets the current system maintenance mode status from memory cache.
  */
@@ -128,36 +144,20 @@ export async function syncEmergencyMaintenanceState(
  * and standalone toggle for tests.
  */
 export async function setEmergencyMaintenanceMode(
-  configOrEnabled: SupabaseConfig | boolean,
-  userOrReason?: AuthUser | string,
-  enabled?: boolean,
+  config: SupabaseConfig,
+  user: AuthUser,
+  enabled: boolean,
   reason?: string,
   clientOverride?: any
 ): Promise<{ success: boolean; message: string }> {
-  if (typeof configOrEnabled === 'boolean') {
-    // Standalone / legacy test signature: (enabled: boolean, reason?: string)
-    const nextVal = configOrEnabled;
-    const rsn = typeof userOrReason === 'string' ? userOrReason : undefined;
-    isEmergencyMaintenanceMode = nextVal;
-    emergencyMaintenanceReason = nextVal ? (rsn || 'صيانة طارئة مجدولة من قِبل مالك النظام.') : undefined;
-    return {
-      success: true,
-      message: nextVal
-        ? 'تم تفعيل وضع الصيانة الطارئة للنظام بنجاح.'
-        : 'تم إيقاف وضع الصيانة واستئناف العمليات الطبيعية.',
-    };
-  }
-
-  const config = configOrEnabled;
-  const user = userOrReason as AuthUser;
-  const targetEnabled = Boolean(enabled);
+  // There is intentionally no local-only toggle: maintenance is a server action.
+  const targetEnabled = enabled;
   const targetReason = reason || undefined;
-
-  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
+  if (!user || user.isLocalOnly) {
     throw new Error('غير مصرح لك بتغيير وضع الصيانة المركزي.');
   }
 
-  const client = await getClient(config, clientOverride);
+  const client = await authorizedAdminClient(config, user, clientOverride);
   const { error } = await client.rpc('mali_admin_toggle_maintenance', {
     p_active: targetEnabled,
     p_reason: targetReason || null,
@@ -192,11 +192,11 @@ export async function fetchAdminSystemMetrics(
   user: AuthUser,
   clientOverride?: any
 ): Promise<SystemMetricsSummary> {
-  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
+  if (!user || user.isLocalOnly) {
     throw new Error('غير مصرح لك بالوصول إلى لوحة تحكم مالك النظام.');
   }
 
-  const client = await getClient(config, clientOverride);
+  const client = await authorizedAdminClient(config, user, clientOverride);
   const { data, error } = await client.rpc('mali_admin_get_system_metrics', {});
 
   if (error) {
@@ -218,10 +218,10 @@ export async function fetchAdminSystemMetrics(
     activeVaultsCount: Number(data.activeVaultsCount) || 0,
     totalTransactionsCount: Number(data.totalTransactionsCount) || 0,
     totalAuditEventsCount: Number(data.totalAuditEventsCount) || 0,
-    failedOperationsCount: Number(data.failedOperationsCount) || 0,
+    failedOperationsCount: typeof data.failedOperationsCount === 'number' && Number.isFinite(data.failedOperationsCount) ? data.failedOperationsCount : null,
     systemHealth: data.systemHealth || (isEmergencyMaintenanceMode ? 'maintenance' : 'healthy'),
-    serverUptimeHours: Number(data.serverUptimeHours) || 720,
-    lastSecurityAuditDate: data.lastSecurityAuditDate || new Date().toISOString(),
+    serverUptimeHours: typeof data.serverUptimeHours === 'number' && Number.isFinite(data.serverUptimeHours) ? data.serverUptimeHours : null,
+    lastSecurityAuditDate: typeof data.lastSecurityAuditDate === 'string' ? data.lastSecurityAuditDate : null,
     isEmergencyMaintenanceActive: isEmergencyMaintenanceMode,
     maintenanceReason: emergencyMaintenanceReason,
   };
@@ -236,11 +236,11 @@ export async function fetchAdminUserList(
   user: AuthUser,
   clientOverride?: any
 ): Promise<AdminUserRecord[]> {
-  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
+  if (!user || user.isLocalOnly) {
     throw new Error('غير مصرح لك بالوصول إلى قائمة مستخدمي النظام.');
   }
 
-  const client = await getClient(config, clientOverride);
+  const client = await authorizedAdminClient(config, user, clientOverride);
   const { data, error } = await client.rpc('mali_admin_get_users', {});
 
   if (error) {
@@ -266,11 +266,11 @@ export async function fetchAdminSecurityEvents(
   user: AuthUser,
   clientOverride?: any
 ): Promise<AdminSecurityEvent[]> {
-  if (!user || user.isLocalOnly || !isSystemOwner(user)) {
+  if (!user || user.isLocalOnly) {
     throw new Error('غير مصرح لك بالوصول إلى سجل أحداث الأمان.');
   }
 
-  const client = await getClient(config, clientOverride);
+  const client = await authorizedAdminClient(config, user, clientOverride);
   const { data, error } = await client.rpc('mali_admin_get_security_events', {});
 
   if (error) {

@@ -68,7 +68,7 @@ jobs:
     name: Android AOSP emulator standalone install and restart
     needs: android-build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 43
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
@@ -80,15 +80,15 @@ jobs:
           path: .
       - name: Run on isolated AOSP emulator without Google Services or Metro
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        timeout-minutes: 25
+        timeout-minutes: 37
         with:
-          api-level: 35
+          api-level: 30
           target: default
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          emulator-boot-timeout: 600
-          emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect -memory 2048 -cores 2
           script: bash scripts/androidStandaloneSmoke.sh
       - name: Upload logs and screenshots separately from installable APK
         if: always()

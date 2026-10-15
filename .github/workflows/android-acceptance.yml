@@ -17,7 +17,7 @@ jobs:
   android-debug:
     name: Android native APK and emulator smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 49
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
@@ -50,14 +50,15 @@ jobs:
           ./gradlew :app:assembleDebug --no-daemon --max-workers=2 -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
       - name: Run Mali APK on real Android emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        timeout-minutes: 15
+        timeout-minutes: 31
         with:
-          api-level: 35
-          target: google_apis
+          api-level: 30
+          target: default
           arch: x86_64
-          profile: pixel_6
+          profile: pixel_2
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -memory 2048 -cores 2
           script: bash scripts/androidSmoke.sh
       - name: Upload debug and emulator evidence (never a production release)
         if: always()

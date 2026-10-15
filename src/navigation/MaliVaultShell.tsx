@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View,Text,StyleSheet,TouchableOpacity,StatusBar,Modal } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Link,router,usePathname } from 'expo-router';
@@ -9,7 +9,7 @@ import { CloudAndExportModal } from '../screens/CloudAndExportModal';
 import { LegacyVaultMigrationModal } from '../components/LegacyVaultMigrationModal';
 import { OfflineBanner } from '../components/OfflineBanner';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
-import { isSystemOwner } from '../services/adminService';
+import { verifyAdminRoleOnServer } from '../services/adminService';
 import { launchSocialOAuthWindow } from '../services/authService';
 import { sectionFromPath,pathForSection,type VaultSection as TabKey } from './routes';
 import { VaultActionsProvider } from './VaultActions';
@@ -38,12 +38,33 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
   const [cloudModalVisible, setCloudModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [adminModalVisible, setAdminModalVisible] = useState(false);
+  const [adminAuthorizedKey, setAdminAuthorizedKey] = useState<string | null>(null);
   const [profileMessage,setProfileMessage]=useState<string | null>(null);
   const [profileBusy,setProfileBusy]=useState(false);
+
+  const adminScope = currentUser ? [currentUser.id, state.supabaseConfig.url, state.supabaseConfig.anonKey].join('|') : null;
+  const adminAuthorized = adminAuthorizedKey !== null && adminAuthorizedKey === adminScope;
 
   const isCloudConfigured = !currentUser?.isLocalOnly && Boolean(
     state.supabaseConfig.url.trim() && state.supabaseConfig.anonKey.trim()
   );
+
+  // The client-side user profile is not an authorization source. Only a
+  // server-checked administrative role can reveal the privileged entry point.
+  useEffect(() => {
+    let current = true;
+    // Defer invalidation; the scoped render guard hides prior privileges immediately.
+    void Promise.resolve().then(() => {
+      if (current) { setAdminAuthorizedKey(null); setAdminModalVisible(false); }
+    });
+    if (currentUser && !currentUser.isLocalOnly) {
+      void verifyAdminRoleOnServer(state.supabaseConfig, currentUser)
+        .then(allowed => { if (current) setAdminAuthorizedKey(allowed ? adminScope : null); })
+        .catch(() => { if (current) setAdminAuthorizedKey(null); });
+    }
+    return () => { current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminScope]);
 
   if (!currentUser) return null;
 
@@ -185,7 +206,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
               )}
             </TouchableOpacity>
 
-            {isSystemOwner(currentUser) && (
+            {adminAuthorized && (
               <TouchableOpacity
                 style={[
                   styles.iconActionBtn,
@@ -658,7 +679,7 @@ export const MaliVaultShell: React.FC<{children:React.ReactNode}> = ({children})
 
       {/* System Owner Admin Dashboard Modal */}
       <Modal
-        visible={adminModalVisible}
+        visible={adminModalVisible && adminAuthorized}
         animationType="slide"
         onRequestClose={() => setAdminModalVisible(false)}
       >

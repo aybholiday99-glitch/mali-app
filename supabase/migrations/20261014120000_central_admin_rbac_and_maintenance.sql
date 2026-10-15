@@ -160,7 +160,6 @@ DECLARE
   v_audit_count BIGINT;
   v_maint_active BOOLEAN;
   v_maint_reason TEXT;
-  v_last_audit TIMESTAMPTZ;
 BEGIN
   IF NOT public.mali_is_admin() THEN
     RAISE EXCEPTION 'غير مصرح لك بالوصول إلى لوحة الإدارة.' USING ERRCODE = '42501';
@@ -174,17 +173,16 @@ BEGIN
   INTO v_maint_active, v_maint_reason
   FROM public.mali_system_settings WHERE key = 'maintenance_mode';
   
-  SELECT MAX(accepted_at) INTO v_last_audit FROM public.mali_financial_history;
   
   RETURN jsonb_build_object(
     'registeredUsersCount', v_users_count,
     'activeVaultsCount', v_vaults_count,
     'totalTransactionsCount', v_tx_count,
     'totalAuditEventsCount', v_audit_count,
-    'failedOperationsCount', 0,
+    'failedOperationsCount', NULL, -- Not tracked; never claim no failed operations
     'systemHealth', CASE WHEN v_maint_active THEN 'maintenance' ELSE 'healthy' END,
-    'serverUptimeHours', 720,
-    'lastSecurityAuditDate', COALESCE(v_last_audit, clock_timestamp()),
+    'serverUptimeHours', NULL, -- No verified uptime telemetry
+    'lastSecurityAuditDate', NULL, -- Financial events are not security audit events
     'isEmergencyMaintenanceActive', COALESCE(v_maint_active, false),
     'maintenanceReason', v_maint_reason
   );

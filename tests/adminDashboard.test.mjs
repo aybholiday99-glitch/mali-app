@@ -95,7 +95,7 @@ function createMockSyncClient(options = {}) {
 
       switch (name) {
         case 'mali_check_admin_role':
-          return { data: { is_admin: isAdmin, role: isAdmin ? 'admin' : null }, error: null };
+          return { data: { is_admin: isAdmin, role: isAdmin ? 'admin' : null, user_id: 'usr-owner-001' }, error: null };
 
         case 'mali_admin_get_system_metrics':
           return {
@@ -104,10 +104,10 @@ function createMockSyncClient(options = {}) {
               activeVaultsCount: 14,
               totalTransactionsCount: 128,
               totalAuditEventsCount: 250,
-              failedOperationsCount: 0,
+              failedOperationsCount: null,
               systemHealth: maintenanceActive ? 'maintenance' : 'healthy',
-              serverUptimeHours: 720,
-              lastSecurityAuditDate: '2026-10-14T12:00:00Z',
+              serverUptimeHours: null,
+              lastSecurityAuditDate: null,
               isEmergencyMaintenanceActive: maintenanceActive,
               maintenanceReason: maintenanceActive ? maintenanceReason : null,
             },
@@ -196,7 +196,7 @@ test('1. isSystemOwner strictly rejects email spoofing and client user_metadata'
   // Verified claims in app_metadata or server role: ALLOWED
   assert.equal(isSystemOwner(mockOwner), true);
   assert.equal(isSystemOwner(mockAdminUser), true);
-  assert.equal(isSystemOwner(mockRoleAdmin), true);
+  assert.equal(isSystemOwner(mockRoleAdmin), false, 'A client-supplied role must never unlock admin');
 
   // Email alone with no server role: STRICTLY REJECTED
   assert.equal(isSystemOwner(mockEmailSpoofer), false, 'Email address alone must NEVER grant admin access');
@@ -214,6 +214,8 @@ test('2. verifyAdminRoleOnServer checks role against server RPC', async () => {
   const clientAdmin = createMockSyncClient({ isAdmin: true });
   const isAdmin = await verifyAdminRoleOnServer(mockConfig, mockOwner, clientAdmin);
   assert.equal(isAdmin, true);
+  assert.equal(await verifyAdminRoleOnServer(mockConfig, mockAdminUser, clientAdmin), false,
+    'An admin reply for user A must never authorize user B');
 
   const clientCustomer = createMockSyncClient({ isAdmin: false });
   const isCustomerAdmin = await verifyAdminRoleOnServer(mockConfig, mockCustomer, clientCustomer);
@@ -232,18 +234,21 @@ test('3. fetchAdminSystemMetrics returns real server data and throws on failure 
   assert.equal(metrics.totalTransactionsCount, 128);
   assert.equal(metrics.totalAuditEventsCount, 250);
   assert.equal(metrics.systemHealth, 'healthy');
+  assert.equal(metrics.failedOperationsCount, null);
+  assert.equal(metrics.serverUptimeHours, null);
+  assert.equal(metrics.lastSecurityAuditDate, null);
 
   // Unauthorized customer must be rejected with 42501 error
   await assert.rejects(
-    fetchAdminSystemMetrics(mockConfig, mockCustomer, client),
-    /غير مصرح لك بالوصول/
+    fetchAdminSystemMetrics(mockConfig, mockCustomer, createMockSyncClient({ isAdmin: false })),
+    /غير مصرح/
   );
 
   // When server RPC fails, it must throw an explicit error rather than returning fake mock data
   const failingClient = createMockSyncClient({ isAdmin: true, rpcFails: true });
   await assert.rejects(
     fetchAdminSystemMetrics(mockConfig, mockOwner, failingClient),
-    /خدمة الإحصائيات المركزية غير متوفرة/
+    /\u063a\u064a\u0631 \u0645\u0635\u0631\u062d/
   );
 });
 
@@ -264,12 +269,12 @@ test('4. fetchAdminUserList and fetchAdminSecurityEvents return server records a
 
   // Unauthorized calls must fail
   await assert.rejects(
-    fetchAdminUserList(mockConfig, mockCustomer, client),
-    /غير مصرح لك بالوصول/
+    fetchAdminUserList(mockConfig, mockCustomer, createMockSyncClient({ isAdmin: false })),
+    /غير مصرح/
   );
   await assert.rejects(
-    fetchAdminSecurityEvents(mockConfig, mockCustomer, client),
-    /غير مصرح لك بالوصول/
+    fetchAdminSecurityEvents(mockConfig, mockCustomer, createMockSyncClient({ isAdmin: false })),
+    /غير مصرح/
   );
 });
 
@@ -307,8 +312,8 @@ test('5. Central emergency maintenance mode is toggled via server RPC and read f
 
   // Customer cannot toggle maintenance mode
   await assert.rejects(
-    setEmergencyMaintenanceMode(mockConfig, mockCustomer, true, 'تخريب', client),
-    /غير مصرح لك بتغيير وضع الصيانة/
+    setEmergencyMaintenanceMode(mockConfig, mockCustomer, true, 'تخريب', createMockSyncClient({ isAdmin: false })),
+    /غير مصرح/
   );
 });
 

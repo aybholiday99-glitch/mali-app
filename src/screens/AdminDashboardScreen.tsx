@@ -13,7 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import {
-  isSystemOwner,
+  verifyAdminRoleOnServer,
   fetchAdminSystemMetrics,
   fetchAdminUserList,
   fetchAdminSecurityEvents,
@@ -35,6 +35,8 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const { theme, currentUser, state } = useMali();
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'security' | 'emergency'>('overview');
   const [loading, setLoading] = useState(true);
+  const adminScope = currentUser ? [currentUser.id, state.supabaseConfig.url, state.supabaseConfig.anonKey].join('|') : null;
+  const [authorizedScope, setAuthorizedScope] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<SystemMetricsSummary | null>(null);
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [events, setEvents] = useState<AdminSecurityEvent[]>([]);
@@ -43,8 +45,30 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const [maintenanceReasonText, setMaintenanceReasonText] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  // The server, not user metadata or a local role claim, decides admin access.
+  // Invalidate authorization and privileged data on every identity/config change.
+  useEffect(() => {
+    let current = true;
+    // The scoped render check fails closed before async invalidation completes.
+    void Promise.resolve().then(() => {
+      if (!current) return;
+      setAuthorizedScope(null);
+      setMetrics(null);
+      setUsers([]);
+      setEvents([]);
+    });
+    if (currentUser && !currentUser.isLocalOnly) {
+      void verifyAdminRoleOnServer(state.supabaseConfig, currentUser)
+        .then(allowed => {
+          if (current) setAuthorizedScope(allowed ? adminScope : null);
+        })
+        .catch(() => { if (current) setAuthorizedScope(null); });
+    }
+    return () => { current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminScope]);
   const handleRefresh = async () => {
-    if (!currentUser) return;
+    if (!currentUser || authorizedScope !== adminScope) return;
     setLoading(true);
     setStatusMessage(null);
     try {
@@ -73,7 +97,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!currentUser) {
+      if (!currentUser || authorizedScope !== adminScope) {
         if (mounted) setLoading(false);
         return;
       }
@@ -104,10 +128,10 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       mounted = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authorizedScope, adminScope]);
 
   const handleToggleMaintenance = async () => {
-    if (!currentUser) return;
+    if (!currentUser || authorizedScope !== adminScope) return;
     const nextVal = !maintenanceSwitch;
     try {
       const res = await setEmergencyMaintenanceMode(
@@ -131,7 +155,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
     }
   };
 
-  if (!isSystemOwner(currentUser)) {
+  if (!currentUser || authorizedScope !== adminScope) {
     return (
       <View style={[styles.centeredContainer, { backgroundColor: theme.bg }]}>
         <Ionicons name="lock-closed" size={48} color="#DC2626" />
@@ -635,7 +659,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
                 <TouchableOpacity
                   style={styles.saveReasonBtn}
                   onPress={async () => {
-                    if (!currentUser) return;
+                    if (!currentUser || authorizedScope !== adminScope) return;
                     try {
                       const res = await setEmergencyMaintenanceMode(
                         state.supabaseConfig,

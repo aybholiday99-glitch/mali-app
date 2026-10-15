@@ -53,7 +53,19 @@ adb_call shell input keyevent KEYCODE_WAKEUP || true
 adb_call shell wm dismiss-keyguard || true
 adb_call logcat -c || true
 echo "Step 2: install signed standalone APK"
-timeout 240 adb install -r "$APK" || fail "APK install failed"
+# Separate APK transfer from package-manager install to diagnose stuck ADB stream.
+# On slow GitHub-hosted emulators the previous four-minute adb install timed out.
+timeout 300 adb push "$APK" /data/local/tmp/mali-release.apk ||
+  fail "APK transfer to emulator timed out"
+if ! timeout 300 adb shell pm install -r /data/local/tmp/mali-release.apk > android-standalone-evidence/install.txt 2>&1; then
+  cat android-standalone-evidence/install.txt
+  fail "Android package manager rejected APK (see install.txt)"
+fi
+if ! grep -q 'Success' android-standalone-evidence/install.txt; then
+  cat android-standalone-evidence/install.txt
+  fail "Android package manager did not confirm successful installation"
+fi
+adb_call shell rm /data/local/tmp/mali-release.apk || true
 echo "Step 3: launch Mali Android release with no Metro"
 adb_call shell am force-stop com.aybholiday.mali || true
 adb_call shell am start -n com.aybholiday.mali/.MainActivity ||

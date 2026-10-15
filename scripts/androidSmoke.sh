@@ -36,7 +36,16 @@ if [[ "$READY" != "1" ]]; then
   exit 1
 fi
 
-adb install -r "$APK"
+# Non-streaming install avoids ADB package streaming stalls on cloud emulators.
+timeout 360 adb install --no-streaming -r "$APK" > android-acceptance-evidence/install.txt 2>&1 || {
+  cat android-acceptance-evidence/install.txt
+  echo "ERROR: debug APK installation failed or timed out"
+  exit 1
+}
+grep -q 'Success' android-acceptance-evidence/install.txt || {
+  cat android-acceptance-evidence/install.txt
+  exit 1
+}
 adb shell am force-stop com.aybholiday.mali || true
 adb shell monkey -p com.aybholiday.mali -c android.intent.category.LAUNCHER 1
 sleep 35
