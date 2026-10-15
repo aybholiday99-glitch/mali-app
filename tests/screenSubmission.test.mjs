@@ -10,7 +10,7 @@ const storage=new Map();
 globalThis.maliTestStorage={getItem:async key=>storage.get(key)??null,setItem:async(key,value)=>storage.set(key,value)};
 globalThis.maliProviderAuth={clearAuthSession:async()=>{},consumeOAuthRedirectIfPresent:async()=>null,
   getPersistedSessionUser:async()=>null,savePersistedSessionUser:async()=>{},subscribeToAuthIdentity:()=>()=>{}};
-globalThis.maliProviderSync={pull:async()=>({isEmpty:true}),push:async()=>({ok:false})};
+globalThis.maliProviderSync={pull:async()=>({ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty vault'}),push:async()=>({ok:false})};
 installNativeTestLoader({provider:true,ui:true});
 const {MaliProvider,useMali}=await import('../src/context/MaliContext.tsx');
 const {ExpensesScreen}=await import('../src/screens/ExpensesScreen.tsx');

@@ -8,7 +8,7 @@ const saved=new Map();
 globalThis.maliTestPlatform={OS:'ios'};
 globalThis.maliTestStorage={getItem:async key=>saved.get(key)??null,setItem:async(key,value)=>saved.set(key,value)};
 globalThis.maliProviderAuth={clearAuthSession:async()=>{},consumeOAuthRedirectIfPresent:async()=>null,getPersistedSessionUser:async()=>null,savePersistedSessionUser:async()=>{},subscribeToAuthIdentity:()=>()=>{}};
-globalThis.maliProviderSync={pull:async()=>({ok:false,isEmpty:true}),push:async()=>({ok:false})};
+globalThis.maliProviderSync={pull:async()=>({ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty vault'}),push:async()=>({ok:false})};
 installNativeTestLoader({provider:true,ui:true});
 const {MaliProvider,useMali}=await import('../src/context/MaliContext.tsx');
 const {FinancialHistoryPanel}=await import('../src/components/FinancialHistoryPanel.tsx');

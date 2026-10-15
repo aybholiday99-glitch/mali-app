@@ -53,3 +53,10 @@ Release status remains **NOT PRODUCTION READY**. This section reflects a read-on
 - Current live Supabase project has five applied migrations; central financial CAS/admin RPC migrations are absent. No production write/migration/merge has been authorized or performed. The published Android build still has server-only storage mode OFF, so the owner-only-central-storage requirement is **not yet met**.
 - Existing `node-forge` <=1.4.0 advisory GHSA-86w9-cpqp-85rv has no official patched release as of this review. Vendored backport and source-consumer verification pass, but raw npm audit remains HIGH and blocks production approval.
 - Required before production: verified full backup and restore, audited data-ownership migration, private receipt storage or confirmed secure inline receipt storage, server-only cutover, two-account live isolation checks, production OAuth callbacks, native APK install/restart and human physical-device checks, and clean security audit.
+
+## Local regression gate recovery — 2026-10-15
+
+- Full app suite now **725/725 PASS** (`npm test`, Node 24, four test workers, 52.6s), following four fixture corrections where older tests incorrectly treated a failed/unverified remote read as a verified empty customer vault. These changes do **not** relax the production fail-closed policy.
+- Hardened integration's synthetic financial-storage write stub to tolerate chunked storage metadata that is intentionally not JSON, and bounded its acknowledgement wait so future regressions surface as failed tests rather than CI hangs.
+- `tests/providerIntegration.test.mjs` and `tests/providerMutationDurability.test.mjs` together **32/32 PASS**; finance history and screen submission suites **7/7 PASS**; admin/data isolation earlier **12/12 PASS**.
+- Important: successful local tests do **not** establish production readiness; native Android emulator success, real-server two-account isolation, verified production backup/restore and migrations, private attachments, central-only data policy, OAuth providers and unresolved npm high-severity audit remain release blockers.

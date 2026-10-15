@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import { installNativeTestLoader } from './nativeModuleTestLoader.mjs';
-import { fakeSyncScheduler } from './fakeSyncScheduler.mjs';
+import { fakeSyncScheduler, settle } from './fakeSyncScheduler.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 globalThis.maliTestPlatform={OS:'android'};
@@ -112,7 +112,7 @@ test('real provider ignores a cache result arriving after logout and blocks hydr
 
 test('real provider preserves local mutation during a delayed pull, including same timestamp',async()=>{
   stored.clear();
-  pull=async()=>({ok:false,success:false,isEmpty:true,message:'empty'});
+  pull=async()=>({ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty cloud'});
   const tree=await mount();
   await act(async()=>{api.loginUser(cloud);});
   assert.equal(api.state.accounts.length,0);
@@ -136,7 +136,7 @@ test('real provider never auto-uploads demonstration balances for a new cloud ac
   stored.clear();
   let writes=0;
   globalThis.maliProviderSync.push=async()=>{writes++;return{ok:true,success:true,message:'saved'};};
-  pull=async()=>({ok:false,success:false,isEmpty:true,message:'empty'});
+  pull=async()=>({ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty cloud'});
   const tree=await mount();
   await act(async()=>{api.loginUser(cloud);});
   assert.equal(api.isLoading,false);
@@ -170,7 +170,7 @@ test('real provider rejects compound immediate-sale failure without any purchase
 
 test('stale mutation callbacks cannot act across A to B to A session generations',async()=>{
   stored.clear();
-  pull=async()=>({ok:false,success:false,isEmpty:true,message:'empty'});
+  pull=async()=>({ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty cloud'});
   const tree=await mount();
   await act(async()=>{api.loginUser(cloud);});
   const staleAdd=api.addAccount;
@@ -241,7 +241,7 @@ test('malformed JSON and unreadable owner caches cannot be silently replaced',as
 test('an older upload acknowledgement cannot mark newer local edits clean or discard them on relogin',async()=>{
   const clock=fakeSyncScheduler();
   stored.clear();
-  pull=async()=>({ok:false,success:false,isEmpty:true,message:'empty'});
+  pull=async()=>({ok:true,success:true,isEmpty:true,identityVerified:true,message:'verified empty cloud'});
   let releasePush,releaseStorage,signalStorage;
   const pendingPush=new Promise(resolve=>{releasePush=resolve;});
   const pendingStorage=new Promise(resolve=>{releaseStorage=resolve;});
@@ -251,7 +251,7 @@ test('an older upload acknowledgement cannot mark newer local edits clean or dis
   const originalSet=globalThis.maliTestStorage.setItem;
   globalThis.maliTestStorage.setItem=async(key,value)=>{
     stored.set(key,value);
-    const parsed=JSON.parse(value);
+    let parsed; try { parsed=JSON.parse(value); } catch { parsed={}; }
     if(parsed.supabaseConfig?.lastSyncedAt==='2030-01-01T00:00:00.000Z') {
       signalStorage();
       await pendingStorage;
@@ -261,7 +261,10 @@ test('an older upload acknowledgement cannot mark newer local edits clean or dis
   await act(async()=>{api.loginUser(cloud);});
   await act(async()=>{await api.addAccount({...account,name:'First'});await clock.advance(0);});
   await act(async()=>{await api.addAccount({...account,name:'Second'});});
-  await act(async()=>{releasePush({ok:true,success:true,message:'saved',updatedAt:'2030-01-01T00:00:00.000Z'});await storageStarted;});
+  await act(async()=>{releasePush({ok:true,success:true,message:'saved',updatedAt:'2030-01-01T00:00:00.000Z'});await settle();
+    let guard; try {
+      await Promise.race([storageStarted,new Promise((_resolve,reject)=>{ guard=setTimeout(()=>reject(new Error('cloud acknowledgement storage did not start')),3000); })]);
+    } finally { clearTimeout(guard); }});
   assert.equal(api.state.accounts.length,2);
   assert.equal(api.state.pendingCloudSync,true);
   await act(async()=>{api.logoutUser();releaseStorage();});

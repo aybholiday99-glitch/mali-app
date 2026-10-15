@@ -19,7 +19,7 @@ globalThis.maliProviderAuth = {
   getPersistedSessionUser: async () => null, savePersistedSessionUser: async () => {}, subscribeToAuthIdentity: () => () => {},
 };
 let push = async payload => { pushes.push(payload); return { ok: false, success: false, failureKind: 'transient', message: 'offline' }; };
-let pull = async () => ({ ok: false, success: false, isEmpty: true });
+let pull = async () => ({ ok: true, success: true, isEmpty: true, identityVerified: true, message: 'verified empty vault' });
 globalThis.maliProviderSync = { pull: (...args) => pull(...args), push: (...args) => push(...args) };
 installNativeTestLoader({ provider: true });
 const { MaliProvider, useMali } = await import('../src/context/MaliContext.tsx');
@@ -32,7 +32,7 @@ function Probe() { api = useMali(); return null; }
 async function mount(user = guest) {
   stored.clear(); pushes = []; write = async (key, value) => stored.set(key, value);
   push = async payload => { pushes.push(payload); return { ok: false, success: false, failureKind: 'transient', message: 'offline' }; };
-  pull = async () => ({ ok: false, success: false, isEmpty: true });
+  pull = async () => ({ ok: true, success: true, isEmpty: true, identityVerified: true, message: 'verified empty vault' });
   const clock = fakeSyncScheduler(); let tree;
   await act(async () => { tree = renderer.create(React.createElement(MaliProvider, { syncScheduler: clock.scheduler }, React.createElement(Probe))); });
   await act(async () => { api.loginUser(user); });
