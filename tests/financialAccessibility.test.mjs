@@ -190,3 +190,45 @@ test('procedure stage exposes checked state only after durable acknowledgement a
   assert.equal(buttons(tree).find(node => String(node.props.onPress).includes("setActiveTab('procedures')")).props.accessibilityState.selected, true);
   await act(async () => { tree.unmount(); });
 });
+
+test('an explicitly configured zero cheque discount produces no fee in the live dashboard calculator', async () => {
+  const { tree } = await mount(DashboardScreen);
+  await act(async () => { await api.updateMarketRates({ defaultChequeDiscountPercent: 0 }); });
+  assert.equal(api.state.marketRates.defaultChequeDiscountPercent, 0);
+  const open = buttons(tree).find(node => String(node.props.onPress).includes('setCalcModalOpen(true)'));
+  assert.ok(open, 'calculator action available');
+  await act(async () => { open.props.onPress(); });
+  const calculator = tree.root.findAllByType('Modal').find(node => node.props.visible);
+  assert.ok(calculator, 'live cheque calculator opened');
+  const messages = calculator.findAllByType('Text').map(node => node.children.join(''));
+  assert.ok(messages.some(value => value.includes('(0%)')), 'user-selected zero percent is displayed');
+  assert.ok(messages.includes('-' + (await import('../src/utils/exportHelper.ts')).formatMoney(0, 'LYD')),
+    'calculated cheque fee must remain zero, never the sample 2.5%');
+  await act(async () => { tree.unmount(); });
+});
+
+test('accounts cheque liquidation preserves the user-selected zero discount in its input', async () => {
+  memory.clear();
+  let tree; let enabled = false;
+  function Gate({ show }) {
+    api = useMali();
+    return show ? React.createElement(AccountsScreen) : null;
+  }
+  const provider = show => React.createElement(MaliProvider, null, React.createElement(Gate, { show }));
+  await act(async () => { tree = renderer.create(provider(false)); });
+  await act(async () => {
+    api.loginUser({ id: 'zero-discount-guest', isLocalOnly: true, name: 'Test',
+      email: 'zero@example.invalid', provider: 'email', createdAt: '2026-10-15' });
+  });
+  await act(async () => {
+    assert.equal(await api.updateMarketRates({ defaultChequeDiscountPercent: 0 }), true);
+  });
+  assert.equal(api.state.marketRates.defaultChequeDiscountPercent, 0);
+  enabled = true;
+  await act(async () => { tree.update(provider(enabled)); });
+  const discountInput = tree.root.findAllByType('TextInput')
+    .find(node => node.props.accessibilityLabel === 'نسبة خصم الصك (%)');
+  assert.ok(discountInput, 'cheque discount editor present');
+  assert.equal(discountInput.props.value, '0', 'zero is never silently replaced by 2.5%');
+  await act(async () => { tree.unmount(); });
+});

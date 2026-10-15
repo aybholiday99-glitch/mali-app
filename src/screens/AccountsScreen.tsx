@@ -70,7 +70,7 @@ export const AccountsScreen: React.FC = () => {
   );
   const [chequeAmount, setChequeAmount] = useState('10000');
   const [discountPct, setDiscountPct] = useState(
-    String(state.marketRates.defaultChequeDiscountPercent || 2.5)
+    String(state.marketRates.defaultChequeDiscountPercent)
   );
   const [liqNotes, setLiqNotes] = useState('');
 

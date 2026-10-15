@@ -82,7 +82,7 @@ export const DashboardScreen: React.FC<DashboardProps> = ({
 
   const cashRate = state.marketRates.cashUsdToLyd || 6.22;
   const chequeRate = state.marketRates.chequeUsdToLyd || 6.38;
-  const discPct = state.marketRates.defaultChequeDiscountPercent || 2.5;
+  const discPct = state.marketRates.defaultChequeDiscountPercent;
 
   const summary = reconcileDashboardSummary(state);
 
