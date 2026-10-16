@@ -1,3 +1,7 @@
+import { PagedRows } from '../components/PagedRows';
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
+import { nextSubmissionKey } from '../services/submissionKey';
+import { financialPreview, parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
 import {
   View,
@@ -7,11 +11,14 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { PaymentMethodType, UsdDeal } from '../types/mali';
 import { CalmDropdown } from '../components/CalmDropdown';
+import { addMoney, multiplyMoney, proportionalMoney, calculateEffectiveRate, subtractRates, calculateUsdDealCostBasis } from '../services/financialEngine';
 import {
   ReceiptAttachmentField,
   ReceiptInlineStrip,
@@ -23,8 +30,11 @@ import {
   generateDealsCsv,
   getPaymentMethodLabel,
 } from '../utils/exportHelper';
+import { useResponsiveLayout } from '../theme/responsive';
 
 export const UsdDealsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
     theme,
@@ -34,6 +44,7 @@ export const UsdDealsScreen: React.FC = () => {
     updateDealSaleReceipts,
     deleteUsdDeal,
   } = useMali();
+
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed'>(
     'all'
@@ -103,6 +114,7 @@ export const UsdDealsScreen: React.FC = () => {
   const [saleTargetLydId, setSaleTargetLydId] = useState(
     bankLydAccounts[0]?.id || lydAccounts[0]?.id || ''
   );
+  const [personalUsdAccountId, setPersonalUsdAccountId] = useState('');
   const [buyerContactId, setBuyerContactId] = useState<string | undefined>(
     undefined
   );
@@ -113,6 +125,17 @@ export const UsdDealsScreen: React.FC = () => {
 
   // Deal Delete Confirmation Modal
   const [dealToDelete, setDealToDelete] = useState<UsdDeal | null>(null);
+
+  const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
+    setSubmissionKey(nextSubmissionKey()); setNewDealModal(false); setActiveDealForSale(null); setDealToDelete(null);
+    setDealTitle(''); setCounterparty(''); setCounterpartyPhone(''); setDealNotes(''); setBuyReceiptImages([]); setImmSellReceiptImages([]);
+    setSellerContactId(undefined); setImmBuyerContactId(undefined); setBuyerContactId(undefined); setImmBuyerName(''); setImmBuyerPhone('');
+    setBuyerName(''); setBuyerPhone(''); setSaleNotes(''); setSaleReceiptImages([]); setSourceLydId(''); setTargetUsdId('');
+    setSaleTargetLydId(''); setPersonalUsdAccountId(''); setSearchQuery('');
+    setUsdBoughtStr(''); setBuyRateStr(String(state.marketRates.cashUsdToLyd)); setBuyCommStr('0');
+    setImmSellUsdStr(''); setImmSellRateStr(String(state.marketRates.chequeUsdToLyd)); setImmSellCommStr('0'); setIncludeImmediateSell(false);
+    setSaleUsdStr(''); setSaleRateStr(''); setSaleCommStr('0');
+  });
 
   // KPIs
   const totalRealizedProfit = state.deals.reduce(
@@ -161,59 +184,48 @@ export const UsdDealsScreen: React.FC = () => {
   });
 
   // Live calculations for New Deal Modal
-  const parsedBuyUsd = parseFloat(usdBoughtStr) || 0;
-  const parsedBuyRate = parseFloat(buyRateStr) || 0;
-  const parsedBuyComm = parseFloat(buyCommStr) || 0;
-  const previewBuyGrossLyd = Number((parsedBuyUsd * parsedBuyRate).toFixed(2));
-  const previewBuyTotalLyd = Number(
-    (previewBuyGrossLyd + parsedBuyComm).toFixed(2)
-  );
+  const buyUsdValue = parseFinancialInput(usdBoughtStr);
+  const buyRateValue = parseFinancialInput(buyRateStr);
+  const buyCommValue = parseFinancialInput(buyCommStr, { optional: true });
+  const parsedBuyUsd = financialPreview(buyUsdValue);
+  const parsedBuyRate = financialPreview(buyRateValue, 4);
+  const parsedBuyComm = financialPreview(buyCommValue);
+  const previewBuyGrossLyd = financialPreview(multiplyMoney(parsedBuyUsd, parsedBuyRate));
+  const previewBuyTotalLyd = financialPreview(addMoney(previewBuyGrossLyd, parsedBuyComm));
   const previewEffectiveRate =
     parsedBuyUsd > 0
-      ? Number((previewBuyTotalLyd / parsedBuyUsd).toFixed(4))
+      ? calculateEffectiveRate(previewBuyTotalLyd, parsedBuyUsd)
       : 0;
 
   // Immediate Sell Preview
-  const parsedImmSellUsd = Math.min(
-    parseFloat(immSellUsdStr) || 0,
-    parsedBuyUsd
-  );
-  const parsedImmSellRate = parseFloat(immSellRateStr) || 0;
-  const parsedImmSellComm = parseFloat(immSellCommStr) || 0;
-  const previewImmSellNetLyd = Number(
-    (parsedImmSellUsd * parsedImmSellRate - parsedImmSellComm).toFixed(2)
-  );
-  const previewImmSellCost = Number(
-    (parsedImmSellUsd * previewEffectiveRate).toFixed(2)
-  );
-  const previewImmSellProfit = Number(
-    (previewImmSellNetLyd - previewImmSellCost).toFixed(2)
-  );
+  const immSellUsdValue = parseFinancialInput(immSellUsdStr);
+  const immSellRateValue = parseFinancialInput(immSellRateStr);
+  const immSellCommValue = parseFinancialInput(immSellCommStr, { optional: true });
+  const parsedImmSellUsd = financialPreview(immSellUsdValue);
+  const parsedImmSellRate = financialPreview(immSellRateValue, 4);
+  const parsedImmSellComm = financialPreview(immSellCommValue);
+  const previewImmSellNetLyd = financialPreview(addMoney(multiplyMoney(parsedImmSellUsd, parsedImmSellRate), -parsedImmSellComm));
+  const previewImmSellCost = financialPreview(proportionalMoney(previewBuyTotalLyd, parsedImmSellUsd, parsedBuyUsd));
+  const previewImmSellProfit = financialPreview(addMoney(previewImmSellNetLyd, -previewImmSellCost));
 
   // Live calculations for Sale Modal (on existing deal)
-  const parsedSaleUsd = Math.min(
-    parseFloat(saleUsdStr) || 0,
-    activeDealForSale?.remainingUsd || 0
-  );
-  const parsedSaleRate = isPersonalTakeMode
+  const saleUsdValue = parseFinancialInput(saleUsdStr);
+  const saleRateValue = isPersonalTakeMode
     ? activeDealForSale?.effectiveBuyRate || 0
-    : parseFloat(saleRateStr) || 0;
-  const parsedSaleComm = isPersonalTakeMode ? 0 : parseFloat(saleCommStr) || 0;
-  const previewSaleGrossLyd = Number(
-    (parsedSaleUsd * parsedSaleRate).toFixed(2)
-  );
-  const previewSaleNetLyd = Number(
-    (previewSaleGrossLyd - parsedSaleComm).toFixed(2)
-  );
-  const previewSaleCostBasis = Number(
-    (parsedSaleUsd * (activeDealForSale?.effectiveBuyRate || 0)).toFixed(2)
-  );
+    : parseFinancialInput(saleRateStr);
+  const saleCommValue = isPersonalTakeMode ? 0 : parseFinancialInput(saleCommStr, { optional: true });
+  const parsedSaleUsd = financialPreview(saleUsdValue);
+  const parsedSaleRate = financialPreview(saleRateValue, 4);
+  const parsedSaleComm = financialPreview(saleCommValue);
+  const previewSaleGrossLyd = financialPreview(multiplyMoney(parsedSaleUsd, parsedSaleRate));
+  const previewSaleNetLyd = financialPreview(addMoney(previewSaleGrossLyd, -parsedSaleComm));
+  const previewSaleCostBasis = activeDealForSale && parsedSaleUsd > 0 &&
+    parsedSaleUsd <= activeDealForSale.remainingUsd
+    ? financialPreview(calculateUsdDealCostBasis(activeDealForSale, parsedSaleUsd)) : 0;
   const previewSaleProfit = isPersonalTakeMode
     ? 0
-    : Number((previewSaleNetLyd - previewSaleCostBasis).toFixed(2));
-  const previewRateSpread = Number(
-    (parsedSaleRate - (activeDealForSale?.buyRate || 0)).toFixed(3)
-  );
+    : financialPreview(addMoney(previewSaleNetLyd, -previewSaleCostBasis));
+  const previewRateSpread = financialPreview(subtractRates(parsedSaleRate, activeDealForSale?.buyRate || 0), 3);
 
   // Handlers for switching Cash vs Bank Transfer in Buy Modal
   const handleSelectBuyMode = (mode: 'cash' | 'bank') => {
@@ -283,29 +295,31 @@ export const UsdDealsScreen: React.FC = () => {
     setNewDealModal(true);
   };
 
-  const handleCreateDeal = () => {
-    if (
-      parsedBuyUsd <= 0 ||
-      parsedBuyRate <= 0 ||
-      !sourceLydId ||
-      !targetUsdId
-    ) {
-      return;
+  const handleCreateDeal = async () => {
+    if (buyUsdValue === null || buyUsdValue <= 0) return reject('أدخل كمية دولار صحيحة أكبر من صفر.', 'usdBoughtStr');
+    if (buyRateValue === null || buyRateValue <= 0) return reject('أدخل سعر شراء صحيحاً أكبر من صفر.', 'buyRateStr');
+    if (buyCommValue === null || buyCommValue < 0) return reject('أدخل عمولة شراء صحيحة لا تقل عن صفر.', 'buyCommStr');
+    if (!sourceLydId || !targetUsdId) return reject('اختر حساب مصدر بالدينار وخزينة مستلمة بالدولار.');
+    if (includeImmediateSell) {
+      if (immSellUsdValue === null || immSellUsdValue <= 0) return reject('أدخل كمية بيع فوري صحيحة أكبر من صفر.', 'immSellUsdStr');
+      if (immSellRateValue === null || immSellRateValue <= 0) return reject('أدخل سعر بيع فوري صحيحاً أكبر من صفر.', 'immSellRateStr');
+      if (immSellCommValue === null || immSellCommValue < 0) return reject('راجع عمولة البيع الفوري ثم أعد الحفظ.');
     }
 
     const srcAcc = accountMap.get(sourceLydId);
-    createUsdDeal({
+    if (!await submit(() => createUsdDeal({
+      idempotencyKey: submissionKey + ":createUsdDeal",
       title:
         dealTitle.trim() ||
-        `شراء ${parsedBuyUsd.toLocaleString()}$ (${
+        `شراء ${buyUsdValue.toLocaleString()}$ (${
           buyMode === 'cash' ? 'نقدي كاش' : `تحويل - ${srcAcc?.bankName || ''}`
         })`,
       contactId: sellerContactId,
       counterparty: counterparty.trim() || undefined,
       counterpartyPhone: counterpartyPhone.trim() || undefined,
-      totalUsdBought: parsedBuyUsd,
-      buyRate: parsedBuyRate,
-      buyCommissionLyd: parsedBuyComm,
+      totalUsdBought: buyUsdValue,
+      buyRate: buyRateValue,
+      buyCommissionLyd: buyCommValue,
       buyPaymentMethod: buyMethod,
       sourceLydAccountId: sourceLydId,
       usdHoldingAccountId: targetUsdId,
@@ -313,11 +327,11 @@ export const UsdDealsScreen: React.FC = () => {
         buyReceiptImages.length > 0 ? buyReceiptImages : undefined,
       notes: dealNotes.trim() || undefined,
       immediateSale:
-        includeImmediateSell && parsedImmSellUsd > 0 && parsedImmSellRate > 0
+        includeImmediateSell && immSellUsdValue !== null && immSellRateValue !== null && immSellCommValue !== null
           ? {
-              usdAmount: parsedImmSellUsd,
-              sellRate: parsedImmSellRate,
-              commissionLyd: parsedImmSellComm,
+              usdAmount: immSellUsdValue,
+              sellRate: immSellRateValue,
+              commissionLyd: immSellCommValue,
               paymentMethod: immSellMethod,
               targetLydAccountId: immSellTargetLydId,
               buyerContactId: immBuyerContactId,
@@ -329,7 +343,8 @@ export const UsdDealsScreen: React.FC = () => {
                   : undefined,
             }
           : undefined,
-    });
+    }))) return;
+    setSubmissionKey(nextSubmissionKey());
 
     setDealTitle('');
     setCounterparty('');
@@ -348,7 +363,7 @@ export const UsdDealsScreen: React.FC = () => {
       setSaleRateStr(String(deal.effectiveBuyRate));
       setSaleMode('cash');
       setSaleMethod('cash');
-      setSaleTargetLydId(cashLydAccounts[0]?.id || lydAccounts[0]?.id || '');
+      setPersonalUsdAccountId(deal.usdHoldingAccountId);
     } else {
       const defaultMode = deal.buyPaymentMethod === 'cash' ? 'bank' : 'cash';
       setSaleMode(defaultMode);
@@ -370,15 +385,23 @@ export const UsdDealsScreen: React.FC = () => {
     setSaleReceiptImages([]);
   };
 
-  const handleConfirmSale = () => {
-    if (!activeDealForSale || parsedSaleUsd <= 0) return;
-    recordDealSale({
+  const handleConfirmSale = async () => {
+    if (!activeDealForSale) return reject('اختر الصفقة المراد بيعها أو سحب الدولار منها.');
+    if (saleUsdValue === null || saleUsdValue <= 0) return reject('أدخل كمية دولار صحيحة أكبر من صفر.', 'saleUsdStr');
+    if (saleRateValue === null || (!isPersonalTakeMode && saleRateValue <= 0)) return reject('أدخل سعر بيع صحيحاً أكبر من صفر.', 'saleRateStr');
+    if (saleCommValue === null || saleCommValue < 0) return reject('أدخل عمولة بيع صحيحة لا تقل عن صفر.', 'saleCommStr');
+    const targetId = isPersonalTakeMode ? personalUsdAccountId : saleTargetLydId;
+    const target = accountMap.get(targetId);
+    if (!target || target.currency !== (isPersonalTakeMode ? 'USD' : 'LYD')) return reject(isPersonalTakeMode
+      ? 'اختر محفظة شخصية بالدولار.' : 'اختر حساباً مستلماً بالدينار.');
+    if (!await submit(() => recordDealSale({
+      idempotencyKey: submissionKey + ":recordDealSale",
       dealId: activeDealForSale.id,
-      usdAmount: parsedSaleUsd,
-      sellRate: parsedSaleRate,
-      commissionLyd: parsedSaleComm,
+      usdAmount: saleUsdValue,
+      sellRate: saleRateValue,
+      commissionLyd: saleCommValue,
       paymentMethod: saleMethod,
-      targetLydAccountId: saleTargetLydId,
+      targetLydAccountId: targetId,
       sourceUsdAccountId: activeDealForSale.usdHoldingAccountId,
       contactId: buyerContactId,
       buyerName: buyerName.trim() || undefined,
@@ -387,7 +410,8 @@ export const UsdDealsScreen: React.FC = () => {
       receiptImages:
         saleReceiptImages.length > 0 ? saleReceiptImages : undefined,
       notes: saleNotes.trim() || undefined,
-    });
+    }))) return;
+    setSubmissionKey(nextSubmissionKey());
     setSaleReceiptImages([]);
     setActiveDealForSale(null);
   };
@@ -424,6 +448,7 @@ export const UsdDealsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice error={submissionError} />
       {/* Live Market Reference Banner: Cash Rate vs Bank Transfer Rate */}
       <View
         style={[
@@ -468,7 +493,7 @@ export const UsdDealsScreen: React.FC = () => {
       </View>
 
       {/* Top KPI Cards */}
-      <View style={styles.kpiRow}>
+      <View style={[styles.kpiRow, isSmallPhone && { flexDirection: 'column' }]}>
         <View
           style={[
             styles.kpiCard,
@@ -519,8 +544,8 @@ export const UsdDealsScreen: React.FC = () => {
 
       {/* Action Buttons */}
       <View style={styles.actionRow}>
-        <TouchableOpacity
-          style={[styles.newDealBtn, { backgroundColor: theme.primary }]}
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+          style={[styles.newDealBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
           onPress={handleOpenNewDealModal}
         >
           <Ionicons name="add-circle" size={20} color="#FFFFFF" />
@@ -529,13 +554,14 @@ export const UsdDealsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
           style={[
             styles.exportDealsBtn,
             {
               backgroundColor: theme.blueSoft,
               borderColor: theme.blue,
             },
+            styles.touchTarget,
           ]}
           onPress={() => {
             const csv = generateDealsCsv(state);
@@ -570,8 +596,8 @@ export const UsdDealsScreen: React.FC = () => {
           ]}
         >
           <Ionicons name="search-outline" size={17} color={theme.textMuted} />
-          <TextInput
-            style={[styles.searchInput, { color: theme.text }]}
+          <TextInput accessibilityLabel="البحث عن صفقة برقمها أو المتعامل" ref={fieldRef('searchQuery')} role="searchbox" editable={!saving}
+            style={[styles.searchInput, { color: theme.text }, styles.touchTarget]}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="بحث برقم الصفقة أو المتعامل..."
@@ -580,7 +606,7 @@ export const UsdDealsScreen: React.FC = () => {
         </View>
 
         <View style={{ flex: 1 }}>
-          <CalmDropdown
+          <CalmDropdown disabled={saving} label="تصفية حالة الصفقة"
             compact
             value={statusFilter}
             options={[
@@ -613,7 +639,7 @@ export const UsdDealsScreen: React.FC = () => {
       </View>
 
       {/* Deals Cards (Clean & Low-Density) */}
-      {filteredDeals.map((deal) => {
+      {<PagedRows items={filteredDeals} label="صفقات الدولار" disabled={saving} resetKey={JSON.stringify([statusFilter, searchQuery])}>{(deal) => {
         const buyAcc = accountMap.get(deal.sourceLydAccountId);
         const isBuyCash = deal.buyPaymentMethod === 'cash';
 
@@ -755,7 +781,7 @@ export const UsdDealsScreen: React.FC = () => {
                   </Text>
                 </View>
 
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`حذف صفقة ${deal.title}`} disabled={saving}
                   style={[
                     styles.deleteDealSmallBtn,
                     {
@@ -764,6 +790,7 @@ export const UsdDealsScreen: React.FC = () => {
                       paddingHorizontal: 8,
                       paddingVertical: 8,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setDealToDelete(deal)}
                 >
@@ -881,7 +908,7 @@ export const UsdDealsScreen: React.FC = () => {
                 >
                   عمليات البيع المسجلة ({deal.sales.length}):
                 </Text>
-                {deal.sales.map((s) => {
+                {<PagedRows items={deal.sales} label="مبيعات الصفقة" disabled={saving} resetKey={deal.id} pageSize={10}>{(s) => {
                   const targetAcc = accountMap.get(s.targetLydAccountId);
                   return (
                     <View
@@ -955,17 +982,18 @@ export const UsdDealsScreen: React.FC = () => {
                       )}
                     </View>
                   );
-                })}
+                }}</PagedRows>}
               </View>
             )}
 
             {/* Action Buttons if Deal still has Remaining USD */}
             {deal.remainingUsd > 0 && (
               <View style={styles.dealActionsRow}>
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.sellActionBtn,
                     { backgroundColor: theme.primary },
+                    styles.touchTarget,
                   ]}
                   onPress={() => handleOpenSaleModal(deal, false)}
                 >
@@ -975,13 +1003,14 @@ export const UsdDealsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.personalTakeBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => handleOpenSaleModal(deal, true)}
                 >
@@ -1003,7 +1032,7 @@ export const UsdDealsScreen: React.FC = () => {
             )}
           </View>
         );
-      })}
+      }}</PagedRows>}
 
       {/* Modal 0: Confirm Delete Deal */}
       <Modal
@@ -1012,7 +1041,8 @@ export const UsdDealsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setDealToDelete(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -1025,42 +1055,46 @@ export const UsdDealsScreen: React.FC = () => {
               },
             ]}
           >
-            <Text style={[styles.modalTitle, { color: theme.danger }]}>
-              إلغاء وحذف الصفقة {dealToDelete?.dealNumber}
-            </Text>
-            <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
-              هل تريد حذف هذه الصفقة واسترجاع كافة أرصدة الحسابات (الدينار والدولار) إلى وضعها قبل الصفقة؟
-            </Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.cancelBtn,
-                  { backgroundColor: theme.cardAlt, borderColor: theme.border },
-                ]}
-                onPress={() => setDealToDelete(null)}
-              >
-                <Text
-                  style={[styles.cancelBtnText, { color: theme.textSecondary }]}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.danger }]}>
+                إلغاء وحذف الصفقة {dealToDelete?.dealNumber}
+              </Text>
+              <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
+                هل تريد حذف هذه الصفقة واسترجاع كافة أرصدة الحسابات (الدينار والدولار) إلى وضعها قبل الصفقة؟
+              </Text>
+              <View style={styles.modalActions}>
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[
+                    styles.cancelBtn,
+                    { backgroundColor: theme.cardAlt, borderColor: theme.border },
+                    styles.touchTarget,
+                  ]}
+                  onPress={() => setDealToDelete(null)}
                 >
-                  تراجع
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: theme.danger }]}
-                onPress={() => {
-                  if (dealToDelete) {
-                    deleteUsdDeal(dealToDelete.id, true);
-                    setDealToDelete(null);
-                  }
-                }}
-              >
-                <Text style={styles.saveBtnText}>
-                  نعم، حذف الصفقة واسترجاع الأرصدة
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={[styles.cancelBtnText, { color: theme.textSecondary }]}
+                  >
+                    تراجع
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.danger }, styles.touchTarget]}
+                  onPress={async () => {
+                    if (dealToDelete) {
+                      if (!await submit(() => deleteUsdDeal(dealToDelete.id, true))) return;
+                      setDealToDelete(null);
+                    }
+                  }}
+                >
+                  <Text style={styles.saveBtnText}>
+                    نعم، حذف الصفقة واسترجاع الأرصدة
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 1: Open New USD Deal */}
@@ -1070,7 +1104,8 @@ export const UsdDealsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setNewDealModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -1082,7 +1117,8 @@ export const UsdDealsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 فتح صفقة شراء دولار جديدة (تحديد طريقة وسعر لحظة الشراء)
               </Text>
               <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
@@ -1096,7 +1132,7 @@ export const UsdDealsScreen: React.FC = () => {
                 أولاً: طريقة الشراء والحساب وسعر لحظة الشراء
               </Text>
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="طريقة الشراء (نقدي كاش أو تحويل مصرفي / صك):"
                 value={buyMethod}
                 options={[
@@ -1133,7 +1169,7 @@ export const UsdDealsScreen: React.FC = () => {
                 }}
               />
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label={
                   buyMode === 'cash'
                     ? 'الحساب النقدي (خزينة الكاش) الذي تم الشراء منه:'
@@ -1152,6 +1188,24 @@ export const UsdDealsScreen: React.FC = () => {
                 onSelect={setSourceLydId}
               />
 
+              <CalmDropdown disabled={saving}
+                label="خزينة الدولار التي تستلم المبلغ:"
+                value={targetUsdId}
+                options={usdAccounts.map((acc) => ({
+                  value: acc.id,
+                  label: acc.name,
+                  subLabel: formatMoney(acc.balance, 'USD'),
+                  icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                  badgeColor: acc.color,
+                }))}
+                onSelect={setTargetUsdId}
+              />
+              {usdAccounts.length === 0 && (
+                <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={{ color: theme.warning, textAlign: 'right' }}>
+                  أنشئ حساب دولار من شاشة الحسابات قبل فتح الصفقة.
+                </Text>
+              )}
+
               {/* Amount and Exact Buy Rate at Purchase Moment */}
               <View style={styles.twoColRow}>
                 <View style={{ flex: 1 }}>
@@ -1160,7 +1214,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     الكمية المشتراة ($ USD)
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="كمية الدولار المشتراة" ref={fieldRef('usdBoughtStr')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1168,6 +1222,7 @@ export const UsdDealsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={usdBoughtStr}
@@ -1183,7 +1238,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     سعر الشراء في لحظة الشراء (د.ل)
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="سعر شراء الدولار بالدينار" ref={fieldRef('buyRateStr')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1191,6 +1246,7 @@ export const UsdDealsScreen: React.FC = () => {
                         borderColor: theme.primary,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={buyRateStr}
@@ -1200,7 +1256,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
 
               {/* Seller Person Selection via Dropdown */}
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="الشخص / المكتب الذي اشتريت منه (اختر من المتعاملين أو اكتب اسماً جديداً):"
                 value={sellerContactId || '__custom__'}
                 options={[
@@ -1237,7 +1293,7 @@ export const UsdDealsScreen: React.FC = () => {
 
               <View style={styles.twoColRow}>
                 <View style={{ flex: 1 }}>
-                  <TextInput
+                  <TextInput accessibilityLabel="اسم بائع الدولار" ref={fieldRef('counterparty')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1245,6 +1301,7 @@ export const UsdDealsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={counterparty}
                     onChangeText={(txt) => {
@@ -1256,7 +1313,7 @@ export const UsdDealsScreen: React.FC = () => {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <TextInput
+                  <TextInput accessibilityLabel="رقم هاتف بائع الدولار" ref={fieldRef('counterpartyPhone')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1264,6 +1321,7 @@ export const UsdDealsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={counterpartyPhone}
                     onChangeText={setCounterpartyPhone}
@@ -1280,7 +1338,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     عمولة الشراء (إن وجدت)
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="عمولة الشراء بالدينار" ref={fieldRef('buyCommStr')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1288,6 +1346,7 @@ export const UsdDealsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={buyCommStr}
@@ -1300,7 +1359,7 @@ export const UsdDealsScreen: React.FC = () => {
                   >
                     وصف مختصر للصفقة
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="عنوان الصفقة" ref={fieldRef('dealTitle')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1308,6 +1367,7 @@ export const UsdDealsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={dealTitle}
                     onChangeText={setDealTitle}
@@ -1364,7 +1424,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
 
               {/* Optional Step 2: Record Sell Moment right now */}
-              <TouchableOpacity
+              <TouchableOpacity aria-checked={includeImmediateSell} accessibilityRole="checkbox" accessibilityState={{ disabled: saving, checked: includeImmediateSell }} accessibilityLabel="إضافة البيع الفوري إلى الصفقة" disabled={saving}
                 style={[
                   styles.immediateSellToggle,
                   {
@@ -1375,6 +1435,7 @@ export const UsdDealsScreen: React.FC = () => {
                       ? theme.blue
                       : theme.border,
                   },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setIncludeImmediateSell(!includeImmediateSell)}
               >
@@ -1409,7 +1470,7 @@ export const UsdDealsScreen: React.FC = () => {
                     ثانياً: بيانات لحظة البيع وسعر البيع
                   </Text>
 
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="طريقة البيع (نقدي كاش أو تحويل مصرفي / صك):"
                     value={immSellMethod}
                     options={[
@@ -1446,7 +1507,7 @@ export const UsdDealsScreen: React.FC = () => {
                     }}
                   />
 
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="الحساب المستلم لحصيلة البيع بالدينار:"
                     value={immSellTargetLydId}
                     options={immSellMatchingAccounts.map((acc) => ({
@@ -1471,7 +1532,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         الكمية المباعة ($)
                       </Text>
-                      <TextInput
+                      <TextInput accessibilityLabel="كمية الدولار في البيع الفوري" ref={fieldRef('immSellUsdStr')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1479,6 +1540,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         keyboardType="numeric"
                         value={immSellUsdStr}
@@ -1494,7 +1556,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         سعر البيع في لحظة البيع (د.ل)
                       </Text>
-                      <TextInput
+                      <TextInput accessibilityLabel="سعر البيع الفوري بالدينار" ref={fieldRef('immSellRateStr')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1502,6 +1564,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.blue,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         keyboardType="numeric"
                         value={immSellRateStr}
@@ -1510,7 +1573,7 @@ export const UsdDealsScreen: React.FC = () => {
                     </View>
                   </View>
 
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="الشخص / المشتري الذي بعت له:"
                     value={immBuyerContactId || '__custom__'}
                     options={[
@@ -1547,7 +1610,7 @@ export const UsdDealsScreen: React.FC = () => {
 
                   <View style={styles.twoColRow}>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput accessibilityLabel="اسم مشتري البيع الفوري" ref={fieldRef('immBuyerName')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1555,6 +1618,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         value={immBuyerName}
                         onChangeText={(t) => {
@@ -1566,7 +1630,7 @@ export const UsdDealsScreen: React.FC = () => {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput accessibilityLabel="رقم هاتف مشتري البيع الفوري" ref={fieldRef('immBuyerPhone')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1574,6 +1638,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         value={immBuyerPhone}
                         onChangeText={setImmBuyerPhone}
@@ -1642,13 +1707,14 @@ export const UsdDealsScreen: React.FC = () => {
               )}
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setNewDealModal(false)}
                 >
@@ -1661,8 +1727,8 @@ export const UsdDealsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleCreateDeal}
                 >
                   <Text style={styles.saveBtnText}>
@@ -1674,7 +1740,7 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 2: Record Sale on Existing Deal */}
@@ -1684,7 +1750,8 @@ export const UsdDealsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setActiveDealForSale(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -1696,7 +1763,8 @@ export const UsdDealsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 {isPersonalTakeMode
                   ? `سحب شخصي من الصفقة ${activeDealForSale?.dealNumber}`
                   : `تسجيل عملية بيع من الصفقة ${activeDealForSale?.dealNumber} (لحظة البيع)`}
@@ -1746,7 +1814,7 @@ export const UsdDealsScreen: React.FC = () => {
                 </Text>
                 <View style={{ flexDirection: 'row-reverse', gap: 6 }}>
                   {[0.25, 0.5, 1].map((pct) => (
-                    <TouchableOpacity
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                       key={pct}
                       style={[
                         styles.portionChip,
@@ -1754,6 +1822,7 @@ export const UsdDealsScreen: React.FC = () => {
                           backgroundColor: theme.blueSoft,
                           borderColor: theme.blue,
                         },
+                        styles.touchTarget,
                       ]}
                       onPress={() => {
                         const rem = activeDealForSale?.remainingUsd || 0;
@@ -1773,7 +1842,7 @@ export const UsdDealsScreen: React.FC = () => {
                 </View>
               </View>
 
-              <TextInput
+              <TextInput accessibilityLabel="كمية الدولار للبيع أو السحب الشخصي" ref={fieldRef('saleUsdStr')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1781,15 +1850,33 @@ export const UsdDealsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 keyboardType="numeric"
                 value={saleUsdStr}
                 onChangeText={setSaleUsdStr}
               />
 
+              {isPersonalTakeMode && (
+                <CalmDropdown disabled={saving}
+                  label="محفظة الدولار الشخصية:"
+                  value={personalUsdAccountId}
+                  options={usdAccounts.map((acc) => ({
+                    value: acc.id,
+                    label: acc.name,
+                    subLabel: acc.id === activeDealForSale?.usdHoldingAccountId
+                      ? 'الاحتفاظ بالدولار في المحفظة الحالية'
+                      : formatMoney(acc.balance, 'USD'),
+                    icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                    badgeColor: acc.color,
+                  }))}
+                  onSelect={setPersonalUsdAccountId}
+                />
+              )}
+
               {!isPersonalTakeMode && (
                 <>
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="طريقة البيع واستلام القيمة في لحظة البيع:"
                     value={saleMethod}
                     options={[
@@ -1826,7 +1913,7 @@ export const UsdDealsScreen: React.FC = () => {
                     }}
                   />
 
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label={
                       saleMode === 'cash'
                         ? 'إيداع النقدية المستلمة في خزينة الكاش:'
@@ -1856,7 +1943,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         سعر البيع في لحظة البيع (د.ل لكل 1$)
                       </Text>
-                      <TextInput
+                      <TextInput accessibilityLabel="سعر بيع الدولار بالدينار" ref={fieldRef('saleRateStr')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1864,6 +1951,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.blue,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         keyboardType="numeric"
                         value={saleRateStr}
@@ -1879,7 +1967,7 @@ export const UsdDealsScreen: React.FC = () => {
                       >
                         عمولة مخصومة (د.ل)
                       </Text>
-                      <TextInput
+                      <TextInput accessibilityLabel="عمولة البيع بالدينار" ref={fieldRef('saleCommStr')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1887,6 +1975,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         keyboardType="numeric"
                         value={saleCommStr}
@@ -1896,7 +1985,7 @@ export const UsdDealsScreen: React.FC = () => {
                   </View>
 
                   {/* Buyer Person Selection via Dropdown */}
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="الشخص / الجهة التي بعت لها (اختر من المتعاملين أو أضف جديداً):"
                     value={buyerContactId || '__custom__'}
                     options={[
@@ -1933,7 +2022,7 @@ export const UsdDealsScreen: React.FC = () => {
 
                   <View style={styles.twoColRow}>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput accessibilityLabel="اسم مشتري الدولار" ref={fieldRef('buyerName')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1941,6 +2030,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         value={buyerName}
                         onChangeText={(t) => {
@@ -1952,7 +2042,7 @@ export const UsdDealsScreen: React.FC = () => {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <TextInput
+                      <TextInput accessibilityLabel="رقم هاتف مشتري الدولار" ref={fieldRef('buyerPhone')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -1960,6 +2050,7 @@ export const UsdDealsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         value={buyerPhone}
                         onChangeText={setBuyerPhone}
@@ -2061,13 +2152,14 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setActiveDealForSale(null)}
                 >
@@ -2080,8 +2172,8 @@ export const UsdDealsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleConfirmSale}
                 >
                   <Text style={styles.saveBtnText}>
@@ -2093,13 +2185,14 @@ export const UsdDealsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  touchTarget: { minHeight: 48, minWidth: 48 },
   container: {
     flex: 1,
   },
@@ -2415,6 +2508,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    minHeight: 48,
+    minWidth: 48,
   },
   sellActionBtnText: {
     color: '#FFFFFF',
@@ -2430,6 +2525,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
   },
   personalTakeBtnText: {
     fontSize: 12,
@@ -2446,6 +2543,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: 580,
     width: '100%',
+    maxHeight: '90%',
     alignSelf: 'center',
   },
   modalTitle: {
@@ -2472,7 +2570,10 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
+    minHeight: 48,
+    minWidth: 48,
   },
   modeBigBtnTitle: {
     fontSize: 13,
@@ -2507,6 +2608,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
   },
   choiceBtnText: {
     fontSize: 12,
@@ -2522,6 +2626,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chipText: {
     fontSize: 12,
@@ -2570,6 +2677,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   portionChipText: {
     fontSize: 11,
@@ -2605,6 +2716,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cancelBtnText: {
     fontSize: 13,
@@ -2614,6 +2729,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',

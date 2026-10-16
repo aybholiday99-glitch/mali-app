@@ -1,3 +1,5 @@
+import { PagedRows } from '../components/PagedRows';
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
 import React, { useState } from 'react';
 import {
   View,
@@ -8,19 +10,21 @@ import {
   TextInput,
   Modal,
   Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import { ContactPerson, ContactRole } from '../types/mali';
 import { CalmDropdown } from '../components/CalmDropdown';
-import { ReceiptInlineStrip } from '../components/ReceiptImageAttachment';
+import { UnifiedContactProfileModal } from '../components/UnifiedContactProfileModal';
 import {
   exportFileOrShare,
   formatMoney,
-  formatRate,
   generateContactStatementCsv,
-  getPaymentMethodLabel,
+  matchesContact,
 } from '../utils/exportHelper';
+import { useResponsiveLayout, MIN_TOUCH_TARGET } from '../theme/responsive';
 
 const CONTACT_ROLES: ContactRole[] = [
   'مكتب صرافة',
@@ -31,15 +35,15 @@ const CONTACT_ROLES: ContactRole[] = [
 ];
 
 export const ContactsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
   const {
     state,
     theme,
     addContact,
     updateContact,
     deleteContact,
-    updateDealBuyReceipts,
-    updateDealSaleReceipts,
   } = useMali();
+
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -60,18 +64,16 @@ export const ContactsScreen: React.FC = () => {
     null
   );
 
-  const accountMap = new Map(state.accounts.map((a) => [a.id, a]));
+  const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
+    setModalVisible(false); setEditingContact(null); setSelectedPerson(null);
+    setNameInput(''); setPhoneInput(''); setBankInput(''); setNotesInput(''); setSearchQuery('');
+  });
 
   // Helper to get all activity for a given contact
   const getPersonActivity = (person: ContactPerson) => {
-    const matchName = (n?: string) =>
-      Boolean(
-        n && n.trim().toLowerCase() === person.name.trim().toLowerCase()
-      );
-
     // 1. Deals bought from this person
     const boughtDeals = state.deals.filter(
-      (d) => d.contactId === person.id || matchName(d.counterparty)
+      (d) => matchesContact(person, d.contactId, d.counterparty)
     );
 
     // 2. Sales sold to this person (across all deals)
@@ -82,7 +84,7 @@ export const ContactsScreen: React.FC = () => {
 
     state.deals.forEach((deal) => {
       deal.sales.forEach((sale) => {
-        if (sale.contactId === person.id || matchName(sale.buyerName)) {
+        if (matchesContact(person, sale.contactId, sale.buyerName)) {
           soldEntries.push({ deal, sale });
         }
       });
@@ -90,7 +92,7 @@ export const ContactsScreen: React.FC = () => {
 
     // 3. Debts with this person
     const personDebts = state.debts.filter(
-      (db) => db.contactId === person.id || matchName(db.personName)
+      (db) => matchesContact(person, db.contactId, db.personName)
     );
 
     const totalBoughtUsd = boughtDeals.reduce(
@@ -201,24 +203,24 @@ export const ContactsScreen: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleSaveContact = () => {
-    if (!nameInput.trim()) return;
+  const handleSaveContact = async () => {
+    if (!nameInput.trim()) return reject('أدخل اسم المتعامل ثم أعد الحفظ.', 'nameInput');
     if (editingContact) {
-      updateContact(editingContact.id, {
+      if (!await submit(() => updateContact(editingContact.id, {
         name: nameInput.trim(),
         phone: phoneInput.trim(),
         role: roleInput,
         bankDetails: bankInput.trim() || undefined,
         notes: notesInput.trim() || undefined,
-      });
+      }))) return;
     } else {
-      addContact({
+      if (!await submit(() => addContact({
         name: nameInput.trim(),
         phone: phoneInput.trim(),
         role: roleInput,
         bankDetails: bankInput.trim() || undefined,
         notes: notesInput.trim() || undefined,
-      });
+      }))) return;
     }
     setModalVisible(false);
   };
@@ -246,15 +248,12 @@ export const ContactsScreen: React.FC = () => {
   );
   const totalUsdSoldAll = state.deals.reduce((s, d) => s + d.soldUsd, 0);
 
-  const selectedPersonStats = selectedPerson
-    ? getPersonActivity(selectedPerson)
-    : null;
-
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice error={submissionError} />
       {/* Compact Top Summary Strip */}
       <View
         style={[
@@ -304,17 +303,17 @@ export const ContactsScreen: React.FC = () => {
       </View>
 
       {/* Search, Filter Dropdown & Add Person Row */}
-      <View style={styles.searchAndAddRow}>
-        <TouchableOpacity
-          style={[styles.addPersonBtn, { backgroundColor: theme.primary }]}
+      <View style={[styles.searchAndAddRow, isSmallPhone && { flexWrap: 'wrap' }]}>
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+          style={[styles.addPersonBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
           onPress={handleOpenAddModal}
         >
           <Ionicons name="person-add" size={16} color="#FFFFFF" />
           <Text style={styles.addPersonBtnText}>+ إضافة شخص</Text>
         </TouchableOpacity>
 
-        <View style={{ width: 145 }}>
-          <CalmDropdown
+        <View style={{ width: isSmallPhone ? '100%' : 145 }}>
+          <CalmDropdown disabled={saving} label="تصفية تصنيف المتعامل"
             compact
             value={roleFilter}
             options={[
@@ -342,8 +341,8 @@ export const ContactsScreen: React.FC = () => {
           ]}
         >
           <Ionicons name="search-outline" size={16} color={theme.textMuted} />
-          <TextInput
-            style={[styles.searchInput, { color: theme.text }]}
+          <TextInput accessibilityLabel="البحث عن متعامل بالاسم أو الهاتف" ref={fieldRef('searchQuery')} role="searchbox" editable={!saving}
+            style={[styles.searchInput, { color: theme.text }, styles.touchTarget]}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="بحث بالاسم أو الهاتف..."
@@ -353,7 +352,7 @@ export const ContactsScreen: React.FC = () => {
       </View>
 
       {/* Contacts Cards List */}
-      {filteredContacts.map((person) => {
+      {<PagedRows items={filteredContacts} label="المتعاملون" disabled={saving} resetKey={JSON.stringify([roleFilter, searchQuery])}>{(person) => {
         const stats = getPersonActivity(person);
 
         return (
@@ -430,25 +429,27 @@ export const ContactsScreen: React.FC = () => {
               <View style={styles.quickContactActions}>
                 {person.phone ? (
                   <>
-                    <TouchableOpacity
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`الاتصال بـ ${person.name}`} disabled={saving}
                       style={[
                         styles.iconCircleBtn,
                         {
                           backgroundColor: theme.primarySoft,
                           borderColor: theme.primary,
                         },
+                        styles.touchTarget,
                       ]}
                       onPress={() => handleCallPhone(person.phone)}
                     >
                       <Ionicons name="call" size={15} color={theme.primary} />
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`مراسلة ${person.name} عبر واتساب`} disabled={saving}
                       style={[
                         styles.iconCircleBtn,
                         {
                           backgroundColor: theme.successSoft,
                           borderColor: theme.success,
                         },
+                        styles.touchTarget,
                       ]}
                       onPress={() => handleWhatsApp(person.phone)}
                     >
@@ -460,13 +461,14 @@ export const ContactsScreen: React.FC = () => {
                     </TouchableOpacity>
                   </>
                 ) : null}
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`تعديل بيانات ${person.name}`} disabled={saving}
                   style={[
                     styles.iconCircleBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => handleOpenEditModal(person)}
                 >
@@ -595,10 +597,11 @@ export const ContactsScreen: React.FC = () => {
 
             {/* Footer: View Full Ledger & Export */}
             <View style={styles.cardFooter}>
-              <TouchableOpacity
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.ledgerBtn,
                   { backgroundColor: theme.primarySoft, borderWidth: 1, borderColor: theme.primary },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setSelectedPerson(person)}
               >
@@ -612,13 +615,14 @@ export const ContactsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.excelBtn,
                   {
                     backgroundColor: theme.cardAlt,
                     borderColor: theme.border,
                   },
+                  styles.touchTarget,
                 ]}
                 onPress={() => {
                   const csv = generateContactStatementCsv(state, person);
@@ -639,372 +643,14 @@ export const ContactsScreen: React.FC = () => {
             </View>
           </View>
         );
-      })}
+      }}</PagedRows>}
 
-      {/* Modal 1: Full Transaction History with Selected Person */}
-      <Modal
+      {/* Modal 1: Unified Financial Profile for Selected Person */}
+      <UnifiedContactProfileModal
         visible={Boolean(selectedPerson)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedPerson(null)}
-      >
-        <View
-          style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
-        >
-          <View
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                maxHeight: '90%',
-              },
-            ]}
-          >
-            <View style={styles.modalHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
-                  سجل المعاملات مع: {selectedPerson?.name}
-                </Text>
-                <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
-                  رقم الهاتف: {selectedPerson?.phone || 'غير مسجل'} •{' '}
-                  {selectedPerson?.role}
-                  {selectedPerson?.bankDetails
-                    ? ` • ${selectedPerson.bankDetails}`
-                    : ''}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[
-                  styles.closeIconBtn,
-                  { backgroundColor: theme.cardAlt },
-                ]}
-                onPress={() => setSelectedPerson(null)}
-              >
-                <Ionicons name="close" size={20} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{ marginTop: 8 }}>
-              {/* 1. Deals Bought from this Person */}
-              <Text
-                style={[styles.ledgerSectionTitle, { color: theme.primary }]}
-              >
-                1. عمليات شراء الدولار التي اشتريتها منه (
-                {selectedPersonStats?.boughtDeals.length || 0}):
-              </Text>
-              {selectedPersonStats?.boughtDeals.length === 0 ? (
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  لا توجد صفقات شراء مسجلة من هذا الشخص بعد.
-                </Text>
-              ) : (
-                selectedPersonStats?.boughtDeals.map((d) => {
-                  const buyAcc = accountMap.get(d.sourceLydAccountId);
-                  return (
-                    <View
-                      key={d.id}
-                      style={[
-                        styles.historyItemCard,
-                        {
-                          backgroundColor: theme.cardAlt,
-                          borderColor: theme.border,
-                        },
-                      ]}
-                    >
-                      <View style={styles.historyTopRow}>
-                        <Text
-                          style={[
-                            styles.historyMainTitle,
-                            { color: theme.text },
-                          ]}
-                        >
-                          شراء {formatMoney(d.totalUsdBought, 'USD')} (صفقة{' '}
-                          {d.dealNumber})
-                        </Text>
-                        <Text
-                          style={[
-                            styles.historyDate,
-                            { color: theme.textMuted },
-                          ]}
-                        >
-                          {d.buyDate}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • سعر الشراء لحظة الشراء:{' '}
-                        <Text
-                          style={{ color: theme.primary, fontWeight: 'bold' }}
-                        >
-                          {formatRate(d.buyRate)}
-                        </Text>{' '}
-                        | الإجمالي المدفوع له:{' '}
-                        <Text
-                          style={{ color: theme.text, fontWeight: 'bold' }}
-                        >
-                          {formatMoney(d.totalLydCost, 'LYD')}
-                        </Text>
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • طريقة الدفع:{' '}
-                        <Text
-                          style={{ color: theme.blue, fontWeight: 'bold' }}
-                        >
-                          {getPaymentMethodLabel(d.buyPaymentMethod)}
-                        </Text>{' '}
-                        من حساب: {buyAcc?.name || ''}
-                      </Text>
-
-                      <ReceiptInlineStrip
-                        images={d.buyReceiptImages}
-                        title={`صور حوالة الشراء - الصفقة ${d.dealNumber}`}
-                        compactLabel="حوالة الشراء"
-                        accentColor={theme.primary}
-                        onUpdateImages={(imgs) =>
-                          updateDealBuyReceipts(d.id, imgs)
-                        }
-                      />
-                    </View>
-                  );
-                })
-              )}
-
-              {/* 2. Sales Sold to this Person */}
-              <Text style={[styles.ledgerSectionTitle, { color: theme.blue }]}>
-                2. عمليات بيع الدولار التي بعتها له (
-                {selectedPersonStats?.soldEntries.length || 0}):
-              </Text>
-              {selectedPersonStats?.soldEntries.length === 0 ? (
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  لا توجد عمليات بيع مسجلة لهذا الشخص بعد.
-                </Text>
-              ) : (
-                selectedPersonStats?.soldEntries.map(({ deal, sale }) => {
-                  const recAcc = accountMap.get(sale.targetLydAccountId);
-                  return (
-                    <View
-                      key={sale.id}
-                      style={[
-                        styles.historyItemCard,
-                        {
-                          backgroundColor: theme.cardAlt,
-                          borderColor: theme.border,
-                        },
-                      ]}
-                    >
-                      <View style={styles.historyTopRow}>
-                        <Text
-                          style={[
-                            styles.historyMainTitle,
-                            { color: theme.text },
-                          ]}
-                        >
-                          بيع {formatMoney(sale.usdAmount, 'USD')} (من الصفقة{' '}
-                          {deal.dealNumber})
-                        </Text>
-                        <Text
-                          style={[
-                            styles.historyDate,
-                            { color: theme.textMuted },
-                          ]}
-                        >
-                          {sale.date}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • سعر البيع لحظة البيع:{' '}
-                        <Text
-                          style={{ color: theme.blue, fontWeight: 'bold' }}
-                        >
-                          {formatRate(sale.sellRate)}
-                        </Text>{' '}
-                        (كان سعر شرائها: {formatRate(deal.buyRate)})
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • الصافي المستلم منه:{' '}
-                        <Text
-                          style={{ color: theme.text, fontWeight: 'bold' }}
-                        >
-                          {formatMoney(sale.netLydReceived, 'LYD')}
-                        </Text>{' '}
-                        | طريقة الاستلام:{' '}
-                        <Text
-                          style={{ color: theme.warning, fontWeight: 'bold' }}
-                        >
-                          {getPaymentMethodLabel(sale.paymentMethod)}
-                        </Text>{' '}
-                        في حساب: {recAcc?.name || ''}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • صافي الربح المحقق من هذه البيعة:{' '}
-                        <Text
-                          style={{
-                            color:
-                              sale.profitLyd >= 0
-                                ? theme.success
-                                : theme.danger,
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {sale.profitLyd >= 0 ? '+' : ''}
-                          {formatMoney(sale.profitLyd, 'LYD')}
-                        </Text>
-                      </Text>
-
-                      <ReceiptInlineStrip
-                        images={sale.receiptImages}
-                        title={`صور حوالة البيع - الصفقة ${deal.dealNumber}`}
-                        compactLabel="حوالة البيع"
-                        accentColor={theme.blue}
-                        onUpdateImages={(imgs) =>
-                          updateDealSaleReceipts(deal.id, sale.id, imgs)
-                        }
-                      />
-                    </View>
-                  );
-                })
-              )}
-
-              {/* 3. Debts & Trusts with this Person */}
-              <Text
-                style={[styles.ledgerSectionTitle, { color: theme.warning }]}
-              >
-                3. الديون والأمانات والدفعات المسجلة معه (
-                {selectedPersonStats?.personDebts.length || 0}):
-              </Text>
-              {selectedPersonStats?.personDebts.length === 0 ? (
-                <Text style={[styles.emptyText, { color: theme.textMuted }]}>
-                  لا توجد ديون أو أمانات مسجلة مع هذا الشخص.
-                </Text>
-              ) : (
-                selectedPersonStats?.personDebts.map((db) => (
-                  <View
-                    key={db.id}
-                    style={[
-                      styles.historyItemCard,
-                      {
-                        backgroundColor: theme.cardAlt,
-                        borderColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <View style={styles.historyTopRow}>
-                      <Text
-                        style={[
-                          styles.historyMainTitle,
-                          { color: theme.text },
-                        ]}
-                      >
-                        {db.direction === 'receivable'
-                          ? 'دين لي عنده'
-                          : 'دين / أمانة له عندي'}{' '}
-                        بقيمة {formatMoney(db.totalAmount, db.currency)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.historyDate,
-                          { color: theme.textMuted },
-                        ]}
-                      >
-                        {db.createdAt}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.historyDetail,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      • المسدد: {formatMoney(db.paidAmount, db.currency)} |
-                      المتبقي:{' '}
-                      <Text
-                        style={{ color: theme.warning, fontWeight: 'bold' }}
-                      >
-                        {formatMoney(db.remainingAmount, db.currency)}
-                      </Text>
-                    </Text>
-                    {db.notes ? (
-                      <Text
-                        style={[
-                          styles.historyDetail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        • {db.notes}
-                      </Text>
-                    ) : null}
-                  </View>
-                ))
-              )}
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.cancelBtn,
-                  {
-                    backgroundColor: theme.cardAlt,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => setSelectedPerson(null)}
-              >
-                <Text
-                  style={[
-                    styles.cancelBtnText,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  إغلاق
-                </Text>
-              </TouchableOpacity>
-              {selectedPerson && (
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                  onPress={() => {
-                    const csv = generateContactStatementCsv(
-                      state,
-                      selectedPerson
-                    );
-                    exportFileOrShare(
-                      `كشف_معاملات_${selectedPerson.name}.csv`,
-                      csv
-                    );
-                  }}
-                >
-                  <Text style={styles.saveBtnText}>
-                    تصدير كشف معاملات هذا الشخص (Excel)
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </View>
-      </Modal>
+        contact={selectedPerson}
+        onClose={() => setSelectedPerson(null)}
+      />
 
       {/* Modal 2: Add / Edit Person */}
       <Modal
@@ -1013,11 +659,13 @@ export const ContactsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setModalVisible(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
             contentContainerStyle={{ justifyContent: 'center', flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
           >
             <View
               style={[
@@ -1025,7 +673,8 @@ export const ContactsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 {editingContact
                   ? `تعديل بيانات: ${editingContact.name}`
                   : 'إضافة شخص أو مكتب صرافة جديد'}
@@ -1034,7 +683,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 الاسم الكامل / اسم المكتب أو الشركة
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="اسم المتعامل" ref={fieldRef('nameInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1042,6 +691,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={nameInput}
                 onChangeText={setNameInput}
@@ -1052,7 +702,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 رقم الهاتف (للاتصال والواتساب)
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="رقم هاتف المتعامل" ref={fieldRef('phoneInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1060,6 +710,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 keyboardType="phone-pad"
                 value={phoneInput}
@@ -1068,7 +719,7 @@ export const ContactsScreen: React.FC = () => {
                 placeholderTextColor={theme.textMuted}
               />
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="تصنيف المتعامل:"
                 value={roleInput}
                 options={CONTACT_ROLES.map((r) => ({
@@ -1083,7 +734,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 المصرف المعتاد / رقم حسابه أو طريقة التعامل
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="بيانات مصرف المتعامل" ref={fieldRef('bankInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1091,6 +742,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={bankInput}
                 onChangeText={setBankInput}
@@ -1101,7 +753,7 @@ export const ContactsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات إضافية
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="ملاحظات المتعامل" ref={fieldRef('notesInput')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1109,6 +761,7 @@ export const ContactsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={notesInput}
                 onChangeText={setNotesInput}
@@ -1117,13 +770,14 @@ export const ContactsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setModalVisible(false)}
                 >
@@ -1137,16 +791,17 @@ export const ContactsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
                 {editingContact && (
-                  <TouchableOpacity
+                  <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                     style={[
                       styles.cancelBtn,
                       {
                         backgroundColor: theme.dangerSoft,
                         borderColor: theme.danger,
                       },
+                      styles.touchTarget,
                     ]}
-                    onPress={() => {
-                      deleteContact(editingContact.id);
+                    onPress={async () => {
+                      if (!await submit(() => deleteContact(editingContact.id))) return;
                       setModalVisible(false);
                     }}
                   >
@@ -1157,8 +812,8 @@ export const ContactsScreen: React.FC = () => {
                     </Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleSaveContact}
                 >
                   <Text style={styles.saveBtnText}>حفظ بيانات الشخص</Text>
@@ -1166,13 +821,14 @@ export const ContactsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  touchTarget: { minHeight: 48, minWidth: 48 },
   container: {
     flex: 1,
   },
@@ -1227,6 +883,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1247,6 +904,8 @@ const styles = StyleSheet.create({
   rolePill: {
     paddingHorizontal: 12,
     paddingVertical: 7,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 10,
     borderWidth: 1,
   },
@@ -1319,9 +978,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   iconCircleBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -1377,6 +1036,7 @@ const styles = StyleSheet.create({
     flex: 2,
     borderRadius: 10,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1391,6 +1051,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1411,6 +1072,7 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     maxWidth: 560,
+    maxHeight: '90%',
     width: '100%',
     alignSelf: 'center',
   },
@@ -1420,9 +1082,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   closeIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1494,6 +1156,8 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
   },
@@ -1509,6 +1173,10 @@ const styles = StyleSheet.create({
   cancelBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
     borderWidth: 1,
   },
@@ -1519,6 +1187,10 @@ const styles = StyleSheet.create({
   saveBtn: {
     paddingVertical: 10,
     paddingHorizontal: 18,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
   },
   saveBtnText: {

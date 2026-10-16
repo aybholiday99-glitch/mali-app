@@ -6,9 +6,11 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
+import { PagedRows } from './PagedRows';
 
 export interface DropdownOption {
   value: string;
@@ -25,6 +27,7 @@ interface CalmDropdownProps {
   onSelect: (value: string) => void;
   placeholder?: string;
   compact?: boolean;
+  disabled?: boolean;
 }
 
 export const CalmDropdown: React.FC<CalmDropdownProps> = ({
@@ -34,11 +37,17 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
   onSelect,
   placeholder = 'اختر من القائمة...',
   compact = false,
+  disabled = false,
 }) => {
   const { theme } = useMali();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   const selectedOption = options.find((o) => o.value === value);
+  const query = search.trim().toLowerCase();
+  const filteredOptions = query
+    ? options.filter(option => `${option.label} ${option.subLabel || ''}`.toLowerCase().includes(query))
+    : options;
 
   return (
     <View style={compact ? styles.compactWrapper : styles.wrapper}>
@@ -49,6 +58,12 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
       ) : null}
 
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${label || placeholder}: ${selectedOption?.label || placeholder}`}
+        accessibilityState={{ expanded: open, disabled }}
+        aria-expanded={open}
+        aria-disabled={disabled}
+        disabled={disabled}
         activeOpacity={0.8}
         style={[
           styles.trigger,
@@ -58,7 +73,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
             borderColor: open ? theme.primary : theme.border,
           },
         ]}
-        onPress={() => setOpen(true)}
+        onPress={() => { if (!disabled) { setSearch(''); setOpen(true); } }}
       >
         <View style={styles.triggerRight}>
           {selectedOption?.icon ? (
@@ -119,18 +134,21 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
         </View>
       </TouchableOpacity>
 
-      <Modal
+      {open && <Modal
         visible={open}
         transparent
         animationType="fade"
         onRequestClose={() => setOpen(false)}
       >
         <TouchableOpacity
+          accessible={false}
+          focusable={false}
           activeOpacity={1}
           style={[styles.backdrop, { backgroundColor: theme.overlay }]}
           onPress={() => setOpen(false)}
         >
           <View
+            accessibilityViewIsModal
             style={[
               styles.menuCard,
               { backgroundColor: theme.card, borderColor: theme.border },
@@ -142,10 +160,12 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
                 { borderBottomColor: theme.border },
               ]}
             >
-              <Text style={[styles.menuTitle, { color: theme.text }]}>
+              <Text accessibilityRole="header" style={[styles.menuTitle, { color: theme.text }]}>
                 {label || placeholder}
               </Text>
               <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`إغلاق قائمة ${label || placeholder}`}
                 style={[styles.closeBtn, { backgroundColor: theme.cardAlt }]}
                 onPress={() => setOpen(false)}
               >
@@ -153,11 +173,24 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.optionsList}>
-              {options.map((opt) => {
+            {(options.length > 20 || search) && <TextInput role="searchbox"
+              accessibilityLabel={`البحث في ${label || placeholder}`} placeholder="البحث في الخيارات"
+              placeholderTextColor={theme.textMuted} value={search} onChangeText={setSearch} editable={!disabled}
+              style={[styles.searchInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]} />}
+            <ScrollView accessibilityRole="radiogroup" accessibilityLabel={label || placeholder} style={styles.optionsList}>
+              {filteredOptions.length === 0 && <Text accessibilityLiveRegion="polite"
+                style={{ color: theme.textSecondary, textAlign: 'right', padding: 12 }}>لا توجد خيارات مطابقة.</Text>}
+              <PagedRows items={filteredOptions} label={label || placeholder} resetKey={search} disabled={disabled}>
+              {(opt) => {
                 const isSelected = opt.value === value;
                 return (
                   <TouchableOpacity
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${opt.label}${opt.subLabel ? `، ${opt.subLabel}` : ''}`}
+                    accessibilityState={{ selected: isSelected, checked: isSelected, disabled }}
+                    aria-checked={isSelected}
+                    aria-disabled={disabled}
+                    disabled={disabled}
                     key={opt.value}
                     style={[
                       styles.optionItem,
@@ -165,6 +198,7 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
                       isSelected && { backgroundColor: theme.primarySoft },
                     ]}
                     onPress={() => {
+                      if (disabled) return;
                       onSelect(opt.value);
                       setOpen(false);
                     }}
@@ -232,11 +266,12 @@ export const CalmDropdown: React.FC<CalmDropdownProps> = ({
                     )}
                   </TouchableOpacity>
                 );
-              })}
+              }}
+              </PagedRows>
             </ScrollView>
           </View>
         </TouchableOpacity>
-      </Modal>
+      </Modal>}
     </View>
   );
 };
@@ -256,6 +291,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   trigger: {
+    minHeight: 48,
+    minWidth: 48,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -330,9 +367,9 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -340,7 +377,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
+  searchInput: { minHeight: 48, minWidth: 48, margin: 12, paddingHorizontal: 12,
+    borderWidth: 1, borderRadius: 10, textAlign: 'right' },
   optionItem: {
+    minHeight: 48,
+    minWidth: 48,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',

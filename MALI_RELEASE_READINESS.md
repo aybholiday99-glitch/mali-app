@@ -1,3 +1,5 @@
+> **Superseded on 2026-10-12:** production readiness has been withdrawn. See CODEX_RELEASE_GATE.md and CODEX_FINDINGS.md for current verified state and blockers. This document is retained as historical evidence only.
+
 # تقرير جاهزية الإطلاق والتشغيل المالي — تطبيق مالي (Mali App Release Readiness)
 
 - **تاريخ التقييم**: 2026-10-12

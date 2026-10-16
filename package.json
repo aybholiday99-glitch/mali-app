@@ -5,16 +5,41 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@supabase/supabase-js": "^2.117.3",
-    "expo": "~57.0.27",
+    "@supabase/supabase-js": "2.117.3",
+    "expo": "57.0.30",
+    "expo-auth-session": "57.0.16",
+    "expo-constants": "57.0.22",
+    "expo-crypto": "~57.0.4",
+    "expo-file-system": "~57.0.7",
+    "expo-image-manipulator": "~57.0.21",
+    "expo-image-picker": "~57.0.20",
+    "expo-linking": "57.0.13",
+    "expo-print": "~57.0.2",
+    "expo-router": "57.0.28",
+    "expo-secure-store": "~57.0.4",
+    "expo-sharing": "~57.0.23",
     "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "expo-web-browser": "~57.0.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-web": "^0.21.2"
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.9",
     "@types/react": "~19.2.2",
+    "decode-uri-component": "file:vendor/decode-uri-component-0.5.0.tgz",
+    "eslint": "9.39.5",
+    "eslint-config-expo": "57.0.2",
+    "micromatch": "file:vendor/mali-metro-glob-matcher-1.0.0.tgz",
+    "node-forge": "file:vendor/node-forge-1.4.0.tgz",
+    "pg": "8.16.3",
+    "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -23,10 +48,25 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node tests/financialEngine.test.mjs",
-    "test:rls": "node tests/supabaseRlsAndSync.test.mjs",
-    "test:sync": "node tests/syncAndBackup.test.mjs",
-    "test": "node tests/financialEngine.test.mjs && node tests/supabaseRlsAndSync.test.mjs && node tests/syncAndBackup.test.mjs"
+    "test:unit": "node --test tests/financialEngine.test.mjs tests/financialEngine.regression.test.mjs",
+    "test:rls": "node --test tests/database.test.mjs",
+    "test:sync": "node --test tests/supabaseSyncCore.test.mjs",
+    "test": "node --test --test-concurrency=4 tests/*.test.mjs",
+    "lint": "eslint .",
+    "build:web": "expo export --platform web && node scripts/finalizeWebCandidate.mjs",
+    "test:browser": "node scripts/acceptWebBrowser.mjs",
+    "test:security": "node --test tests/testEnvironment.test.mjs tests/sessionScope.test.mjs tests/database.test.mjs tests/exports.test.mjs tests/dependencyOverrides.test.mjs",
+    "test:integration": "node --test tests/database.test.mjs tests/authIntegration.test.mjs tests/providerIntegration.test.mjs",
+    "test:dependencies": "node --test tests/dependencyOverrides.test.mjs"
+  },
+  "overrides": {
+    "decode-uri-component": "$decode-uri-component",
+    "xcode": {
+      "uuid": "11.1.1"
+    },
+    "node-forge": "$node-forge",
+    "micromatch": "$micromatch",
+    "@expo/cli": "57.0.30"
   },
   "private": true
 }

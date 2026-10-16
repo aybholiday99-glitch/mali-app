@@ -1,0 +1,19 @@
+{
+  "name": "decode-uri-component",
+  "version": "0.5.0",
+  "description": "Official 0.5.0 security-fixed decoder with module-format-only CJS compatibility for Expo Router 57 query-string 7",
+  "license": "MIT",
+  "repository": "SamVerschueren/decode-uri-component",
+  "sideEffects": false,
+  "main": "index.js",
+  "types": "index.d.ts",
+  "type": "commonjs",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "license"
+  ],
+  "engines": {
+    "node": ">=14.16"
+  }
+}

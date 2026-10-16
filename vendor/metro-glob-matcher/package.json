@@ -1,0 +1,9 @@
+{
+  "name": "@mali/metro-glob-matcher",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Metro's micromatch.some contract backed by maintained picomatch without brace AST walkers",
+  "main": "index.cjs",
+  "license": "MIT",
+  "dependencies": { "picomatch": "4.0.7" }
+}

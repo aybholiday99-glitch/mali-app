@@ -1,39 +1,92 @@
-name: Mali App Security, Financial & Build CI
-
+name: Mali isolated verification
 on:
   push:
-    branches: [main, 'security/**']
+    branches: [main, 'codex/**', 'security/**']
   pull_request:
     branches: [main]
-
+permissions:
+  contents: read
 jobs:
   verify:
-    name: Typecheck, Financial Engine, RLS & Web Build
+    name: Types, lint, regression and web build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: Run TypeScript static analysis
-        run: npm run typecheck
-
-      - name: Run Financial Engine & Edge-Case Unit Tests
-        run: npm run test:unit
-
-      - name: Run Supabase RLS & Multi-User Isolation Tests
-        run: npm run test:rls
-
-      - name: Run Sync, Conflict Resolution & Backup Integrity Tests
-        run: npm run test:sync
-
-      - name: Verify Production Web Export Build
-        run: npx expo export --platform web
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npx --no-install expo install --check
+      - run: npm run build:web
+      - name: Real Chrome UI and IndexedDB persistence acceptance
+        run: npm run test:browser
+        timeout-minutes: 8
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-web-candidate
+          path: dist/
+  postgres:
+    name: PostgreSQL 17 RLS and atomic recovery
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: mali_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-disposable-test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/database.test.mjs
+        env:
+          MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+      - run: node --test tests/financialSqlValidation.test.mjs
+        env:
+          MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+      - run: node --test tests/financialAuditSql.test.mjs
+        env:
+          MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+      - name: Independent PostgreSQL 17 dump and restore rehearsal
+        run: node scripts/rehearseDatabaseRestore.mjs
+        env:
+          MALI_TEST_DB_URL: postgres://postgres:local-disposable-test@127.0.0.1:5432/mali_test
+          MALI_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
+  supply-chain:
+    name: Dependency security gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - name: Verify local backports and actual dependency consumers
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/verifyDependencyOverrides.mjs
+          npm run test:dependencies
+  sast:
+    name: Source and secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install '--only-binary=:all:' semgrep==1.178.0
+      - run: semgrep scan --config p/typescript --config p/secrets --error src App.tsx

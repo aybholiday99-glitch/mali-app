@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,34 +6,29 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Modal,
   ActivityIndicator,
-  Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MIN_TOUCH_TARGET } from '../theme/responsive';
 import { AuthUser, SupabaseConfig } from '../types/mali';
 import { useMali } from '../context/MaliContext';
 import {
-  consumeOAuthRedirectIfPresent,
-  getSupabaseOAuthRedirectUrl,
   launchSocialOAuthWindow,
   resetUserPasswordLocal,
   signInWithEmail,
-  signInWithSocialProvider,
   signUpWithEmail,
-  startOfflineGuestSession,
 } from '../services/authService';
 
 interface AuthScreenProps {
   supabaseConfig: SupabaseConfig;
   onAuthenticated: (user: AuthUser) => void;
-  onOpenCloudConfig: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   supabaseConfig,
   onAuthenticated,
-  onOpenCloudConfig,
 }) => {
   const { theme, isDarkMode, toggleTheme } = useMali();
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
@@ -48,21 +43,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const [socialModalProvider, setSocialModalProvider] = useState<
-    'google' | 'facebook' | null
-  >(null);
-  const [showCustomSocialForm, setShowCustomSocialForm] = useState(false);
-  const [socialName, setSocialName] = useState('');
-  const [socialEmail, setSocialEmail] = useState('');
-
-  useEffect(() => {
-    consumeOAuthRedirectIfPresent(supabaseConfig).then((oauthUser) => {
-      if (oauthUser) {
-        onAuthenticated(oauthUser);
-      }
-    });
-  }, []);
 
   const handleEmailAuth = async () => {
     setErrorMessage(null);
@@ -140,57 +120,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const handleQuickSelectSocialAccount = async (
-    chosenProvider: 'google' | 'facebook',
-    chosenAccount: { name: string; email: string }
-  ) => {
-    setLoading(true);
-    try {
-      const res = await signInWithSocialProvider(
-        chosenProvider,
-        chosenAccount,
-        supabaseConfig
-      );
-      if (res.success && res.user) {
-        setSocialModalProvider(null);
-        onAuthenticated(res.user);
-      } else {
-        setErrorMessage(res.message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmSocialLogin = async () => {
-    if (!socialModalProvider) return;
-    await handleQuickSelectSocialAccount(socialModalProvider, {
-      name: socialName,
-      email: socialEmail,
-    });
-  };
-
-  const handleQuickGuestStart = async () => {
-    const guestUser = await startOfflineGuestSession();
-    onAuthenticated(guestUser);
-  };
-
-  const handleRedirectSupabaseOAuth = () => {
-    if (!socialModalProvider) return;
-    const url = getSupabaseOAuthRedirectUrl(
-      socialModalProvider,
-      supabaseConfig
-    );
-    if (url) {
-      Linking.openURL(url).catch(() => {});
-    }
-  };
-
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.bg }]}
-      contentContainerStyle={styles.scrollContent}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
     >
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.bg }]}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
       <View
         style={[
           styles.authCard,
@@ -466,6 +405,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         {/* Primary Submit Button */}
         <TouchableOpacity
           style={[styles.submitBtn, { backgroundColor: theme.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel={mode === 'register' ? 'إنشاء الحساب والدخول' : mode === 'forgot' ? 'تحديث الرقم السري' : 'تسجيل الدخول بالبريد الإلكتروني'}
           onPress={handleEmailAuth}
           disabled={loading}
         >
@@ -516,6 +457,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 borderColor: theme.border,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="المتابعة باستخدام Google"
             onPress={() => handleOpenSocialLogin('google')}
           >
             <Ionicons name="logo-google" size={18} color="#EA4335" />
@@ -526,6 +469,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           <TouchableOpacity
             style={styles.facebookBtn}
+            accessibilityRole="button"
+            accessibilityLabel="المتابعة باستخدام Facebook"
             onPress={() => handleOpenSocialLogin('facebook')}
           >
             <Ionicons name="logo-facebook" size={20} color="#FFFFFF" />
@@ -534,305 +479,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </Text>
           </TouchableOpacity>
 
-          {/* 1-Tap Quick Entry without typing */}
-          <TouchableOpacity
-            style={[
-              styles.quickEntryBtn,
-              {
-                backgroundColor: theme.primarySoft,
-                borderColor: theme.primary,
-              },
-            ]}
-            onPress={handleQuickGuestStart}
-          >
-            <Ionicons name="flash-outline" size={18} color={theme.primary} />
-            <Text style={[styles.quickEntryText, { color: theme.primary }]}>
-              الدخول السريع المباشر إلى خزنتي المحلية
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Bottom Cloud Setup Link */}
-        <TouchableOpacity
-          style={[styles.cloudSetupRow, { borderTopColor: theme.border }]}
-          onPress={onOpenCloudConfig}
-        >
-          <Ionicons name="cloud-outline" size={16} color={theme.primary} />
-          <Text style={[styles.cloudSetupText, { color: theme.primary }]}>
-            إعدادات الربط السحابي (Supabase)
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Modal for Google / Facebook OAuth Account Chooser (Mobile / Standalone PWA) */}
-      <Modal
-        visible={Boolean(socialModalProvider)}
-        transparent
-        animationType="fade"
-      >
-        <View style={styles.modalBackdrop}>
+          {/* Security Notice: Verified Account Required */}
           <View
             style={[
-              styles.modalCard,
-              { backgroundColor: theme.surface, borderColor: theme.border },
+              styles.accountRequiredBox,
+              {
+                backgroundColor: theme.surfaceSoft,
+                borderColor: theme.border,
+              },
             ]}
           >
-            <View style={styles.socialModalHeader}>
-              <View
-                style={[
-                  styles.socialBadgeCircle,
-                  {
-                    backgroundColor:
-                      socialModalProvider === 'google'
-                        ? theme.surfaceSoft
-                        : '#1877F2',
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    socialModalProvider === 'google'
-                      ? 'logo-google'
-                      : 'logo-facebook'
-                  }
-                  size={24}
-                  color={
-                    socialModalProvider === 'google' ? '#EA4335' : '#FFFFFF'
-                  }
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
-                  اختيار حساب{' '}
-                  {socialModalProvider === 'google' ? 'Google' : 'Facebook'}
-                </Text>
-                <Text style={[styles.modalSub, { color: theme.textMuted }]}>
-                  اضغط على حسابك للدخول التلقائي الفوري إلى تطبيق مالي
-                </Text>
-              </View>
-            </View>
-
-            {/* 1-Tap Account Chooser Cards */}
-            {(socialModalProvider === 'google'
-              ? [
-                  {
-                    name: 'حساب Google الفعلي المتصل (aybholiday99)',
-                    email: 'aybholiday99@gmail.com',
-                  },
-                  {
-                    name: 'صلاح أحمد (حساب Google)',
-                    email: 'salahahmd119@gmail.com',
-                  },
-                ]
-              : [
-                  {
-                    name: 'صلاح أحمد (Facebook)',
-                    email: 'salahahmd119@gmail.com',
-                  },
-                  {
-                    name: 'حساب Facebook المتصل',
-                    email: 'aybholiday99@gmail.com',
-                  },
-                ]
-            ).map((acc) => (
-              <TouchableOpacity
-                key={acc.email}
-                style={[
-                  styles.oauthBrowserBtn,
-                  {
-                    backgroundColor: theme.surfaceSoft,
-                    borderColor: theme.border,
-                    justifyContent: 'space-between',
-                    marginTop: 8,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                  },
-                ]}
-                onPress={() =>
-                  socialModalProvider &&
-                  handleQuickSelectSocialAccount(socialModalProvider, acc)
-                }
-              >
-                <View
-                  style={{
-                    flexDirection: 'row-reverse',
-                    alignItems: 'center',
-                    gap: 10,
-                    flex: 1,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor:
-                        socialModalProvider === 'google'
-                          ? theme.primary
-                          : '#1877F2',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: '#FFFFFF',
-                        fontWeight: 'bold',
-                        fontSize: 15,
-                      }}
-                    >
-                      {acc.name.charAt(0)}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        color: theme.text,
-                        fontWeight: 'bold',
-                        fontSize: 13,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {acc.name}
-                    </Text>
-                    <Text
-                      style={{
-                        color: theme.textMuted,
-                        fontSize: 12,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {acc.email}
-                    </Text>
-                  </View>
-                </View>
-                <Ionicons
-                  name="chevron-back"
-                  size={16}
-                  color={theme.textMuted}
-                />
-              </TouchableOpacity>
-            ))}
-
-            <TouchableOpacity
-              style={[
-                styles.oauthBrowserBtn,
-                {
-                  backgroundColor: 'transparent',
-                  borderColor: theme.border,
-                  marginTop: 10,
-                },
-              ]}
-              onPress={() => setShowCustomSocialForm(!showCustomSocialForm)}
-            >
-              <Ionicons
-                name="person-add-outline"
-                size={16}
-                color={theme.primary}
-              />
-              <Text
-                style={[styles.oauthBrowserBtnText, { color: theme.primary }]}
-              >
-                + استخدام حساب{' '}
-                {socialModalProvider === 'google' ? 'Google' : 'Facebook'} آخر
-              </Text>
-            </TouchableOpacity>
-
-            {showCustomSocialForm && (
-              <>
-                <Text
-                  style={[styles.inputLabel, { color: theme.textSecondary }]}
-                >
-                  الاسم
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.surfaceSoft,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.input, { color: theme.text }]}
-                    value={socialName}
-                    onChangeText={setSocialName}
-                    placeholder="الاسم الكامل"
-                    placeholderTextColor={theme.textMuted}
-                  />
-                </View>
-
-                <Text
-                  style={[styles.inputLabel, { color: theme.textSecondary }]}
-                >
-                  البريد الإلكتروني
-                </Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    {
-                      backgroundColor: theme.surfaceSoft,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
-                  <TextInput
-                    style={[styles.input, { color: theme.text }]}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={socialEmail}
-                    onChangeText={setSocialEmail}
-                    placeholder={
-                      socialModalProvider === 'google'
-                        ? 'name@gmail.com'
-                        : 'name@example.com'
-                    }
-                    placeholderTextColor={theme.textMuted}
-                  />
-                </View>
-              </>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.cancelBtn,
-                  { backgroundColor: theme.surfaceSoft },
-                ]}
-                onPress={() => setSocialModalProvider(null)}
-              >
-                <Text
-                  style={[styles.cancelBtnText, { color: theme.textSecondary }]}
-                >
-                  إغلاق
-                </Text>
-              </TouchableOpacity>
-
-              {showCustomSocialForm && (
-                <TouchableOpacity
-                  style={[
-                    styles.confirmSocialBtn,
-                    {
-                      backgroundColor:
-                        socialModalProvider === 'google'
-                          ? theme.primary
-                          : '#1877F2',
-                    },
-                  ]}
-                  onPress={handleConfirmSocialLogin}
-                >
-                  <Text style={styles.confirmSocialBtnText}>
-                    متابعة وتسجيل الدخول
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            <Ionicons name="shield-checkmark-outline" size={18} color={theme.primary} />
+            <Text style={[styles.accountRequiredText, { color: theme.textSecondary }]}>
+              لحماية بياناتك المالية، يلزم تسجيل الدخول أو إنشاء حساب للوصول إلى الخزنة.
+            </Text>
           </View>
         </View>
-      </Modal>
-    </ScrollView>
-  );
+      </View>
+
+
+  </ScrollView>
+</KeyboardAvoidingView>
+);
 };
 
 const styles = StyleSheet.create({
@@ -863,6 +531,8 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 16,
     borderWidth: 1,
   },
@@ -902,6 +572,8 @@ const styles = StyleSheet.create({
   modeTab: {
     flex: 1,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
     borderRadius: 9,
     alignItems: 'center',
   },
@@ -935,6 +607,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     gap: 8,
@@ -956,6 +629,7 @@ const styles = StyleSheet.create({
   submitBtn: {
     borderRadius: 12,
     paddingVertical: 13,
+    minHeight: MIN_TOUCH_TARGET,
     marginTop: 16,
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -987,6 +661,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 14,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1002,6 +677,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 14,
+    minHeight: MIN_TOUCH_TARGET,
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1012,31 +688,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: 'bold',
   },
-  quickEntryBtn: {
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
+  accountRequiredBox: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
+    marginTop: 6,
   },
-  quickEntryText: {
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  cloudSetupRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: 1,
-  },
-  cloudSetupText: {
+  accountRequiredText: {
     fontSize: 12,
+    flex: 1,
+    textAlign: 'right',
+    lineHeight: 18,
     fontWeight: '600',
   },
   modalBackdrop: {
@@ -1050,6 +715,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     maxWidth: 440,
+    maxHeight: '90%',
     width: '100%',
     alignSelf: 'center',
   },
@@ -1082,6 +748,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     borderRadius: 10,
     borderWidth: 1,
     marginTop: 12,
@@ -1099,6 +766,10 @@ const styles = StyleSheet.create({
   cancelBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 10,
   },
   cancelBtnText: {
@@ -1109,6 +780,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 16,
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
