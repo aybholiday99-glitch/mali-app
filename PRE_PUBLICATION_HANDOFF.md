@@ -45,3 +45,10 @@ This document records evidence and a sequence of **future approvals**, not permi
 | Owner authorization for production migrations/merge/publication | NOT GRANTED |
 
 Never upgrade the above entries based on simulated tests or assumptions; link to independent evidence first.
+
+## 2026-10-16 Android emulator resource trial (candidate only)
+
+- Reviewed CI at `62463170`: AOSP [38923651460](https://github.com/aybholiday99-glitch/mali-app/actions/runs/38923651460) failed because an Android system ANR dialog covered Mali after launch; native [38923651545](https://github.com/aybholiday99-glitch/mali-app/actions/runs/38923651545) failed during APK package installation. Both runs used an API 30 software-accelerated AOSP emulator configured with 2048 MB and 2 cores. Neither failure proves the APK is corrupted.
+- Candidate adjustment: allocate 3072 MB and 3 cores in both Android emulator workflows; preserve strict ANR/focus and package-install failure checks. This is a CI resource experiment, **not** evidence of a fixed Android launch or verified customer APK. New GitHub runs must independently pass.
+- Local static validation: both workflows parse as YAML with the updated emulator flags; `git diff --check` PASS. Existing source at `2be5449` with workflow-only changes: TypeScript PASS, ESLint PASS, app tests 794 passed / 3 Linux-only skipped / 0 failed. These tests do not substitute for native CI.
+- Raw `npm audit --audit-level=high` remains mandatory and RED on node-forge `GHSA-86w9-cpqp-85rv` (4 HIGH). No staging creation, production SQL, data movement, PR merge, publication or central-only cutover authorized or performed.

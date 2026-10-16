@@ -88,7 +88,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-boot-timeout: 900
-          emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect -memory 2048 -cores 2
+          emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect -memory 3072 -cores 3
           script: bash scripts/androidStandaloneSmoke.sh
       - name: Upload logs and screenshots separately from installable APK
         if: always()

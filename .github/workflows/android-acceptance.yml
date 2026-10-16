@@ -58,7 +58,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -memory 2048 -cores 2
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -memory 3072 -cores 3
           script: bash scripts/androidStandaloneSmoke.sh
       - name: Upload test-signed release candidate and emulator evidence (never production)
         if: always()
