@@ -53,18 +53,54 @@ adb_call shell input keyevent KEYCODE_WAKEUP || true
 adb_call shell wm dismiss-keyguard || true
 adb_call logcat -c || true
 echo "Step 2: install signed standalone APK"
-# Separate APK transfer from package-manager install to diagnose stuck ADB stream.
-# On slow GitHub-hosted emulators the previous four-minute adb install timed out.
+# The emulator runner can report boot-completed before Android package manager
+# has recovered from its cold-start workload. Wait for that service explicitly.
+wait_package_manager() {
+  local attempt result
+  for attempt in $(seq 1 15); do
+    result="$(timeout 20 adb shell service check package 2>&1 || true)"
+    if [[ "$result" == *"Service package: found"* ]]; then
+      return 0
+    fi
+    echo "Waiting for Android package service ($attempt/15): $result"
+    sleep 5
+  done
+  return 1
+}
+wait_package_manager || fail "Android package manager service did not become ready"
+# ADB push is separate from PackageManager to distinguish transfer errors from
+# installation failures. Verify the file exists on the isolated emulator.
 timeout 300 adb push "$APK" /data/local/tmp/mali-release.apk ||
   fail "APK transfer to emulator timed out"
-if ! timeout 300 adb shell pm install -r /data/local/tmp/mali-release.apk > android-standalone-evidence/install.txt 2>&1; then
+adb_call shell ls -l /data/local/tmp/mali-release.apk > android-standalone-evidence/pushed-apk.txt ||
+  fail "Transferred APK missing on emulator"
+# Retry at most once ONLY for an emulator service transport interruption.
+# INSTALL_FAILED_* and signature/package validation errors are hard failures.
+installed=false
+for attempt in 1 2; do
+  if timeout 240 adb shell pm install -r /data/local/tmp/mali-release.apk > android-standalone-evidence/install.txt 2>&1; then
+    if grep -Eq '^Success[[:space:]]*$' android-standalone-evidence/install.txt; then
+      installed=true
+      break
+    fi
+  fi
+  echo "APK install attempt $attempt failed:"
   cat android-standalone-evidence/install.txt
-  fail "Android package manager rejected APK (see install.txt)"
-fi
-if ! grep -q 'Success' android-standalone-evidence/install.txt; then
-  cat android-standalone-evidence/install.txt
-  fail "Android package manager did not confirm successful installation"
-fi
+  cp android-standalone-evidence/install.txt "android-standalone-evidence/install-attempt-$attempt.txt"
+  if [[ "$attempt" -eq 2 ]] ||
+    ! grep -Eqi 'Broken pipe|Failure calling service package|DeadObjectException|Package manager has died|service package.*not found' android-standalone-evidence/install.txt; then
+    fail "Android rejected APK or package installer failed (see install-attempt-$attempt.txt)"
+  fi
+  echo "Detected transient emulator package-service disconnect; retrying once after recovery."
+  timeout 45 adb wait-for-device || fail "Emulator ADB did not recover"
+  wait_package_manager || fail "Package manager did not recover after transient disconnect"
+  sleep 10
+done
+[[ "$installed" == true ]] || fail "APK installation did not succeed"
+adb_call shell pm path com.aybholiday.mali > android-standalone-evidence/installed-package.txt ||
+  fail "PackageManager cannot report Mali APK after installation"
+grep -q '^package:' android-standalone-evidence/installed-package.txt ||
+  fail "PackageManager has no installed Mali package after installation"
 adb_call shell rm /data/local/tmp/mali-release.apk || true
 echo "Step 3: launch Mali Android release with no Metro"
 adb_call shell am force-stop com.aybholiday.mali || true
