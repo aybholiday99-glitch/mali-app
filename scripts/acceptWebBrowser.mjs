@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = path.resolve(root, 'dist');
+if (!existsSync(path.join(dist, 'index.html'))) {
+  throw Error('Missing dist/index.html: build the web candidate before Chromium acceptance');
+}
 const source = await readFile(path.resolve(root, 'src/services/webFinancialStorageBackend.ts'), 'utf8');
 const probe = stripTypeScriptTypes(source, { mode: 'strip' });
 const contentTypes = {

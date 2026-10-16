@@ -21,6 +21,7 @@ capture() {
   local label="$1"
   timeout 60 adb logcat -d -t 1500 > "android-standalone-evidence/$label-logcat.txt" || true
   timeout 45 adb shell dumpsys activity activities > "android-standalone-evidence/$label-activity.txt" || true
+  timeout 45 adb shell dumpsys window windows > "android-standalone-evidence/$label-window.txt" || true
   timeout 45 adb shell screencap -p /sdcard/mali-ci-screen.png || true
   timeout 45 adb pull /sdcard/mali-ci-screen.png "android-standalone-evidence/$label-screen.png" || true
 }
@@ -30,22 +31,41 @@ fail() {
   exit 1
 }
 check_app() {
-  local label="$1" pid activities
-  # Slow cold boot and GC on CI hosts: check for process after Android has settled.
+  local label="$1" pid activities focus attempt
+  # A process PID alone is not proof of a usable screen: system ANR dialogs
+  # can obscure Mali while its process and Activity remain alive.
   sleep 20
   pid="$(adb_call shell pidof com.aybholiday.mali | tr -d '\r')" || fail "$label: adb pidof timed out"
   [[ -n "$pid" ]] || fail "$label: Mali did not stay running"
-  echo "PASS: $label process id $pid"
   capture "$label"
   activities="$(cat "android-standalone-evidence/$label-activity.txt" 2>/dev/null || true)"
-  if [[ "$activities" == *"ResumedActivity: ActivityRecord"* ]]; then
-    grep -qE 'ResumedActivity: .*com[.]aybholiday[.]mali' <<< "$activities" ||
-      fail "$label: app not in foreground"
+  grep -Eq '(ResumedActivity|topResumedActivity|mResumedActivity): .*com[.]aybholiday[.]mali' <<< "$activities" ||
+    fail "$label: Mali is not the resumed Activity"
+  if grep -Eqi 'Window #[0-9]+.*(Application Not Responding|isn.t responding)' \
+      "android-standalone-evidence/$label-window.txt"; then
+    fail "$label: Android ANR dialog is present over Mali"
   fi
+  # Require the actual focused window, not just an Activity record. AOSP can
+  # show "Process system isn't responding" over a healthy Mali process.
+  focus="$(grep -E 'mCurrentFocus=' "android-standalone-evidence/$label-window.txt" | tail -n 1 || true)"
+  for attempt in 1 2 3; do
+    if [[ "$focus" == *"Application Not Responding"* || "$focus" == *"isn't responding"* ]]; then
+      fail "$label: Android ANR dialog has focus: $focus"
+    fi
+    [[ "$focus" == *"com.aybholiday.mali"* ]] && break
+    [[ "$attempt" -eq 3 ]] && break
+    sleep 5
+    focus="$(adb_call shell dumpsys window windows | grep -E 'mCurrentFocus=' | tail -n 1)" ||
+      fail "$label: cannot inspect focused Android window"
+  done
+  printf '%s\n' "$focus" > "android-standalone-evidence/$label-focus.txt"
+  [[ "$focus" == *"com.aybholiday.mali"* ]] ||
+    fail "$label: Mali is not the focused window: ${focus:-missing mCurrentFocus}"
   if grep -Eqi 'Unable to load script|Failed to connect to development server|Could not connect to development server' \
       "android-standalone-evidence/$label-logcat.txt"; then
     fail "$label: app attempted Metro/dev server connection"
   fi
+  echo "PASS: $label Mali resumed and focused (PID $pid), no blocking Android dialog"
 }
 echo "Step 1: wait for clean emulator"
 timeout 90 adb wait-for-device || fail "Android emulator ADB unavailable"

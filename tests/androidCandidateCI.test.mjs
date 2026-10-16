@@ -18,6 +18,10 @@ test('Android emulator acceptance installs self-contained test-signed release in
   assert.match(standalone, /assets\/index\.android\.bundle/);
   assert.match(standalone, /check_app "first"/);
   assert.match(standalone, /check_app "second"/);
+  assert.match(standalone, /dumpsys window windows/);
+  assert.match(standalone, /Mali is not the resumed Activity/);
+  assert.match(standalone, /Android ANR dialog has focus/);
+  assert.match(standalone, /Mali is not the focused window/);
   assert.match(standalone, /Failed to connect to development server/);
   assert.doesNotMatch(standalone, /adb reverse|expo start/);
   assert.match(releaseBuild, /apksigner/);

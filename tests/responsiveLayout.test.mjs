@@ -25,7 +25,7 @@ test('Navigation Shell — Safe Insets & Responsive Header', async () => {
 });
 
 test('Unified Contact Profile Modal — RTL Alignment & Touch Targets', async () => {
-  const content = await readFile(path.resolve(root, 'src/components/UnifiedContactProfileModal.tsx'), 'utf8');
+  const content = (await readFile(path.resolve(root, 'src/components/UnifiedContactProfileModal.tsx'), 'utf8')).replace(/\r\n/g, '\n');
   assert.ok(content.includes('useResponsiveLayout'), 'Profile modal uses responsive layout');
   assert.ok(content.includes('MIN_TOUCH_TARGET'), 'Profile modal enforces MIN_TOUCH_TARGET');
   assert.ok(content.includes('KeyboardAvoidingView'), 'Profile modal wraps inputs with KeyboardAvoidingView');
@@ -70,7 +70,7 @@ test('USD Deals Screen — Touch Targets & Keyboard Avoidance', async () => {
 });
 
 test('Procedures & Debts Screen — RTL Rows & Touch Targets', async () => {
-  const content = await readFile(path.resolve(root, 'src/screens/ProceduresDebtsScreen.tsx'), 'utf8');
+  const content = (await readFile(path.resolve(root, 'src/screens/ProceduresDebtsScreen.tsx'), 'utf8')).replace(/\r\n/g, '\n');
   assert.ok(content.includes('useResponsiveLayout'), 'ProceduresDebtsScreen uses responsive layout');
   assert.ok(content.includes('KeyboardAvoidingView'), 'ProceduresDebtsScreen modals wrap with KeyboardAvoidingView');
   assert.ok(content.includes("maxHeight: '90%'"), 'ProceduresDebtsScreen modalCard has maxHeight 90%');
