@@ -80,6 +80,12 @@ function verifyDecoderCompatibility(root, packages, lock) {
 export function verifyDependencyOverrides(root = defaultRoot) {
   const provenance = json(path.join(root, 'vendor/securityProvenance.json'));
   const lock = json(path.join(root, 'package-lock.json'));
+  const manifest = json(path.join(root, 'package.json'));
+  const officialZod = {
+    version: '4.6.7',
+    resolved: 'https://registry.npmjs.org/zod/-/zod-4.6.7.tgz',
+    integrity: 'sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=='
+  };
   const officialForge = {
     version: '1.4.1',
     resolved: 'https://registry.npmjs.org/node-forge/-/node-forge-1.4.1.tgz',
@@ -115,6 +121,16 @@ export function verifyDependencyOverrides(root = defaultRoot) {
   assert.equal(lockedForge.integrity, officialForge.integrity, 'official node-forge tarball integrity mismatch');
   assert.equal(lock.packages[''].devDependencies?.['node-forge'], officialForge.version, 'root dependency must use the official fixed release');
 
+  assert.equal(manifest.overrides?.zod, officialZod.version, 'Zod must use the official fixed release without downgrading Expo');
+  const installedZod = packages.filter(p => p.metadata.name === 'zod');
+  assert.equal(installedZod.length, 1, 'multiple zod copies installed');
+  assert.equal(installedZod[0].metadata.version, officialZod.version, 'unexpected zod version');
+  const lockedZod = lock.packages['node_modules/zod'];
+  assert.ok(lockedZod, 'zod lock entry missing');
+  assert.equal(lockedZod.version, officialZod.version, 'lockfile zod version mismatch');
+  assert.equal(lockedZod.resolved, officialZod.resolved, 'zod must come from the official npm registry');
+  assert.equal(lockedZod.integrity, officialZod.integrity, 'official zod tarball integrity mismatch');
+
   for (const consumer of forgeConsumers) {
     const consumerRequire = createRequire(path.join(consumer.location, 'package.json'));
     const resolved = path.dirname(consumerRequire.resolve('node-forge/package.json'));
@@ -130,7 +146,7 @@ export function verifyDependencyOverrides(root = defaultRoot) {
   }
 
   verifyDecoderCompatibility(root, packages, lock);
-  return { forgeConsumers: forgeConsumers.length, matcherConsumers: matcherConsumers.length, forgeCopies: installedForge.length, forgeVersion: officialForge.version };
+  return { forgeConsumers: forgeConsumers.length, matcherConsumers: matcherConsumers.length, forgeCopies: installedForge.length, forgeVersion: officialForge.version, zodVersion: officialZod.version };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   console.log('Dependency override integrity PASS', verifyDependencyOverrides());
