@@ -11,6 +11,17 @@ on:
       - 'plugins/**'
       - '.github/workflows/android-acceptance.yml'
       - 'scripts/androidStandaloneSmoke.sh'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+      - '.github/workflows/android-acceptance.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
 permissions:
   contents: read
 jobs:
