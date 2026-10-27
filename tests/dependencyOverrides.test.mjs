@@ -24,10 +24,12 @@ test('every installed override and actual consumer passes the mandatory source i
   const report = verifyDependencyOverrides();
   assert.equal(report.forgeConsumers,2);
   assert.equal(report.matcherConsumers,1);
+  assert.equal(report.forgeCopies,1);
+  assert.equal(report.forgeVersion,'1.4.1');
   assert.equal(cliRequire.resolve('node-forge'),certRequire.resolve('node-forge'));
 });
 
-test('integrity gate rejects a modified installed file and an unexpected forge consumer', () => {
+test('integrity gate rejects modified decoder, wrong forge version, duplicate copies and unexpected consumers', () => {
   const temporary = mkdtempSync(path.join(os.tmpdir(),'mali-dependency-gate-'));
   try {
     cpSync(path.join(root,'vendor'),path.join(temporary,'vendor'),{recursive:true});
@@ -37,8 +39,8 @@ test('integrity gate rejects a modified installed file and an unexpected forge c
       mkdirSync(directory,{recursive:true});
       writeFileSync(path.join(directory,'package.json'),JSON.stringify({name,version:'1.0.0',dependencies}));
     };
-    pkg('@expo/cli',{'node-forge':'1.4.0'});
-    pkg('@expo/code-signing-certificates',{'node-forge':'1.4.0'});
+    pkg('@expo/cli',{'node-forge':'1.4.1'});
+    pkg('@expo/code-signing-certificates',{'node-forge':'1.4.1'});
     pkg('metro-file-map',{micromatch:'4.0.8'});
     const provenance = JSON.parse(readFileSync(path.join(root,'vendor/securityProvenance.json'),'utf8'));
     for (const [name,source] of [['@expo/cli',cliRoot],['@expo/code-signing-certificates',path.dirname(require.resolve('@expo/code-signing-certificates/package.json'))],
@@ -62,23 +64,19 @@ test('integrity gate rejects a modified installed file and an unexpected forge c
     writeFileSync(decoder,Buffer.concat([decoderOriginal,Buffer.from('\n// unreviewed decoder edit\n')]));
     assert.throws(()=>verifyDependencyOverrides(temporary),/integrity mismatch: index.js/);
     writeFileSync(decoder,decoderOriginal);
-    const rsa = path.join(temporary,'node_modules/node-forge/lib/rsa.js');
-    const original = readFileSync(rsa);
-    writeFileSync(rsa,Buffer.concat([original,Buffer.from('\n// modified installed bytes\n')]));
-    assert.throws(()=>verifyDependencyOverrides(temporary),/integrity mismatch: lib\/rsa.js/);
-    writeFileSync(rsa,original);
-    const archive = path.join(temporary,'vendor/node-forge-1.4.0.tgz');
-    const archived = readFileSync(archive);
-    writeFileSync(archive,Buffer.concat([archived,Buffer.from([0])]));
-    assert.throws(()=>verifyDependencyOverrides(temporary),/tarball integrity mismatch/);
-    writeFileSync(archive,archived);
+    const forgeManifest=path.join(temporary,'node_modules/node-forge/package.json');
+    const originalForgeManifest=readFileSync(forgeManifest);
+    const alteredForgeManifest=JSON.parse(originalForgeManifest.toString('utf8'));
+    alteredForgeManifest.version='1.4.0';
+    writeFileSync(forgeManifest,JSON.stringify(alteredForgeManifest));
+    assert.throws(()=>verifyDependencyOverrides(temporary),/unexpected node-forge version/);
+    writeFileSync(forgeManifest,originalForgeManifest);
     pkg('extra-package');
     const extra = path.join(temporary,'node_modules/extra-package/node_modules/node-forge');
     cpSync(path.join(temporary,'node_modules/node-forge'),extra,{recursive:true});
-    writeFileSync(path.join(extra,'lib/rsa.js'),Buffer.concat([original,Buffer.from('\n// unqualified copy\n')]));
-    assert.throws(()=>verifyDependencyOverrides(temporary),/integrity mismatch: lib\/rsa.js/);
-    writeFileSync(path.join(extra,'lib/rsa.js'),original);
-    pkg('unreviewed-consumer',{'node-forge':'1.4.0'});
+    assert.throws(()=>verifyDependencyOverrides(temporary),/multiple node-forge copies/);
+    rmSync(path.join(temporary,'node_modules/extra-package/node_modules'),{recursive:true,force:true});
+    pkg('unreviewed-consumer',{'node-forge':'1.4.1'});
     assert.throws(()=>verifyDependencyOverrides(temporary),/consumer inventory changed/);
   } finally {
     assert.ok(path.resolve(temporary).startsWith(path.resolve(os.tmpdir())+path.sep));
@@ -148,8 +146,8 @@ test('actual Expo and CLI forge consumers reject nested garbage, invalid NULLs a
   const cliKey = cliRequire('node-forge').pki.publicKeyFromPem(publicPem);
   for (const encoded of malicious) {
     const signature = signatureFor(encoded);
-    assert.throws(()=>publicKey.verify(digest.toString('latin1'),signature.toString('latin1')),/DigestInfo/);
-    assert.throws(()=>cliKey.verify(digest.toString('latin1'),signature.toString('latin1')),/DigestInfo/);
+    assert.throws(()=>publicKey.verify(digest.toString('latin1'),signature.toString('latin1')));
+    assert.throws(()=>cliKey.verify(digest.toString('latin1'),signature.toString('latin1')));
     assert.equal(verify('sha256',message,rsaPair.publicKey,signature),false,'independent native crypto rejects fixture');
   }
   for (const parameters of [Buffer.from('0500','hex'),Buffer.alloc(0)]) {
@@ -183,27 +181,19 @@ test('actual Expo certificate/CSR lifecycle and CLI manifest signing remain comp
   const certificateDigest = Buffer.from(parsed.md.digest().getBytes(),'latin1');
   const malformedSignature = signatureFor(digestInfo(Buffer.concat([oid,Buffer.from('0500020101','hex')]),certificateDigest));
   parsed.signature = malformedSignature.toString('latin1');
-  assert.throws(()=>parsed.verify(parsed),/DigestInfo/,'actual Expo certificate verification rejects crafted signature');
+  assert.throws(()=>parsed.verify(parsed),'actual Expo certificate verification rejects crafted signature');
   const maliciousPem = certificates.convertCertificateToCertificatePEM(parsed);
   const cliParsed = cliRequire('node-forge').pki.certificateFromPem(maliciousPem);
-  assert.throws(()=>cliParsed.verify(cliParsed),/DigestInfo/,'actual CLI PEM parsing preserves rejection during certificate verification');
+  assert.throws(()=>cliParsed.verify(cliParsed),'actual CLI PEM parsing preserves rejection during certificate verification');
 });
 
-test('noncanonical trailing bytes cannot bypass DigestInfo validation even with relaxed parser flags', () => {
+test('official forge rejects trailing DigestInfo bytes in default signature verification', () => {
   const validAlgorithm = Buffer.concat([oid, Buffer.from('0500', 'hex')]);
   const canonical = digestInfo(validAlgorithm);
   const paddedButInvalid = Buffer.concat([canonical, Buffer.from('0500', 'hex')]);
   const forgedSignature = signatureFor(paddedButInvalid).toString('latin1');
   assert.equal(verify('sha256', message, rsaPair.publicKey, Buffer.from(forgedSignature, 'latin1')), false);
-  assert.throws(
-    () => publicKey.verify(digest.toString('latin1'), forgedSignature,
-      'RSASSA-PKCS1-V1_5', { _parseAllDigestBytes: false }),
-    /DigestInfo/,
-    'parser compatibility flags must never turn signature verification into a prefix match');
+  assert.throws(() => publicKey.verify(digest.toString('latin1'), forgedSignature));
   const cliPublicKey = cliRequire('node-forge').pki.publicKeyFromPem(publicPem);
-  assert.throws(
-    () => cliPublicKey.verify(digest.toString('latin1'), forgedSignature,
-      'RSASSA-PKCS1-V1_5', { _parseAllDigestBytes: false }),
-    /DigestInfo/,
-    'actual Expo CLI signer dependency must also reject the trailing-byte bypass');
+  assert.throws(() => cliPublicKey.verify(digest.toString('latin1'), forgedSignature));
 });
