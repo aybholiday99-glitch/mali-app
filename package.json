@@ -66,7 +66,8 @@
     },
     "node-forge": "$node-forge",
     "micromatch": "$micromatch",
-    "@expo/cli": "57.0.30"
+    "@expo/cli": "57.0.30",
+    "zod": "4.6.7"
   },
   "private": true
 }
