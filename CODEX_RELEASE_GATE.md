@@ -1,6 +1,6 @@
 # Mali release gate
 
-**ANDROID-ONLY RELEASE CANDIDATE — NOT PRODUCTION READY.** Updated 2026-10-13. Draft PR2; main/Pages unchanged. The owner explicitly excludes iOS from the current release scope.
+**ANDROID-ONLY RELEASE CANDIDATE — NOT PRODUCTION READY.** Current authoritative status updated 2026-10-27; earlier dated checkpoints below are historical. Draft PR2; main/Pages unchanged. The owner explicitly excludes iOS from the current release scope.
 Earlier MALI_FINAL_AUDIT/MALI_RELEASE_READINESS completion claims are superseded.
 Each source needs its own validation; prior CI is not the final integrated gate.
 
@@ -16,7 +16,7 @@ Each source needs its own validation; prior CI is not the final integrated gate.
 | Usable conflict recovery | PARTIAL: verified archive+single decision/outbox commit, changed CAS renewed review/no force,independent review8probes PASS atd2db769; archive retrieval UI ongoing |
 | Proven backup/restore | PARTIAL: safe legacy migration wizard with SHA-256 checksum & atomic cloud sync PASS (5/5 tests); actual PG17 full dump/restore 10 tables/owner/ACL/RLS/CAS/21originals+21archives PASS local+CI; atomic local restore faults PASS; browser actual JSON download/explicit restore PASS; production backup/native round-trip remain |
 | All UI/RTL/accessibility/performance | PARTIAL: real Chromium 2026-10-13 verified UI mount, offline guest navigation, lossless IndexedDB migration, 1k/10k/50k record persistence and 50k full reload; accessibility/RTL source tests pass (10/10 PASS with 48dp bounds); Unified Financial Profiles dossier & dual-mode contact picker integrated; every screen and fault-path on physical devices still requires acceptance |
-| Compatible secure dependencies | FAIL: braces absent and Expo57 consumers PASS; truthful forge1.4.0 backport passes all security/consumer tests but raw audit reports 4 high due to unreleased upstream fix |
+| Compatible secure dependencies | PENDING: official node-forge 1.4.1 is now the candidate dependency; raw npm audit and fresh integrated CI must pass before this gate closes |
 | Mandatory tests and CI | PARTIAL: 707/707 app tests PASS (100% across all 60 test suites), PostgreSQL 17.11 143/143 PASS, real browser storage/guest acceptance PASS, dump/restore rehearsal PASS, web build PASS; unpatched node-forge advisory keeps npm audit and aggregate CI FAIL |
 | Android acceptance | PARTIAL: Linux Gradle built debug APK; GitHub Actions Run 38457703515 (android-standalone.yml) assembled and test-signed the ARM64 standalone release APK (app-release.apk, uploaded as artifact mali-android-arm64-standalone-apk); full physical native financial/biometric/OAuth and persistence acceptance still required |
 | iOS acceptance | OUT OF SCOPE: owner requested Android-only; no iOS builds or tests are required for this Android-targeted release. |
@@ -144,3 +144,12 @@ Release status remains **NOT PRODUCTION READY**. This section reflects a read-on
 - Local Windows validation for this change: Bash syntax PASS, TypeScript PASS, ESLint PASS, full suite **797 tests: 794 passed / 3 Linux-only mocked Bash checks skipped / 0 failed**, Expo package check PASS. Fresh Linux CI must execute all **797** tests to prove these cases.
 - The unpatched node-forge advisory `GHSA-86w9-cpqp-85rv` still fails mandatory raw npm audit. Published official version remains 1.4.0; local cryptographic hardening is compensating evidence, **not** an officially fixed dependency. See `PRE_PUBLICATION_HANDOFF.md` for the current deployment gate and separate required owner approvals.
 - No customer data changed, no Supabase migration applied, no cost-incurring branch created, no PR merge, no public Pages publish, and no production APK was signed or released.
+
+
+## Authoritative dependency security update — 2026-10-27
+
+- Upstream published the official `node-forge@1.4.1` release on the `v1.4.1` tag. Its release changelog includes the fix for CVE-2026-85393 / GHSA-86w9-cpqp-85rv and additional security fixes for non-canonical RSA DigestInfo, ASN.1 BIT STRING resource exhaustion, and PEM parsing ReDoS. See the [official v1.4.1 changelog](https://github.com/digitalbazaar/forge/blob/v1.4.1/CHANGELOG.md) and [official package metadata](https://github.com/digitalbazaar/forge/blob/v1.4.1/package.json).
+- The candidate now replaces the local modified `node-forge@1.4.0` tarball with the **unmodified official npm registry release `1.4.1`**, pinned to the published tarball SHA-512 integrity. The old local tarball is removed; the old source directory is retained only as historical evidence and is not referenced by `package.json` or the lockfile. No package rename, fabricated version, audit suppression, or Expo downgrade is used.
+- Expo SDK 57.0.30 consumers `@expo/cli@57.0.30` and `@expo/code-signing-certificates@0.0.6` declare compatible `node-forge ^1.3.3` ranges. The dependency verifier now asserts both resolve to the single official 1.4.1 registry package and validates the lockfile URL/integrity. Signature forgery/DER, positive RSA signature, certificate/CSR, manifest-signing, and native crypto interoperability tests remain required.
+- **Do not close the security gate until** clean `npm ci`, raw `npm audit --audit-level=high` with no high findings, full tests, typecheck/lint, Expo SDK compatibility, and fresh Android build/emulator CI all pass on this exact commit. If registry advisory data is temporarily stale or any new 1.4.1 advisory remains, keep the gate red and investigate; do not add an unjustified exception.
+- No Supabase production migration, production backup/cutover, PR merge, or final APK publication was authorized or performed. Those separate release gates remain unchanged.
