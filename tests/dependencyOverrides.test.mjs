@@ -26,6 +26,7 @@ test('every installed override and actual consumer passes the mandatory source i
   assert.equal(report.matcherConsumers,1);
   assert.equal(report.forgeCopies,1);
   assert.equal(report.forgeVersion,'1.4.1');
+  assert.equal(report.zodVersion,'4.6.7');
   assert.equal(cliRequire.resolve('node-forge'),certRequire.resolve('node-forge'));
 });
 
@@ -34,6 +35,7 @@ test('integrity gate rejects modified decoder, wrong forge version, duplicate co
   try {
     cpSync(path.join(root,'vendor'),path.join(temporary,'vendor'),{recursive:true});
     cpSync(path.join(root,'package-lock.json'),path.join(temporary,'package-lock.json'));
+    cpSync(path.join(root,'package.json'),path.join(temporary,'package.json'));
     const pkg = (name, dependencies = {}) => {
       const directory = path.join(temporary,'node_modules',name);
       mkdirSync(directory,{recursive:true});
@@ -55,6 +57,7 @@ test('integrity gate rejects modified decoder, wrong forge version, duplicate co
     pkg('picomatch');
     writeFileSync(path.join(temporary,'node_modules/picomatch/package.json'),JSON.stringify({name:'picomatch',version:'4.0.7'}));
     cpSync(path.dirname(certRequire.resolve('node-forge/package.json')),path.join(temporary,'node_modules/node-forge'),{recursive:true});
+    cpSync(path.dirname(require.resolve('zod/package.json')),path.join(temporary,'node_modules/zod'),{recursive:true});
     cpSync(path.dirname(createRequire(require.resolve('metro-file-map/package.json')).resolve('micromatch/package.json')),path.join(temporary,'node_modules/micromatch'),{recursive:true});
     cpSync(path.dirname(require.resolve('query-string/package.json')),path.join(temporary,'node_modules/query-string'),{recursive:true});
     cpSync(path.dirname(require.resolve('decode-uri-component/package.json')),path.join(temporary,'node_modules/decode-uri-component'),{recursive:true});
@@ -71,6 +74,13 @@ test('integrity gate rejects modified decoder, wrong forge version, duplicate co
     writeFileSync(forgeManifest,JSON.stringify(alteredForgeManifest));
     assert.throws(()=>verifyDependencyOverrides(temporary),/unexpected node-forge version/);
     writeFileSync(forgeManifest,originalForgeManifest);
+    const zodManifest=path.join(temporary,'node_modules/zod/package.json');
+    const originalZodManifest=readFileSync(zodManifest);
+    const alteredZodManifest=JSON.parse(originalZodManifest.toString('utf8'));
+    alteredZodManifest.version='3.25.76';
+    writeFileSync(zodManifest,JSON.stringify(alteredZodManifest));
+    assert.throws(()=>verifyDependencyOverrides(temporary),/unexpected zod version/);
+    writeFileSync(zodManifest,originalZodManifest);
     pkg('extra-package');
     const extra = path.join(temporary,'node_modules/extra-package/node_modules/node-forge');
     cpSync(path.join(temporary,'node_modules/node-forge'),extra,{recursive:true});
