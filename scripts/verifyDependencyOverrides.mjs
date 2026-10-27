@@ -76,57 +76,62 @@ function verifyDecoderCompatibility(root, packages, lock) {
   }
 }
 
-/** Mandatory local-package gate supplements the unchanged registry audit. */
+/** Verify the official cryptography dependency and the remaining local substitutions. */
 export function verifyDependencyOverrides(root = defaultRoot) {
   const provenance = json(path.join(root, 'vendor/securityProvenance.json'));
   const lock = json(path.join(root, 'package-lock.json'));
-  for (const expected of [provenance.forge, provenance.matcher]) {
-    assertInstalledIntegrity(path.join(root, expected.sourceDirectory), expected, root);
-    const archiveHash = 'sha512-' + createHash('sha512').update(readFileSync(path.join(root,expected.archive.path))).digest('base64');
-    assert.equal(archiveHash,expected.archive.integrity,'tracked tarball integrity mismatch');
-  }
+  const officialForge = {
+    version: '1.4.1',
+    resolved: 'https://registry.npmjs.org/node-forge/-/node-forge-1.4.1.tgz',
+    integrity: 'sha512-w5/MfWaeMrpR/5ba6fZyAUTLSuE6aYz7H/3cYrqwZEmf5eQS3IaaLgJt4MBv7HglGFWmV22K8h4U18RJQmw/ow=='
+  };
+  assertInstalledIntegrity(path.join(root, provenance.matcher.sourceDirectory), provenance.matcher, root);
+  const matcherArchiveHash = 'sha512-' + createHash('sha512').update(readFileSync(path.join(root, provenance.matcher.archive.path))).digest('base64');
+  assert.equal(matcherArchiveHash, provenance.matcher.archive.integrity, 'tracked matcher tarball integrity mismatch');
+
   const packages = installedPackages(path.join(root, 'node_modules'));
   const forgeConsumers = packages.filter(({ metadata }) => metadata.dependencies?.['node-forge']);
   const matcherConsumers = packages.filter(({ metadata }) => metadata.dependencies?.micromatch);
   assert.deepEqual(forgeConsumers.map(p => p.metadata.name).sort((a, b) => a.localeCompare(b)), ['@expo/cli', '@expo/code-signing-certificates'], 'forge consumer inventory changed');
   assert.deepEqual(matcherConsumers.map(p => p.metadata.name).sort((a, b) => a.localeCompare(b)), ['metro-file-map'], 'matcher consumer inventory changed');
-  for (const consumer of [...forgeConsumers,...matcherConsumers]) {
+
+  for (const consumer of [...forgeConsumers, ...matcherConsumers]) {
     const expected = provenance.consumers[consumer.metadata.name];
-    assert.equal(consumer.metadata.version,expected.version,'consumer version changed without compatibility review');
-    for (const [file,digest] of Object.entries(expected.files)) {
-      assert.equal(sha256(path.join(consumer.location,file)),digest,'consumer source changed without compatibility review');
+    assert.ok(expected, 'consumer provenance missing');
+    assert.equal(consumer.metadata.version, expected.version, 'consumer version changed without compatibility review');
+    for (const [file, digest] of Object.entries(expected.files)) {
+      assert.equal(sha256(path.join(consumer.location, file)), digest, 'consumer source changed without compatibility review');
     }
   }
+
   assert.equal(packages.some(p => p.metadata.name === 'braces' || p.metadata.name === 'micromatch'), false, 'unsubstituted vulnerable brace dependency installed');
   const installedForge = packages.filter(p => p.metadata.name === 'node-forge');
-  assert.ok(installedForge.length > 0, 'forge substitute missing');
-  for (const pkg of installedForge) {
-    assert.equal(pkg.metadata.version, '1.4.0', 'original forge identity/version must remain truthful');
-    assertInstalledIntegrity(pkg.location, provenance.forge, root);
-  }
-  for (const [location,metadata] of Object.entries(lock.packages)) {
-    if (location.endsWith('/node-forge') || location.endsWith('/micromatch')) {
-      const expected = location.endsWith('/node-forge') ? provenance.forge : provenance.matcher;
-      assert.equal(metadata.resolved,'file:'+expected.archive.path,'unexpected registry/unpatched override entry');
-      assert.equal(metadata.integrity,expected.archive.integrity,'lockfile override integrity mismatch');
-    }
-  }
+  assert.equal(installedForge.length, 1, 'multiple node-forge copies installed');
+  assert.equal(installedForge[0].metadata.version, officialForge.version, 'unexpected node-forge version');
+  const lockedForge = lock.packages['node_modules/node-forge'];
+  assert.ok(lockedForge, 'node-forge lock entry missing');
+  assert.equal(lockedForge.version, officialForge.version, 'lockfile node-forge version mismatch');
+  assert.equal(lockedForge.resolved, officialForge.resolved, 'node-forge must come from the official npm registry');
+  assert.equal(lockedForge.integrity, officialForge.integrity, 'official node-forge tarball integrity mismatch');
+  assert.equal(lock.packages[''].devDependencies?.['node-forge'], officialForge.version, 'root dependency must use the official fixed release');
+
   for (const consumer of forgeConsumers) {
-    const require = createRequire(path.join(consumer.location, 'package.json'));
-    const resolved = path.dirname(require.resolve('node-forge/package.json'));
-    assertInstalledIntegrity(resolved, provenance.forge, root);
+    const consumerRequire = createRequire(path.join(consumer.location, 'package.json'));
+    const resolved = path.dirname(consumerRequire.resolve('node-forge/package.json'));
+    assert.equal(realpathSync(resolved), realpathSync(path.join(root, 'node_modules/node-forge')), 'Expo consumer is not using the single official node-forge package');
+    assert.equal(json(path.join(resolved, 'package.json')).version, officialForge.version);
   }
   for (const consumer of matcherConsumers) {
-    const require = createRequire(path.join(consumer.location, 'package.json'));
-    const resolved = path.dirname(require.resolve('micromatch/package.json'));
+    const consumerRequire = createRequire(path.join(consumer.location, 'package.json'));
+    const resolved = path.dirname(consumerRequire.resolve('micromatch/package.json'));
     assertInstalledIntegrity(resolved, provenance.matcher, root);
     const matcherRequire = createRequire(path.join(resolved, 'package.json'));
     assert.equal(matcherRequire('picomatch/package.json').version, '4.0.7');
   }
-  verifyDecoderCompatibility(root,packages,lock);
-  return { forgeConsumers: forgeConsumers.length, matcherConsumers: matcherConsumers.length, forgeCopies: installedForge.length };
-}
 
+  verifyDecoderCompatibility(root, packages, lock);
+  return { forgeConsumers: forgeConsumers.length, matcherConsumers: matcherConsumers.length, forgeCopies: installedForge.length, forgeVersion: officialForge.version };
+}
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   console.log('Dependency override integrity PASS', verifyDependencyOverrides());
 }
