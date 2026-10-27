@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-10-27",
+  "auditLimit": "node-forge now resolves to the official registry release 1.4.1 and is covered by npm audit; integrity checks remain mandatory for the local Metro glob matcher and decoder substitutions.",
+  "matcher": {
+    "identity": "@mali/metro-glob-matcher@1.0.0",
+    "contract": "metro-file-map watcher micromatch.some only",
+    "replacement": "picomatch@4.0.7",
+    "upstream": "https://github.com/micromatch/picomatch",
+    "upstreamGitHead": "6bb40679c218cefba5d4e9662408c5fdf699a8bb",
+    "upstreamIntegrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+    "replacedAdvisory": "GHSA-vfj7-8cjw-p6xm",
+    "files": {
+      "index.cjs": "6c1cb328027bd829db564023aba6ce301de10284c54b2f69607b658331392964",
+      "LICENSE": "35bdd8a44339719441900fb50fbefc5e2dca1ca662cbaed7a687de842c8b70f2",
+      "package.json": "4136d9e0afe81cf7862ffff0dbf02b0450a4b074435328bca44747d905495215",
+      "README.md": "83de33a1d516e446697ad766d68db352092bdfed6ff17557ab90f33e27e56a86"
+    },
+    "sourceDirectory": "vendor/metro-glob-matcher",
+    "archive": {
+      "path": "vendor/mali-metro-glob-matcher-1.0.0.tgz",
+      "integrity": "sha512-67zZpZ6Km1vG5ckmNpWUczLgayThKIMH0jjCuFIeGrSwKu6PYzY165BSqiTiEzD8egPloA5lPEzr6RzzcaZelQ=="
+    }
+  },
+  "consumers": {
+    "@expo/cli": {
+      "version": "57.0.30",
+      "files": {
+        "build/src/utils/codesigning.js": "935fadac6f1dc56bc088acb04416d1fc83bd70505f368b87dd210d0aa4617de2",
+        "build/src/run/ios/codeSigning/Security.js": "af3f12dfb57ef87ae4cb3903af4398eeb034750c08d4fe523bc6a7d3062998b2"
+      }
+    },
+    "@expo/code-signing-certificates": {
+      "version": "0.0.6",
+      "files": {
+        "build/main.js": "3670cfbd69934b475257649886517d0314890ca4139708d2c812efaab04bc6d1",
+        "build/utils.js": "ee9d39791f178d43286fb5c374404cae8d782a09ddce9fce30e6b02ba7734417"
+      }
+    },
+    "metro-file-map": {
+      "version": "0.84.5",
+      "files": {
+        "src/watchers/common.js": "fd54d0713d2066eb474652dcdf3f88ff67f66d84600d1d8013ecbf6c7fdc3c47"
+      }
+    }
+  }
+}

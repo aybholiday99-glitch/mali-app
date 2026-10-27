@@ -1,3 +1,4 @@
+import type { FinancialAuditEvent } from './financialAudit';
 export type Currency = 'LYD' | 'USD';
 
 export type PaymentMethodType = 'cash' | 'cheque' | 'transfer' | 'card';
@@ -44,6 +45,8 @@ export interface Account {
   currency: Currency;
   balance: number;
   isCash: boolean; // true = كاش نقدي, false = رصيد مصرفي / صكوك / حوالات
+  allowOverdraft?: boolean; // سحب على المكشوف مصرح به
+  overdraftLimit?: number; // سقف السحب على المكشوف
   accountNumber?: string;
   color: string;
   notes?: string;
@@ -138,12 +141,17 @@ export interface UsdDeal {
   notes?: string;
 }
 
+export type DebtSettlementType = 'cash' | 'non_cash';
+
 export interface DebtInstallment {
   id: string;
   amount: number;
   date: string;
   accountId?: string;
   paymentMethod: PaymentMethodType;
+  settlementType?: DebtSettlementType;
+  isNonCash?: boolean; // تسوية غير نقدية (مقاصة / تنازل / تسوية عينية)
+  nonCashReason?: string; // سبب وتفاصيل التسوية غير النقدية
   transactionId?: string;
   idempotencyKey?: string;
   notes?: string;
@@ -223,6 +231,11 @@ export interface SupabaseConfig {
 }
 
 export interface MaliState {
+  /** Append-only local evidence; server acceptance is recorded independently. */
+  financialAudit?: FinancialAuditEvent[];
+  /** Device-only metadata; never included in the cloud snapshot or exported backups. */
+  pendingCloudSync?: boolean;
+  localRevision?: number;
   accounts: Account[];
   contacts: ContactPerson[];
   transactions: Transaction[];

@@ -1,1 +1,7 @@
 project_id = "mali-app"
+
+[auth]
+minimum_password_length = 8
+
+[auth.email]
+enable_confirmations = true

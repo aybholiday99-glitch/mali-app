@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import {
   addDebtRecordMutation,
   createAccountMutation,
@@ -16,7 +17,6 @@ import {
   sellFromUsdDealMutation,
   settleDebtInstallmentMutation,
   takePersonalFromUsdDealMutation,
-  updateAccountBalanceMutation,
   validateAndSanitizeBackupPayload,
 } from '../src/services/financialEngine.ts';
 
@@ -376,4 +376,4 @@ function runFinancialEngineTests() {
   console.log('=== ALL FINANCIAL ENGINE TESTS PASSED ===');
 }
 
-runFinancialEngineTests();
+test('financial lifecycle and backup baseline', runFinancialEngineTests);

@@ -3,6 +3,8 @@ node_modules/
 
 # Expo & Build outputs
 .expo/
+android/
+ios/
 dist/
 web-build/
 
@@ -23,5 +25,8 @@ supabase/.temp/
 Thumbs.db
 *.log
 npm-debug.log*
+.audit/
 yarn-debug.log*
 yarn-error.log*
+.claude/
+releases/*.zip

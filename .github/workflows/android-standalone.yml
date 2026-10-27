@@ -1,0 +1,111 @@
+name: Mali standalone Android candidate acceptance
+on:
+  push:
+    branches: ['codex/mali-production-audit']
+    paths:
+      - '.github/workflows/android-standalone.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-standalone.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+permissions:
+  contents: read
+jobs:
+  android-build:
+    name: ARM64 Android APK build and signature verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate isolated Android native project
+        run: npx expo prebuild --platform android --no-install
+      - name: Compile standalone release variant using test signing
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
+      - name: Verify self-contained APK and architecture coverage
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          APK_CONTENTS="$(unzip -Z1 "$APK")"
+          grep -Fxq 'assets/index.android.bundle' <<< "$APK_CONTENTS"
+          grep -Eq '^lib/arm64-v8a/[^/]+[.]so$' <<< "$APK_CONTENTS"
+          grep -Eq '^lib/armeabi-v7a/[^/]+[.]so$' <<< "$APK_CONTENTS"
+          grep -Eq '^lib/x86_64/[^/]+[.]so$' <<< "$APK_CONTENTS"
+          SIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$SIGNER"
+          "$SIGNER" verify --verbose "$APK"
+          sha256sum "$APK" > android-standalone-sha256.txt
+          echo "PASS: standalone JavaScript, native ABI coverage and valid APK test signing."
+      - name: Publish APK even if separate Android emulator job fails
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mali-android-arm64-standalone-apk
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android-standalone-sha256.txt
+
+  android-emulator:
+    name: Android AOSP emulator standalone install and restart
+    needs: android-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 43
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mali-android-arm64-standalone-apk
+          path: .
+      - name: Run on isolated AOSP emulator without Google Services or Metro
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 37
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -noaudio -no-boot-anim -no-snapshot -camera-back none -gpu swiftshader_indirect -memory 3072 -cores 3
+          script: bash scripts/androidStandaloneSmoke.sh
+      - name: Upload logs and screenshots separately from installable APK
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mali-android-emulator-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: android-standalone-evidence/

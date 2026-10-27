@@ -1,3 +1,7 @@
+import { PagedRows } from '../components/PagedRows';
+import { useFinancialSubmission, FinancialSaveNotice } from '../hooks/useFinancialSubmission';
+import { nextSubmissionKey } from '../services/submissionKey';
+import { parseFinancialInput } from '../utils/financialInput';
 import React, { useState } from 'react';
 import {
   View,
@@ -7,17 +11,25 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMali } from '../context/MaliContext';
 import {
+  ContactPerson,
+  ContactRole,
   Currency,
   DebtRecord,
+  DebtSettlementType,
   FinancialProcedure,
   PaymentMethodType,
 } from '../types/mali';
+import { canDisburseFromAccount } from '../services/financialEngine';
 import { formatMoney, getPaymentMethodLabel } from '../utils/exportHelper';
 import { CalmDropdown } from '../components/CalmDropdown';
+import { UnifiedContactProfileModal } from '../components/UnifiedContactProfileModal';
+import { useResponsiveLayout } from '../theme/responsive';
 
 const PROCEDURE_TYPES: FinancialProcedure['procedureType'][] = [
   'صك مصدق / مقاصة',
@@ -29,17 +41,22 @@ const PROCEDURE_TYPES: FinancialProcedure['procedureType'][] = [
 ];
 
 export const ProceduresDebtsScreen: React.FC = () => {
+  const { isSmallPhone } = useResponsiveLayout();
+  const [submissionKey, setSubmissionKey] = useState(nextSubmissionKey);
   const {
     state,
     theme,
+    addContact,
     addDebt,
     addDebtInstallment,
+    deleteDebtInstallment,
     deleteDebt,
     addProcedure,
     toggleProcedureStage,
     addProcedureStage,
     deleteProcedure,
   } = useMali();
+
 
   const [activeTab, setActiveTab] = useState<'debts' | 'procedures'>('debts');
 
@@ -52,12 +69,20 @@ export const ProceduresDebtsScreen: React.FC = () => {
   );
   const [debtCurrency, setDebtCurrency] = useState<Currency>('LYD');
   const [debtAmount, setDebtAmount] = useState('');
-  const [debtDueDate, setDebtDueDate] = useState('2026-11-01');
-  const [affectWallet, setAffectWallet] = useState(false);
+  const [debtDueDate, setDebtDueDate] = useState('');
+  const [affectWallet, setAffectWallet] = useState(true);
   const [selectedWalletId, setSelectedWalletId] = useState(
-    state.accounts[0]?.id || ''
+    state.accounts.find((a) => a.currency === 'LYD')?.id || state.accounts[0]?.id || ''
   );
   const [debtNotes, setDebtNotes] = useState('');
+  const [debtError, setDebtError] = useState<string | null>(null);
+  const [contactSelectionMode, setContactSelectionMode] = useState<'existing' | 'new'>(
+    state.contacts.length > 0 ? 'existing' : 'new'
+  );
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [newContactRole, setNewContactRole] = useState<ContactRole>('شخصي / عميل');
+  const [profileModalContact, setProfileModalContact] = useState<ContactPerson | null>(null);
 
   // Debt Installment Modal State
   const [activeDebtForPay, setActiveDebtForPay] = useState<DebtRecord | null>(
@@ -68,6 +93,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const [installmentMethod, setInstallmentMethod] =
     useState<PaymentMethodType>('cash');
   const [installmentNotes, setInstallmentNotes] = useState('');
+  const [installmentSettlementType, setInstallmentSettlementType] =
+    useState<DebtSettlementType>('cash');
+  const [nonCashReason, setNonCashReason] = useState('');
 
   // New Procedure Modal State
   const [newProcModal, setNewProcModal] = useState(false);
@@ -78,8 +106,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
   const [procBank, setProcBank] = useState('');
   const [procRef, setProcRef] = useState('');
   const [procAmt, setProcAmt] = useState('');
-  const [procCurrency, setProcCurrency] = useState<Currency>('LYD');
-  const [procDueDate, setProcDueDate] = useState('2026-10-25');
+  const [procCurrency] = useState<Currency>('LYD');
+  const [procDueDate, setProcDueDate] = useState('');
   const [procStagesText, setProcStagesText] = useState(
     'تجهيز المستندات وتقديم الطلب\nمراجعة المصرف والمطابقة\nإتمام الإجراء ونزول القيمة بالحساب'
   );
@@ -90,6 +118,16 @@ export const ProceduresDebtsScreen: React.FC = () => {
     null
   );
   const [newStageTitle, setNewStageTitle] = useState('');
+
+  const { submit, saving, error: submissionError, reject, fieldRef } = useFinancialSubmission(() => {
+    setSubmissionKey(nextSubmissionKey()); setNewDebtModal(false); setActiveDebtForPay(null); setNewProcModal(false); setAddingStageProcId(null);
+    setPersonName(''); setPhone(''); setDebtAmount(''); setDebtNotes(''); setDebtDueDate(''); setDebtError(null);
+    setSelectedWalletId(state.accounts.find((a) => a.currency === 'LYD')?.id || state.accounts[0]?.id || '');
+    setInstallmentAmt(''); setInstallmentNotes(''); setInstallmentAccId('');
+    setInstallmentSettlementType('cash'); setNonCashReason('');
+    setProcTitle(''); setProcBank(''); setProcRef(''); setProcAmt(''); setProcNotes(''); setProcDueDate(''); setNewStageTitle('');
+    setAffectWallet(true); setProcStagesText('');
+  });
 
   // Totals for Debts
   const receivableLyd = state.debts
@@ -128,20 +166,69 @@ export const ProceduresDebtsScreen: React.FC = () => {
     )
     .reduce((s, d) => s + d.remainingAmount, 0);
 
-  const handleSaveDebt = () => {
-    const amt = parseFloat(debtAmount) || 0;
-    if (!personName.trim() || amt <= 0) return;
-    const validWallet = state.accounts.find(
-      (a) => a.id === selectedWalletId && a.currency === debtCurrency
-    );
-    const fallbackWallet = state.accounts.find(
-      (a) => a.currency === debtCurrency
-    );
-    const chosenWallet = validWallet || fallbackWallet;
+  const handleSaveDebt = async () => {
+    let resolvedContactId: string | undefined = undefined;
+    let finalPersonName = personName.trim();
+    let finalPhone = phone.trim() || undefined;
 
-    addDebt({
-      personName: personName.trim(),
-      phone: phone.trim() || undefined,
+    if (contactSelectionMode === 'existing') {
+      const existing = state.contacts.find((c) => c.id === selectedContactId);
+      if (!existing) {
+        setDebtError('يرجى اختيار شخص من قائمة المتعاملين المسجلين، أو التبديل لإنشاء شخص جديد.');
+        return reject('اختر شخصاً مسجلاً أو أنشئ شخصاً جديداً.', 'personName');
+      }
+      resolvedContactId = existing.id;
+      finalPersonName = existing.name;
+      finalPhone = existing.phone || finalPhone;
+    } else {
+      if (!finalPersonName) {
+        setDebtError('أدخل اسم الشخص الجديد ثم أعد الحفظ.');
+        return reject('أدخل اسم صاحب الدين ثم أعد الحفظ.', 'personName');
+      }
+      const existingContact = state.contacts.find(
+        (c) => c.name.trim().toLowerCase() === finalPersonName.toLowerCase()
+      );
+      if (existingContact) {
+        resolvedContactId = existingContact.id;
+      } else {
+        await addContact({
+          name: finalPersonName,
+          phone: finalPhone || '',
+          role: newContactRole,
+          notes: debtNotes.trim() || undefined,
+        });
+      }
+    }
+
+    const amt = parseFinancialInput(debtAmount);
+    if (amt === null || amt <= 0) return reject('أدخل مبلغ دين صحيحاً أكبر من صفر.', 'debtAmount');
+    setDebtError(null);
+
+    let chosenWallet = undefined;
+    if (affectWallet) {
+      const validWallet = state.accounts.find(
+        (a) => a.id === selectedWalletId && a.currency === debtCurrency
+      );
+      if (!validWallet) {
+        setDebtError('اختر الخزينة المالية لإتمام الحركة، أو ألغِ تحديث الرصيد لتسجيل رصيد دين سابق.');
+        return reject('اختر الخزينة المالية أو ألغِ تحديث الرصيد لتسجيل دين سابق.', 'selectedWalletId');
+      }
+      if (direction === 'receivable') {
+        const disburse = canDisburseFromAccount(validWallet, amt);
+        if (!disburse.allowed) {
+          const err = `رصيد الخزينة (${formatMoney(disburse.available, debtCurrency)}) غير كافٍ لصرف القرض (${formatMoney(amt, debtCurrency)})! العجز: ${formatMoney(disburse.deficit, debtCurrency)}. (السحب على المكشوف غير مصرح به)`;
+          setDebtError(err);
+          return reject(err, 'debtAmount');
+        }
+      }
+      chosenWallet = validWallet;
+    }
+
+    if (!await submit(() => addDebt({
+      idempotencyKey: submissionKey + ":addDebt",
+      contactId: resolvedContactId,
+      personName: finalPersonName,
+      phone: finalPhone,
       direction,
       currency: debtCurrency,
       totalAmount: amt,
@@ -150,49 +237,113 @@ export const ProceduresDebtsScreen: React.FC = () => {
       affectAccountId:
         affectWallet && chosenWallet ? chosenWallet.id : undefined,
       paymentMethod: chosenWallet?.isCash === false ? 'transfer' : 'cash',
-    });
+    }))) return;
+    setSubmissionKey(nextSubmissionKey());
     setPersonName('');
     setPhone('');
+    setSelectedContactId(null);
+    setContactSearchQuery('');
     setDebtAmount('');
+    setDebtDueDate('');
     setDebtNotes('');
+    setAffectWallet(true);
     setNewDebtModal(false);
   };
 
-  const handleSaveInstallment = () => {
-    if (!activeDebtForPay) return;
-    const amt = parseFloat(installmentAmt) || 0;
-    if (amt <= 0) return;
 
-    addDebtInstallment({
-      debtId: activeDebtForPay.id,
-      amount: amt,
-      accountId: installmentAccId || undefined,
-      paymentMethod: installmentMethod,
-      notes: installmentNotes.trim() || undefined,
-    });
+  const handleSaveInstallment = async () => {
+    if (!activeDebtForPay) return reject('اختر الدين الذي تريد تسجيل الدفعة له.');
+    const amt = parseFinancialInput(installmentAmt);
+    if (amt === null || amt <= 0) return reject('أدخل مبلغ دفعة صحيحاً أكبر من صفر.', 'installmentAmt');
+    if (amt > activeDebtForPay.remainingAmount) {
+      return reject(`قيمة الدفعة (${formatMoney(amt, activeDebtForPay.currency)}) تتجاوز المبلغ المتبقي (${formatMoney(activeDebtForPay.remainingAmount, activeDebtForPay.currency)}).`, 'installmentAmt');
+    }
+
+    if (installmentSettlementType === 'non_cash') {
+      const reason = nonCashReason.trim() || installmentNotes.trim();
+      if (!reason) {
+        return reject('يرجى تحديد أو كتابة سبب وتفاصيل التسوية غير النقدية.', 'nonCashReason');
+      }
+      if (!await submit(() => addDebtInstallment({
+        idempotencyKey: submissionKey + ":addDebtInstallment",
+        debtId: activeDebtForPay.id,
+        amount: amt,
+        settlementType: 'non_cash',
+        isNonCash: true,
+        nonCashReason: reason,
+        notes: installmentNotes.trim() || undefined,
+        paymentMethod: 'cash',
+      }))) return;
+    } else {
+      // Cash installment: Treasury is strictly mandatory
+      const matchingAccs = state.accounts.filter(
+        (a) => a.currency === activeDebtForPay.currency
+      );
+      if (matchingAccs.length === 0) {
+        return reject(
+          `لا توجد خزينة مسجلة بعملة الدين (${activeDebtForPay.currency}). يرجى إنشاء خزينة بهذه العملة أولاً لتسجيل دفعة نقدية، أو اختيار 'تسوية غير نقدية / مقاصة'.`,
+          'installmentAccId'
+        );
+      }
+      if (!installmentAccId) {
+        return reject('اختر الخزينة التي تمت من خلالها حركة الدفعة.', 'installmentAccId');
+      }
+      const chosenAcc = matchingAccs.find((a) => a.id === installmentAccId);
+      if (!chosenAcc) {
+        return reject('اختر خزينة صالحة بنفس عملة الدين.', 'installmentAccId');
+      }
+
+      if (activeDebtForPay.direction === 'payable') {
+        const disburse = canDisburseFromAccount(chosenAcc, amt);
+        if (!disburse.allowed) {
+          return reject(
+            `رصيد الخزينة (${formatMoney(disburse.available, activeDebtForPay.currency)}) غير كافٍ لسداد هذا القسط (${formatMoney(amt, activeDebtForPay.currency)})! العجز: ${formatMoney(disburse.deficit, activeDebtForPay.currency)}. (السحب على المكشوف غير مصرح به لهذه الخزينة)`,
+            'installmentAmt'
+          );
+        }
+      }
+
+      if (!await submit(() => addDebtInstallment({
+        idempotencyKey: submissionKey + ":addDebtInstallment",
+        debtId: activeDebtForPay.id,
+        amount: amt,
+        accountId: chosenAcc.id,
+        settlementType: 'cash',
+        isNonCash: false,
+        paymentMethod: installmentMethod,
+        notes: installmentNotes.trim() || undefined,
+      }))) return;
+    }
+
+    setSubmissionKey(nextSubmissionKey());
     setActiveDebtForPay(null);
     setInstallmentAmt('');
     setInstallmentNotes('');
+    setInstallmentAccId('');
+    setInstallmentSettlementType('cash');
+    setNonCashReason('');
   };
 
-  const handleSaveProcedure = () => {
-    if (!procTitle.trim()) return;
+  const handleSaveProcedure = async () => {
+    if (!procTitle.trim()) return reject('أدخل عنوان الإجراء المالي ثم أعد الحفظ.', 'procTitle');
+    const amt = procAmt.trim() ? parseFinancialInput(procAmt) : undefined;
+    if (amt === null || (amt !== undefined && amt < 0)) return reject('أدخل مبلغ إجراء صحيحاً لا يقل عن صفر أو اتركه فارغاً.', 'procAmt');
     const stages = procStagesText
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
 
-    addProcedure({
+    if (!await submit(() => addProcedure({
       title: procTitle.trim(),
       procedureType: procType,
       bankOrEntity: procBank.trim() || 'مصرف / جهة مالية',
       referenceNumber: procRef.trim() || undefined,
-      amount: parseFloat(procAmt) || undefined,
+      amount: amt,
       currency: procCurrency,
       dueDate: procDueDate.trim() || undefined,
       stages,
       notes: procNotes.trim() || undefined,
-    });
+    }))) return;
 
     setProcTitle('');
     setProcBank('');
@@ -207,14 +358,15 @@ export const ProceduresDebtsScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
+      <FinancialSaveNotice error={submissionError} />
       {/* Sub-navigation Tabs */}
-      <View
+      <View accessibilityRole="tablist" accessibilityLabel="الديون والإجراءات المالية"
         style={[
           styles.subTabs,
           { backgroundColor: theme.cardAlt, borderColor: theme.border },
         ]}
       >
-        <TouchableOpacity
+        <TouchableOpacity aria-selected={activeTab === 'debts'} accessibilityRole="tab" accessibilityState={{ disabled: saving, selected: activeTab === 'debts' }} disabled={saving}
           style={[
             styles.subTab,
             activeTab === 'debts' && {
@@ -224,6 +376,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               shadowRadius: 4,
               elevation: 1,
             },
+            styles.touchTarget,
           ]}
           onPress={() => setActiveTab('debts')}
         >
@@ -248,7 +401,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity aria-selected={activeTab === 'procedures'} accessibilityRole="tab" accessibilityState={{ disabled: saving, selected: activeTab === 'procedures' }} disabled={saving}
           style={[
             styles.subTab,
             activeTab === 'procedures' && {
@@ -258,6 +411,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               shadowRadius: 4,
               elevation: 1,
             },
+            styles.touchTarget,
           ]}
           onPress={() => setActiveTab('procedures')}
         >
@@ -288,7 +442,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
       {activeTab === 'debts' ? (
         <>
           {/* Debts KPI Cards */}
-          <View style={styles.kpiRow}>
+          <View style={[styles.kpiRow, isSmallPhone && { flexDirection: 'column' }]}>
             <View
               style={[
                 styles.kpiCard,
@@ -334,12 +488,20 @@ export const ProceduresDebtsScreen: React.FC = () => {
             </View>
           </View>
 
-          <TouchableOpacity
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
             style={[
               styles.primaryActionBtn,
               { backgroundColor: theme.primary },
+              styles.touchTarget,
             ]}
-            onPress={() => setNewDebtModal(true)}
+            onPress={() => {
+              const defaultAcc = state.accounts.find((a) => a.currency === debtCurrency);
+              if (defaultAcc) {
+                setSelectedWalletId(defaultAcc.id);
+              }
+              setContactSelectionMode(state.contacts.length > 0 ? 'existing' : 'new');
+              setNewDebtModal(true);
+            }}
           >
             <Ionicons name="add-circle" size={20} color="#FFFFFF" />
             <Text style={styles.primaryActionBtnText}>
@@ -348,7 +510,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
           </TouchableOpacity>
 
           {/* Debts List */}
-          {state.debts.map((debt) => {
+          {<PagedRows items={state.debts} label="الديون" disabled={saving}>{(debt) => {
             const pct =
               debt.totalAmount > 0
                 ? Math.min(
@@ -357,6 +519,9 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   )
                 : 0;
             const isReceivable = debt.direction === 'receivable';
+            const originAccount = debt.accountId
+              ? state.accounts.find((a) => a.id === debt.accountId)
+              : undefined;
 
             return (
               <View
@@ -391,6 +556,57 @@ export const ProceduresDebtsScreen: React.FC = () => {
                             : 'دين / أمانة عليّ للغير'}
                         </Text>
                       </View>
+                      {originAccount ? (
+                        <View
+                          style={[
+                            styles.treasuryBadge,
+                            {
+                              backgroundColor: theme.cardAlt,
+                              borderColor: theme.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name={originAccount.isCash ? 'cash-outline' : 'card-outline'}
+                            size={12}
+                            color={theme.primary}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: theme.textSecondary,
+                            }}
+                          >
+                            {isReceivable
+                              ? `صُرف من: ${originAccount.name}`
+                              : `أُودع في: ${originAccount.name}`}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.treasuryBadge,
+                            {
+                              backgroundColor: theme.cardAlt,
+                              borderColor: theme.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="document-text-outline"
+                            size={12}
+                            color={theme.textMuted}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              color: theme.textMuted,
+                            }}
+                          >
+                            رصيد سابق (بدون خزينة)
+                          </Text>
+                        </View>
+                      )}
                       {debt.dueDate && (
                         <Text
                           style={[
@@ -403,9 +619,41 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       )}
                     </View>
 
-                    <Text style={[styles.cardTitle, { color: theme.text }]}>
-                      {debt.personName}
-                    </Text>
+                    <View style={styles.debtPersonRow}>
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>
+                        {debt.personName}
+                      </Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.profilePillBtn,
+                          {
+                            backgroundColor: theme.primary + '18',
+                            borderColor: theme.primary + '40',
+                          },
+                        ]}
+                        onPress={() => {
+                          const matching = state.contacts.find(
+                            (c) =>
+                              c.id === debt.contactId ||
+                              (c.name &&
+                                c.name.trim().toLowerCase() ===
+                                  debt.personName.trim().toLowerCase())
+                          ) || {
+                            id: debt.contactId || debt.personName,
+                            name: debt.personName,
+                            phone: debt.phone || '',
+                            role: 'شخصي / عميل' as const,
+                            createdAt: debt.createdAt,
+                          };
+                          setProfileModalContact(matching);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`عرض الملف المالي لـ ${debt.personName}`}
+                      >
+                        <Ionicons name="folder-open-outline" size={13} color={theme.primary} />
+                        <Text style={[styles.profilePillText, { color: theme.primary }]}>الملف المالي</Text>
+                      </TouchableOpacity>
+                    </View>
                     {debt.notes ? (
                       <Text
                         style={[styles.cardSub, { color: theme.textSecondary }]}
@@ -493,30 +741,65 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     >
                       دفعات التسديد المسجلة ({debt.installments.length}):
                     </Text>
-                    {debt.installments.map((inst) => (
-                      <View key={inst.id} style={styles.instRow}>
-                        <Text
-                          style={[
-                            styles.instText,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          • {inst.date}: دفعة بقيمة{' '}
-                          {formatMoney(inst.amount, debt.currency)} (
-                          {getPaymentMethodLabel(inst.paymentMethod)})
-                          {inst.notes ? ` - ${inst.notes}` : ''}
-                        </Text>
-                      </View>
-                    ))}
+                    {<PagedRows items={debt.installments} label="دفعات الدين" disabled={saving} resetKey={debt.id} pageSize={10}>{(inst) => {
+                      const instAcc = inst.accountId
+                        ? state.accounts.find((a) => a.id === inst.accountId)
+                        : undefined;
+                      const isNonCash = inst.isNonCash || inst.settlementType === 'non_cash';
+                      return (
+                        <View key={inst.id} style={[styles.instRow, { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center' }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                styles.instText,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              • {inst.date}: دفعة بقيمة{' '}
+                              <Text style={{ fontWeight: 'bold', color: theme.text }}>
+                                {formatMoney(inst.amount, debt.currency)}
+                              </Text>
+                              {isNonCash ? (
+                                <Text style={{ color: '#8B5CF6', fontWeight: 'bold' }}>
+                                  {' '}• [تسوية غير نقدية: {inst.nonCashReason || 'مقاصة'}]
+                                </Text>
+                              ) : (
+                                <>
+                                  {' '}({getPaymentMethodLabel(inst.paymentMethod)})
+                                  {instAcc ? (
+                                    <Text style={{ color: theme.primary, fontWeight: '600' }}>
+                                      {' '}• {isReceivable ? `أُودعت في: ${instAcc.name}` : `دُفعت من: ${instAcc.name}`}
+                                    </Text>
+                                  ) : null}
+                                </>
+                              )}
+                              {inst.notes ? ` - ${inst.notes}` : ''}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel={`حذف دفعة ${formatMoney(inst.amount, debt.currency)}`}
+                            disabled={saving}
+                            style={[styles.touchTarget, { padding: 6, marginLeft: 8 }]}
+                            onPress={async () => {
+                              await submit(() => deleteDebtInstallment(debt.id, inst.id));
+                            }}
+                          >
+                            <Ionicons name="trash-outline" size={16} color={theme.danger} />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    }}</PagedRows>}
                   </View>
                 )}
 
                 <View style={styles.cardActions}>
                   {debt.remainingAmount > 0 && (
-                    <TouchableOpacity
+                    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                       style={[
                         styles.payInstallmentBtn,
                         { backgroundColor: theme.primary },
+                        styles.touchTarget,
                       ]}
                       onPress={() => {
                         const matchingAccs = state.accounts.filter(
@@ -525,6 +808,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         setActiveDebtForPay(debt);
                         setInstallmentAmt(String(debt.remainingAmount));
                         setInstallmentAccId(matchingAccs[0]?.id || '');
+                        setInstallmentSettlementType('cash');
+                        setNonCashReason('');
                       }}
                     >
                       <Ionicons
@@ -539,16 +824,16 @@ export const ProceduresDebtsScreen: React.FC = () => {
                       </Text>
                     </TouchableOpacity>
                   )}
-
-                  <TouchableOpacity
+                  <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`حذف دين ${debt.personName}`} disabled={saving}
                     style={[
                       styles.deleteBtn,
                       {
                         backgroundColor: theme.dangerSoft,
                         borderColor: theme.danger,
                       },
+                      styles.touchTarget,
                     ]}
-                    onPress={() => deleteDebt(debt.id)}
+                    onPress={async () => await submit(() => deleteDebt(debt.id))}
                   >
                     <Ionicons
                       name="trash-outline"
@@ -559,15 +844,16 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 </View>
               </View>
             );
-          })}
+          }}</PagedRows>}
         </>
       ) : (
         /* Financial Procedures Tab */
         <>
-          <TouchableOpacity
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
             style={[
               styles.primaryActionBtn,
               { backgroundColor: theme.primary },
+              styles.touchTarget,
             ]}
             onPress={() => setNewProcModal(true)}
           >
@@ -577,7 +863,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
             </Text>
           </TouchableOpacity>
 
-          {state.procedures.map((proc) => {
+          {<PagedRows items={state.procedures} label="الإجراءات" disabled={saving}>{(proc) => {
             const doneCount = proc.stages.filter((s) => s.completed).length;
             const totalCount = proc.stages.length || 1;
             const pct = Math.round((doneCount / totalCount) * 100);
@@ -687,14 +973,15 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     </Text>
                   </View>
 
-                  {proc.stages.map((st) => (
-                    <TouchableOpacity
+                  {<PagedRows items={proc.stages} label="مراحل الإجراء" disabled={saving} resetKey={proc.id} pageSize={10}>{(st) => (
+                    <TouchableOpacity aria-checked={st.completed} accessibilityRole="checkbox" accessibilityState={{ disabled: saving, checked: st.completed }} accessibilityLabel={`${proc.title}: ${st.title}`} disabled={saving}
                       key={st.id}
                       style={[
                         styles.stageRow,
                         { borderBottomColor: theme.border },
+                        styles.touchTarget,
                       ]}
-                      onPress={() => toggleProcedureStage(proc.id, st.id)}
+                      onPress={async () => await submit(() => toggleProcedureStage(proc.id, st.id))}
                     >
                       <Ionicons
                         name={st.completed ? 'checkbox' : 'square-outline'}
@@ -723,11 +1010,11 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         </Text>
                       )}
                     </TouchableOpacity>
-                  ))}
+                  )}</PagedRows>}
 
                   {addingStageProcId === proc.id ? (
                     <View style={styles.addStageInline}>
-                      <TextInput
+                      <TextInput accessibilityLabel="اسم المرحلة الجديدة" ref={fieldRef('newStageTitle')} editable={!saving}
                         style={[
                           styles.input,
                           {
@@ -737,19 +1024,22 @@ export const ProceduresDebtsScreen: React.FC = () => {
                             borderColor: theme.border,
                             color: theme.text,
                           },
+                          styles.touchTarget,
                         ]}
                         value={newStageTitle}
                         onChangeText={setNewStageTitle}
                         placeholder="اكتب اسم المرحلة الجديدة..."
                         placeholderTextColor={theme.textMuted}
                       />
-                      <TouchableOpacity
+                      <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                         style={[
                           styles.inlineSaveBtn,
                           { backgroundColor: theme.primary },
+                          styles.touchTarget,
                         ]}
-                        onPress={() => {
-                          addProcedureStage(proc.id, newStageTitle);
+                        onPress={async () => {
+                          if (!newStageTitle.trim()) return reject('أدخل اسم المرحلة الجديدة.', 'newStageTitle');
+                          if (!await submit(() => addProcedureStage(proc.id, newStageTitle))) return;
                           setNewStageTitle('');
                           setAddingStageProcId(null);
                         }}
@@ -759,7 +1049,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     </View>
                   ) : (
                     <View style={styles.procFooterRow}>
-                      <TouchableOpacity
+                      <TouchableOpacity style={styles.touchTarget} accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                         onPress={() => setAddingStageProcId(proc.id)}
                       >
                         <Text
@@ -768,8 +1058,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                           + إضافة خطوة أو مرحلة جديدة
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => deleteProcedure(proc.id)}
+                      <TouchableOpacity style={styles.touchTarget} accessibilityRole="button" accessibilityState={{ disabled: saving }} accessibilityLabel={`حذف إجراء ${proc.title}`} disabled={saving}
+                        onPress={async () => await submit(() => deleteProcedure(proc.id))}
                       >
                         <Ionicons
                           name="trash-outline"
@@ -782,7 +1072,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 </View>
               </View>
             );
-          })}
+          }}</PagedRows>}
         </>
       )}
 
@@ -793,7 +1083,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setNewDebtModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -805,11 +1096,12 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 تسجيل دين جديد أو أمانة مالية
               </Text>
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="نوع الدين / الأمانة:"
                 value={direction}
                 options={[
@@ -831,23 +1123,204 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 onSelect={(val) => setDirection(val as 'receivable' | 'payable')}
               />
 
-              <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
-                اسم الشخص أو الجهة
-              </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.inputBg,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                value={personName}
-                onChangeText={setPersonName}
-                placeholder="مثال: محمد السنوسي / شركة..."
-                placeholderTextColor={theme.textMuted}
-              />
+              {/* Person Selection Mode Segmented Selector */}
+              <View style={[styles.contactModeSelector, { backgroundColor: theme.cardAlt, borderColor: theme.border }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.contactModeTab,
+                    contactSelectionMode === 'existing' && [styles.contactModeTabActive, { backgroundColor: theme.card }],
+                  ]}
+                  onPress={() => {
+                    setContactSelectionMode('existing');
+                    setDebtError(null);
+                  }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: contactSelectionMode === 'existing' }}
+                >
+                  <Ionicons
+                    name="people-outline"
+                    size={16}
+                    color={contactSelectionMode === 'existing' ? theme.primary : theme.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.contactModeTabText,
+                      { color: contactSelectionMode === 'existing' ? theme.primary : theme.textSecondary },
+                    ]}
+                  >
+                    شخص مسجل ({state.contacts.length})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.contactModeTab,
+                    contactSelectionMode === 'new' && [styles.contactModeTabActive, { backgroundColor: theme.card }],
+                  ]}
+                  onPress={() => {
+                    setContactSelectionMode('new');
+                    setSelectedContactId(null);
+                    setDebtError(null);
+                  }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: contactSelectionMode === 'new' }}
+                >
+                  <Ionicons
+                    name="person-add-outline"
+                    size={16}
+                    color={contactSelectionMode === 'new' ? theme.primary : theme.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.contactModeTabText,
+                      { color: contactSelectionMode === 'new' ? theme.primary : theme.textSecondary },
+                    ]}
+                  >
+                    إنشاء شخص جديد
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {contactSelectionMode === 'existing' ? (
+                <View style={styles.existingContactContainer}>
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                    اختر المتعامل من القائمة أو ابحث باسمه/هاتفه
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text },
+                      styles.touchTarget,
+                    ]}
+                    value={contactSearchQuery}
+                    onChangeText={setContactSearchQuery}
+                    placeholder="ابحث بالاسم أو رقم الهاتف..."
+                    placeholderTextColor={theme.textMuted}
+                    accessibilityLabel="بحث في المتعاملين"
+                  />
+
+                  {/* Filtered contacts list */}
+                  <ScrollView
+                    nestedScrollEnabled
+                    style={[styles.contactPickerList, { maxHeight: 150, borderColor: theme.border }]}
+                  >
+                    {state.contacts
+                      .filter((c) => {
+                        if (!contactSearchQuery.trim()) return true;
+                        const q = contactSearchQuery.trim().toLowerCase();
+                        return (
+                          c.name.toLowerCase().includes(q) ||
+                          c.phone.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((c) => {
+                        const isSelected = selectedContactId === c.id;
+                        return (
+                          <TouchableOpacity
+                            key={c.id}
+                            style={[
+                              styles.contactPickerItem,
+                              {
+                                backgroundColor: isSelected ? theme.primary + '18' : theme.cardAlt,
+                                borderColor: isSelected ? theme.primary : theme.border,
+                              },
+                            ]}
+                            onPress={() => {
+                              setSelectedContactId(c.id);
+                              setPersonName(c.name);
+                              setPhone(c.phone || '');
+                              setDebtError(null);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`اختيار المتعامل ${c.name}`}
+                          >
+                            <Ionicons
+                              name={isSelected ? 'checkmark-circle' : 'person-outline'}
+                              size={18}
+                              color={isSelected ? theme.primary : theme.textSecondary}
+                            />
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text style={[styles.contactPickerName, { color: theme.text, fontWeight: isSelected ? 'bold' : 'normal' }]}>
+                                {c.name}
+                              </Text>
+                              <Text style={[styles.contactPickerSub, { color: theme.textSecondary }]}>
+                                {c.phone ? `${c.phone} • ` : ''}{c.role}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+
+                  {selectedContactId ? (
+                    <View style={[styles.selectedContactBadge, { backgroundColor: theme.primary + '15', borderColor: theme.primary }]}>
+                      <Ionicons name="checkmark-done-circle" size={18} color={theme.primary} />
+                      <Text style={[styles.selectedContactText, { color: theme.primary }]}>
+                        تم الربط بملف: {state.contacts.find((c) => c.id === selectedContactId)?.name}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.unselectedWarningText, { color: theme.warning }]}>
+                      ⚠️ يرجى النقر على شخص من القائمة أعلاه لربط الدين بملفه المالي.
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.newContactContainer}>
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                    اسم الشخص أو الجهة *
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="اسم صاحب الدين"
+                    ref={fieldRef('personName')}
+                    editable={!saving}
+                    style={[
+                      styles.input,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text },
+                      styles.touchTarget,
+                    ]}
+                    value={personName}
+                    onChangeText={setPersonName}
+                    placeholder="مثال: محمد السنوسي / شركة الأمل..."
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                    رقم الهاتف (اختياري)
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="رقم هاتف صاحب الدين"
+                    ref={fieldRef('phone')}
+                    editable={!saving}
+                    keyboardType="phone-pad"
+                    style={[
+                      styles.input,
+                      { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text },
+                      styles.touchTarget,
+                    ]}
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="091xxxxxxx"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <CalmDropdown
+                    disabled={saving}
+                    label="نوع العلاقة مع الشخص:"
+                    value={newContactRole}
+                    options={[
+                      { value: 'شخصي / عميل', label: 'شخصي / عميل', icon: 'person-outline', badgeColor: theme.primary },
+                      { value: 'شركة / مورد', label: 'شركة / مورد', icon: 'business-outline', badgeColor: theme.warning },
+                      { value: 'تاجر عملة', label: 'تاجر عملة', icon: 'cash-outline', badgeColor: theme.blue },
+                      { value: 'مكتب صرافة', label: 'مكتب صرافة', icon: 'storefront-outline', badgeColor: '#8B5CF6' },
+                      { value: 'شريك تجاري', label: 'شريك تجاري', icon: 'hand-left-outline', badgeColor: theme.success },
+                    ]}
+                    onSelect={(val) => setNewContactRole(val as ContactRole)}
+                  />
+                </View>
+              )}
+              {debtError && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={{ color: theme.danger, textAlign: 'right' }}>{debtError}</Text>}
+
 
               <View style={styles.twoColRow}>
                 <View style={{ flex: 2 }}>
@@ -856,7 +1329,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المبلغ الكلي
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="قيمة الدين" ref={fieldRef('debtAmount')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -864,6 +1337,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={debtAmount}
@@ -873,7 +1347,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <CalmDropdown
+                  <CalmDropdown disabled={saving}
                     label="العملة"
                     value={debtCurrency}
                     options={[
@@ -907,7 +1381,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 تاريخ الاستحقاق / التذكير
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="تاريخ استحقاق الدين" ref={fieldRef('debtDueDate')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -915,6 +1389,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={debtDueDate}
                 onChangeText={setDebtDueDate}
@@ -922,8 +1397,103 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 placeholderTextColor={theme.textMuted}
               />
 
+              {affectWallet ? (
+                <>
+                  <CalmDropdown
+                    disabled={saving}
+                    label={
+                      direction === 'receivable'
+                        ? 'الخزينة التي تم إعطاء المبلغ منها (سيتم الخصم منها):'
+                        : 'الخزينة التي استلمت المبلغ فيها (سيتم الإيداع فيها):'
+                    }
+                    value={selectedWalletId}
+                    options={state.accounts
+                      .filter((a) => a.currency === debtCurrency)
+                      .map((acc) => ({
+                        value: acc.id,
+                        label: acc.name,
+                        subLabel: `الرصيد: ${formatMoney(acc.balance, acc.currency)} • ${
+                          acc.isCash ? 'نقدي كاش' : acc.bankName
+                        }`,
+                        icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                        badgeColor: acc.color,
+                      }))}
+                    onSelect={setSelectedWalletId}
+                  />
+
+                  {state.accounts.filter((a) => a.currency === debtCurrency).length === 0 && (
+                    <View style={[styles.balanceWarningBox, { borderColor: theme.warning }]}>
+                      <Text style={[styles.balanceWarningText, { color: theme.warning }]}>
+                        ⚠️ لا توجد خزينة مسجلة بعملة {debtCurrency}. يرجى إنشاء خزينة أولاً لإتمام حركة النقدية، أو تعطيل خيار تحديث الرصيد لتسجيل رصيد افتتاحي سابق.
+                      </Text>
+                    </View>
+                  )}
+
+                  {(() => {
+                    const amtVal = parseFinancialInput(debtAmount);
+                    const chosenAcc = state.accounts.find((a) => a.id === selectedWalletId);
+                    if (
+                      direction === 'receivable' &&
+                      chosenAcc &&
+                      amtVal !== null &&
+                      amtVal > 0
+                    ) {
+                      const check = canDisburseFromAccount(chosenAcc, amtVal);
+                      if (!check.allowed) {
+                        return (
+                          <View style={[styles.balanceWarningBox, { borderColor: theme.danger, backgroundColor: theme.danger + '15' }]}>
+                            <Text style={[styles.balanceWarningText, { color: theme.danger, fontWeight: 'bold' }]}>
+                              ⛔ عجز في رصيد الخزينة — السحب على المكشوف غير مصرح به!
+                            </Text>
+                            <Text style={{ color: theme.text, fontSize: 13, marginTop: 4 }}>
+                              • الرصيد المتاح: {formatMoney(check.available, debtCurrency)}
+                            </Text>
+                            <Text style={{ color: theme.text, fontSize: 13 }}>
+                              • المبلغ المطلوب صرفه: {formatMoney(amtVal, debtCurrency)}
+                            </Text>
+                            <Text style={{ color: theme.danger, fontSize: 13, fontWeight: 'bold' }}>
+                              • العجز المالي: {formatMoney(check.deficit, debtCurrency)}
+                            </Text>
+                          </View>
+                        );
+                      }
+                    }
+                    return null;
+                  })()}
+                </>
+              ) : (
+                <View
+                  style={[
+                    styles.infoBanner,
+                    {
+                      backgroundColor: theme.cardAlt,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color={theme.blue}
+                  />
+                  <Text
+                    style={[
+                      styles.infoBannerText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    وضع الرصيد السابق: لن تتأثر أي خزينة أو حساب مصرفي، وسيتم قيد الدين كإثبات محاسبي فقط.
+                  </Text>
+                </View>
+              )}
+
               <TouchableOpacity
-                style={styles.checkboxOption}
+                aria-checked={affectWallet}
+                accessibilityRole="checkbox"
+                accessibilityState={{ disabled: saving, checked: affectWallet }}
+                accessibilityLabel="تحديث رصيد الحساب عند تسجيل الدين"
+                disabled={saving}
+                style={[styles.checkboxOption, styles.touchTarget]}
                 onPress={() => setAffectWallet(!affectWallet)}
               >
                 <Ionicons
@@ -931,39 +1501,31 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   size={20}
                   color={theme.primary}
                 />
-                <Text
-                  style={[
-                    styles.checkboxLabel,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  تحديث رصيد الخزينة/الحساب فوراً بهذا المبلغ
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.checkboxLabel,
+                      { color: theme.text, fontWeight: '600' },
+                    ]}
+                  >
+                    {affectWallet
+                      ? (direction === 'receivable'
+                          ? 'تحديث رصيد الخزينة فوراً (خصم المبلغ من الخزينة)'
+                          : 'تحديث رصيد الخزينة فوراً (إيداع المبلغ في الخزينة)')
+                      : 'تسجيل رصيد دين سابق (بدون حركة نقدية في الخزينة)'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>
+                    {affectWallet
+                      ? 'ألغِ التحديد لتسجيل رصيد دين سابق/مرحل دون سحب أو إيداع كاش في الخزائن.'
+                      : 'تم تفعيل وضع الرصيد السابق: لن تتأثر أي خزينة أو حساب مصرفي.'}
+                  </Text>
+                </View>
               </TouchableOpacity>
-
-              {affectWallet && (
-                <CalmDropdown
-                  label="اختر الحساب لتحديث رصيده:"
-                  value={selectedWalletId}
-                  options={state.accounts
-                    .filter((a) => a.currency === debtCurrency)
-                    .map((acc) => ({
-                      value: acc.id,
-                      label: acc.name,
-                      subLabel: `${formatMoney(acc.balance, acc.currency)} • ${
-                        acc.isCash ? 'نقدي كاش' : acc.bankName
-                      }`,
-                      icon: acc.isCash ? 'cash-outline' : 'card-outline',
-                      badgeColor: acc.color,
-                    }))}
-                  onSelect={setSelectedWalletId}
-                />
-              )}
 
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات وتفاصيل الاتفاق
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="ملاحظات الدين" ref={fieldRef('debtNotes')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -971,6 +1533,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={debtNotes}
                 onChangeText={setDebtNotes}
@@ -979,13 +1542,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setNewDebtModal(false)}
                 >
@@ -998,8 +1562,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleSaveDebt}
                 >
                   <Text style={styles.saveBtnText}>حفظ السجل</Text>
@@ -1007,7 +1571,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 2: Record Debt Installment */}
@@ -1017,7 +1581,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setActiveDebtForPay(null)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <View
@@ -1026,11 +1591,13 @@ export const ProceduresDebtsScreen: React.FC = () => {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
-              {activeDebtForPay?.direction === 'receivable'
-                ? `تحصيل دفعة من: ${activeDebtForPay?.personName}`
-                : `سداد دفعة إلى: ${activeDebtForPay?.personName}`}
-            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
+                {activeDebtForPay?.direction === 'receivable'
+                  ? `تحصيل دفعة من: ${activeDebtForPay?.personName}`
+                  : `سداد دفعة إلى: ${activeDebtForPay?.personName}`}
+              </Text>
             <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
               المبلغ المتبقي حالياً:{' '}
               {formatMoney(
@@ -1039,10 +1606,105 @@ export const ProceduresDebtsScreen: React.FC = () => {
               )}
             </Text>
 
+            {/* اختيار نوع العملية: حركة نقدية أو تسوية غير نقدية / مقاصة */}
+            <View style={{ flexDirection: 'row-reverse', gap: 8, marginVertical: 10 }}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{ selected: installmentSettlementType === 'cash' }}
+                disabled={saving}
+                style={[
+                  styles.segmentBtn,
+                  styles.touchTarget,
+                  {
+                    flex: 1,
+                    backgroundColor:
+                      installmentSettlementType === 'cash'
+                        ? theme.primary
+                        : theme.cardAlt,
+                    borderColor:
+                      installmentSettlementType === 'cash'
+                        ? theme.primary
+                        : theme.border,
+                  },
+                ]}
+                onPress={() => setInstallmentSettlementType('cash')}
+              >
+                <Ionicons
+                  name="cash-outline"
+                  size={16}
+                  color={
+                    installmentSettlementType === 'cash'
+                      ? '#FFFFFF'
+                      : theme.textSecondary
+                  }
+                  style={{ marginLeft: 4 }}
+                />
+                <Text
+                  style={{
+                    color:
+                      installmentSettlementType === 'cash'
+                        ? '#FFFFFF'
+                        : theme.text,
+                    fontWeight:
+                      installmentSettlementType === 'cash' ? 'bold' : 'normal',
+                    fontSize: 12,
+                  }}
+                >
+                  حركة نقدية (خزينة)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{ selected: installmentSettlementType === 'non_cash' }}
+                disabled={saving}
+                style={[
+                  styles.segmentBtn,
+                  styles.touchTarget,
+                  {
+                    flex: 1,
+                    backgroundColor:
+                      installmentSettlementType === 'non_cash'
+                        ? '#8B5CF6'
+                        : theme.cardAlt,
+                    borderColor:
+                      installmentSettlementType === 'non_cash'
+                        ? '#8B5CF6'
+                        : theme.border,
+                  },
+                ]}
+                onPress={() => setInstallmentSettlementType('non_cash')}
+              >
+                <Ionicons
+                  name="git-compare-outline"
+                  size={16}
+                  color={
+                    installmentSettlementType === 'non_cash'
+                      ? '#FFFFFF'
+                      : theme.textSecondary
+                  }
+                  style={{ marginLeft: 4 }}
+                />
+                <Text
+                  style={{
+                    color:
+                      installmentSettlementType === 'non_cash'
+                        ? '#FFFFFF'
+                        : theme.text,
+                    fontWeight:
+                      installmentSettlementType === 'non_cash' ? 'bold' : 'normal',
+                    fontSize: 12,
+                  }}
+                >
+                  تسوية غير نقدية (مقاصة)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               قيمة الدفعة المسددة الآن
             </Text>
-            <TextInput
+            <TextInput accessibilityLabel="قيمة الدفعة" ref={fieldRef('installmentAmt')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1050,37 +1712,147 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               keyboardType="numeric"
               value={installmentAmt}
               onChangeText={setInstallmentAmt}
             />
 
-            <CalmDropdown
-              label={
-                activeDebtForPay?.direction === 'receivable'
-                  ? 'إيداع المبلغ المحصل في حساب:'
-                  : 'خصم المبلغ المسدد من حساب:'
+            {(() => {
+              const instAmtVal = parseFinancialInput(installmentAmt);
+              if (activeDebtForPay && instAmtVal !== null && instAmtVal > activeDebtForPay.remainingAmount) {
+                return (
+                  <View style={[styles.balanceWarningBox, { borderColor: theme.danger, backgroundColor: theme.danger + '15' }]}>
+                    <Text style={[styles.balanceWarningText, { color: theme.danger }]}>
+                      ⚠️ تنبيه: قيمة الدفعة تتجاوز المبلغ المتبقي ({formatMoney(activeDebtForPay.remainingAmount, activeDebtForPay.currency)})!
+                    </Text>
+                  </View>
+                );
               }
-              value={installmentAccId}
-              options={state.accounts
-                .filter((a) => a.currency === activeDebtForPay?.currency)
-                .map((acc) => ({
-                  value: acc.id,
-                  label: acc.name,
-                  subLabel: `${formatMoney(acc.balance, acc.currency)} • ${
-                    acc.isCash ? 'نقدي كاش' : acc.bankName
-                  }`,
-                  icon: acc.isCash ? 'cash-outline' : 'card-outline',
-                  badgeColor: acc.color,
-                }))}
-              onSelect={setInstallmentAccId}
-            />
+              return null;
+            })()}
+
+            {installmentSettlementType === 'cash' ? (
+              <>
+                {state.accounts.filter((a) => a.currency === activeDebtForPay?.currency).length === 0 ? (
+                  <View style={[styles.balanceWarningBox, { borderColor: theme.warning }]}>
+                    <Text style={[styles.balanceWarningText, { color: theme.warning }]}>
+                      ⚠️ لا توجد أي خزينة مسجلة بعملة الدين ({activeDebtForPay?.currency}). يرجى إنشاء خزينة أولاً لإيداع أو صرف الدفعة، أو اختيار وضع &apos;تسوية غير نقدية (مقاصة)&apos;.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <CalmDropdown disabled={saving}
+                      label={
+                        activeDebtForPay?.direction === 'receivable'
+                          ? 'في أي خزينة تم استلام الدفعة؟ (سيتم الإيداع فيها):'
+                          : 'من أي خزينة تم دفع القسط؟ (سيتم الخصم منها):'
+                      }
+                      value={installmentAccId}
+                      options={state.accounts
+                        .filter((a) => a.currency === activeDebtForPay?.currency)
+                        .map((acc) => ({
+                          value: acc.id,
+                          label: acc.name,
+                          subLabel: `الرصيد: ${formatMoney(acc.balance, acc.currency)} • ${
+                            acc.isCash ? 'نقدي كاش' : acc.bankName
+                          }`,
+                          icon: acc.isCash ? 'cash-outline' : 'card-outline',
+                          badgeColor: acc.color,
+                        }))}
+                      onSelect={setInstallmentAccId}
+                    />
+
+                    {(() => {
+                      if (activeDebtForPay?.direction === 'payable') {
+                        const instAmtVal = parseFinancialInput(installmentAmt);
+                        const chosenAcc = state.accounts.find((a) => a.id === installmentAccId);
+                        if (chosenAcc && instAmtVal !== null && instAmtVal > 0) {
+                          const check = canDisburseFromAccount(chosenAcc, instAmtVal);
+                          if (!check.allowed) {
+                            return (
+                              <View style={[styles.balanceWarningBox, { borderColor: theme.danger, backgroundColor: theme.danger + '15' }]}>
+                                <Text style={[styles.balanceWarningText, { color: theme.danger, fontWeight: 'bold' }]}>
+                                  ⛔ عجز في رصيد الخزينة — السحب على المكشوف غير مصرح به!
+                                </Text>
+                                <Text style={{ color: theme.text, fontSize: 13, marginTop: 4 }}>
+                                  • الرصيد المتاح: {formatMoney(check.available, activeDebtForPay.currency)}
+                                </Text>
+                                <Text style={{ color: theme.text, fontSize: 13 }}>
+                                  • المبلغ المطلوب سداده: {formatMoney(instAmtVal, activeDebtForPay.currency)}
+                                </Text>
+                                <Text style={{ color: theme.danger, fontSize: 13, fontWeight: 'bold' }}>
+                                  • العجز المالي: {formatMoney(check.deficit, activeDebtForPay.currency)}
+                                </Text>
+                              </View>
+                            );
+                          }
+                        }
+                      }
+                      return null;
+                    })()}
+
+                    <CalmDropdown disabled={saving}
+                      label="طريقة السداد"
+                      value={installmentMethod}
+                      options={[
+                        { value: 'cash', label: 'نقدي (كاش)', icon: 'cash-outline' },
+                        { value: 'transfer', label: 'حوالة مصرفية', icon: 'swap-horizontal-outline' },
+                        { value: 'cheque', label: 'صك مصرفي', icon: 'document-outline' },
+                        { value: 'card', label: 'بطاقة', icon: 'card-outline' },
+                      ]}
+                      onSelect={(value) => setInstallmentMethod(value as PaymentMethodType)}
+                    />
+                  </>
+                )}
+              </>
+            ) : (
+              <View style={{ marginVertical: 4 }}>
+                <CalmDropdown disabled={saving}
+                  label="نوع وسبب التسوية غير النقدية"
+                  value={nonCashReason || 'مقاصة ديون'}
+                  options={[
+                    { value: 'مقاصة ديون (دين مقابل دين آخر)', label: 'مقاصة ديون (دين مقابل دين آخر)', icon: 'git-compare-outline' },
+                    { value: 'تنازل / إبراء ذمة / خصم مسموح به', label: 'تنازل / إبراء ذمة / خصم مسموح به', icon: 'shield-checkmark-outline' },
+                    { value: 'تسوية عينية (بضاعة / أصول / خدمات)', label: 'تسوية عينية (بضاعة / أصول / خدمات)', icon: 'cube-outline' },
+                    { value: 'أخرى (بيان مخصص)', label: 'أخرى (بيان مخصص)', icon: 'document-text-outline' },
+                  ]}
+                  onSelect={(val) => setNonCashReason(val)}
+                />
+
+                <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+                  تفاصيل وسبب التسوية غير النقدية (إلزامي)
+                </Text>
+                <TextInput accessibilityLabel="سبب وتفاصيل التسوية غير النقدية" ref={fieldRef('nonCashReason')} editable={!saving}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.inputBg,
+                      borderColor: theme.border,
+                      color: theme.text,
+                    },
+                    styles.touchTarget,
+                  ]}
+                  value={nonCashReason}
+                  onChangeText={setNonCashReason}
+                  placeholder="مثال: مقاصة مقابل فاتورة أو دين آخر..."
+                  placeholderTextColor={theme.textMuted}
+                />
+
+                <View style={[styles.infoBanner, { backgroundColor: '#8B5CF6' + '15', borderColor: '#8B5CF6' }]}>
+                  <Ionicons name="information-circle-outline" size={18} color="#8B5CF6" />
+                  <Text style={[styles.infoBannerText, { color: theme.text, flex: 1, marginRight: 6 }]}>
+                    ℹ️ التسوية غير النقدية تُخفض الرصيد المتبقي للدين مباشرة دون إيداع أو سحب أي أموال من الخزائن.
+                  </Text>
+                </View>
+              </View>
+            )}
 
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
               ملاحظات الدفعة
             </Text>
-            <TextInput
+            <TextInput accessibilityLabel="ملاحظات الدفعة" ref={fieldRef('installmentNotes')} editable={!saving}
               style={[
                 styles.input,
                 {
@@ -1088,21 +1860,23 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   borderColor: theme.border,
                   color: theme.text,
                 },
+                styles.touchTarget,
               ]}
               value={installmentNotes}
               onChangeText={setInstallmentNotes}
-              placeholder="مثال: دفعة نقدية باليد أو حوالة مصرفية..."
+              placeholder="اختياري..."
               placeholderTextColor={theme.textMuted}
             />
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                 style={[
                   styles.cancelBtn,
                   {
                     backgroundColor: theme.cardAlt,
                     borderColor: theme.border,
                   },
+                  styles.touchTarget,
                 ]}
                 onPress={() => setActiveDebtForPay(null)}
               >
@@ -1115,17 +1889,18 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   إلغاء
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+              <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                style={[styles.saveBtn, { backgroundColor: installmentSettlementType === 'non_cash' ? '#8B5CF6' : theme.primary }, styles.touchTarget]}
                 onPress={handleSaveInstallment}
               >
                 <Text style={styles.saveBtnText}>
-                  تأكيد الدفعة وتحديث الرصيد
+                  {installmentSettlementType === 'non_cash' ? 'تأكيد التسوية غير النقدية' : 'تأكيد الدفعة وتحديث الرصيد'}
                 </Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal 3: Add Financial Procedure */}
@@ -1135,7 +1910,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setNewProcModal(false)}
       >
-        <View
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
         >
           <ScrollView
@@ -1147,11 +1923,12 @@ export const ProceduresDebtsScreen: React.FC = () => {
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}
             >
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <FinancialSaveNotice error={submissionError} />
+              <Text accessibilityRole="header" style={[styles.modalTitle, { color: theme.text }]}>
                 إضافة إجراء مالي أو معاملة مصرفية بمراحل
               </Text>
 
-              <CalmDropdown
+              <CalmDropdown disabled={saving}
                 label="نوع الإجراء المالي:"
                 value={procType}
                 options={PROCEDURE_TYPES.map((pt) => ({
@@ -1168,7 +1945,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 عنوان الإجراء / المعاملة
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="عنوان الإجراء المالي" ref={fieldRef('procTitle')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1176,6 +1953,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={procTitle}
                 onChangeText={setProcTitle}
@@ -1190,7 +1968,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المصرف / الجهة
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="مصرف أو جهة الإجراء" ref={fieldRef('procBank')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1198,6 +1976,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={procBank}
                     onChangeText={setProcBank}
@@ -1211,7 +1990,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     رقم الصك / الإشارة
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="الرقم المرجعي للإجراء" ref={fieldRef('procRef')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1219,6 +1998,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={procRef}
                     onChangeText={setProcRef}
@@ -1235,7 +2015,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     المبلغ المرتبط (اختياري)
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="مبلغ الإجراء المالي" ref={fieldRef('procAmt')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1243,6 +2023,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     keyboardType="numeric"
                     value={procAmt}
@@ -1257,7 +2038,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                   >
                     تاريخ المتابعة
                   </Text>
-                  <TextInput
+                  <TextInput accessibilityLabel="تاريخ استحقاق الإجراء" ref={fieldRef('procDueDate')} editable={!saving}
                     style={[
                       styles.input,
                       {
@@ -1265,6 +2046,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                         borderColor: theme.border,
                         color: theme.text,
                       },
+                      styles.touchTarget,
                     ]}
                     value={procDueDate}
                     onChangeText={setProcDueDate}
@@ -1275,7 +2057,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 خطوات ومراحل الإجراء (كل مرحلة في سطر جديد):
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="مراحل الإجراء، مرحلة في كل سطر" ref={fieldRef('procStagesText')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1284,6 +2066,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 multiline
                 value={procStagesText}
@@ -1293,7 +2076,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
               <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
                 ملاحظات إضافية
               </Text>
-              <TextInput
+              <TextInput accessibilityLabel="ملاحظات الإجراء" ref={fieldRef('procNotes')} editable={!saving}
                 style={[
                   styles.input,
                   {
@@ -1301,6 +2084,7 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     borderColor: theme.border,
                     color: theme.text,
                   },
+                  styles.touchTarget,
                 ]}
                 value={procNotes}
                 onChangeText={setProcNotes}
@@ -1309,13 +2093,14 @@ export const ProceduresDebtsScreen: React.FC = () => {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
                   style={[
                     styles.cancelBtn,
                     {
                       backgroundColor: theme.cardAlt,
                       borderColor: theme.border,
                     },
+                    styles.touchTarget,
                   ]}
                   onPress={() => setNewProcModal(false)}
                 >
@@ -1328,8 +2113,8 @@ export const ProceduresDebtsScreen: React.FC = () => {
                     إلغاء
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: saving }} disabled={saving}
+                  style={[styles.saveBtn, { backgroundColor: theme.primary }, styles.touchTarget]}
                   onPress={handleSaveProcedure}
                 >
                   <Text style={styles.saveBtnText}>حفظ الإجراء</Text>
@@ -1337,13 +2122,34 @@ export const ProceduresDebtsScreen: React.FC = () => {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
+
+      {/* Unified Financial Profile Modal */}
+      <UnifiedContactProfileModal
+        visible={Boolean(profileModalContact)}
+        contact={profileModalContact}
+        onClose={() => setProfileModalContact(null)}
+        onAddDebt={(c) => {
+          setProfileModalContact(null);
+          setContactSelectionMode('existing');
+          setSelectedContactId(c.id);
+          setPersonName(c.name);
+          setPhone(c.phone || '');
+          setNewDebtModal(true);
+        }}
+        onSettleDebt={(c, d) => {
+          setProfileModalContact(null);
+          if (d) setActiveDebtForPay(d);
+        }}
+      />
     </ScrollView>
   );
 };
 
+
 const styles = StyleSheet.create({
+  touchTarget: { minHeight: 48, minWidth: 48 },
   container: {
     flex: 1,
   },
@@ -1616,6 +2422,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: 540,
     width: '100%',
+    maxHeight: '90%',
     alignSelf: 'center',
   },
   modalTitle: {
@@ -1654,6 +2461,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
   },
   choiceBtnText: {
     fontSize: 12,
@@ -1679,6 +2489,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chipText: {
     fontSize: 12,
@@ -1694,6 +2507,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cancelBtnText: {
     fontSize: 13,
@@ -1703,10 +2520,161 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 13,
   },
+  treasuryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 4,
+  },
+  balanceWarningBox: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#F87171',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  balanceWarningText: {
+    fontSize: 11,
+    color: '#DC2626',
+    textAlign: 'right',
+    fontWeight: '600',
+  },
+  infoBanner: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 6,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  infoBannerText: {
+    fontSize: 11,
+    flex: 1,
+    textAlign: 'right',
+  },
+  segmentBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  contactModeSelector: {
+    flexDirection: 'row-reverse',
+    borderRadius: 10,
+    padding: 3,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  contactModeTab: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 7,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  contactModeTabActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  contactModeTabText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  existingContactContainer: {
+    marginBottom: 8,
+  },
+  contactPickerList: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 8,
+  },
+  contactPickerItem: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 4,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  contactPickerName: {
+    fontSize: 13,
+  },
+  contactPickerSub: {
+    fontSize: 11,
+  },
+  selectedContactBadge: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  selectedContactText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  unselectedWarningText: {
+    fontSize: 11,
+    marginBottom: 8,
+    textAlign: 'right',
+  },
+  newContactContainer: {
+    marginBottom: 8,
+  },
+  debtPersonRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  profilePillBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    minHeight: 48,
+    minWidth: 48,
+  },
+  profilePillText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
 });
+

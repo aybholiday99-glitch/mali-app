@@ -1,6 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
+import { SerialQueue } from './serialQueue';
+import { clearAuthTokenStorage, getAuthTokenStorage } from './authTokenStorage';
+import { isAuthStorageKey, mayRemoveLegacyAuthValue } from './nativeAuthStorageCore';
+import { NATIVE_OAUTH_REDIRECT, nativeOAuthFailure, performNativeOAuth, type NativeOAuthFailure } from './nativeOAuthCore';
 import { INITIAL_MALI_STATE } from '../data/initialData';
 import { AuthProviderType, AuthUser, SupabaseConfig } from '../types/mali';
 
@@ -33,10 +37,20 @@ export interface AuthResponse {
   ok?: boolean;
   message: string;
   user?: AuthUser;
+  failureKind?: NativeOAuthFailure;
 }
 
 let sharedClient: SupabaseClient | null = null;
 let sharedClientKey = '';
+const authOperations = new SerialQueue();
+let oauthCallbackInFlight: Promise<AuthUser | null> | null = null;
+let nativeAuthGeneration = 0;
+let nativeOAuthAttempt: { controller: AbortController; key: string; promise: Promise<AuthResponse>; accepted: boolean } | null = null;
+function cancelNativeOAuth() { nativeAuthGeneration++; nativeOAuthAttempt?.controller.abort(); }
+
+function authStorageKey(url: string) {
+  return 'mali_supabase_auth_' + new URL(url).hostname.replace(/[^a-zA-Z0-9.-]/g, '_');
+}
 
 function sanitizeConfig(config?: Partial<SupabaseConfig>): { url: string; anonKey: string } {
   const url = (config?.url || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
@@ -51,14 +65,15 @@ export function getSharedSupabaseClient(config?: Partial<SupabaseConfig>): Supab
   const { url, anonKey } = sanitizeConfig(config);
   const key = `${url}::${anonKey}`;
   if (!sharedClient || sharedClientKey !== key) {
+    if (nativeOAuthAttempt && sharedClientKey !== key) cancelNativeOAuth();
     sharedClient = createClient(url, anonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: Platform.OS === 'web',
+        detectSessionInUrl: false,
         flowType: 'pkce',
-        storage: AsyncStorage,
-        storageKey: 'mali_supabase_auth_token',
+        storage: getAuthTokenStorage(authStorageKey(url)),
+        storageKey: authStorageKey(url),
       },
     });
     sharedClientKey = key;
@@ -173,7 +188,7 @@ export async function getStoredAuthSession(config?: Partial<SupabaseConfig>): Pr
         await saveLocalSessionSummary(verifiedUser);
         return verifiedUser;
       }
-      return mapSupabaseUserToAuthUser(sessionData.session.user);
+      return null;
     }
 
     const rawLocal = await AsyncStorage.getItem(MALI_AUTH_SESSION_KEY);
@@ -194,19 +209,27 @@ export async function getPersistedSessionUser(config?: Partial<SupabaseConfig>):
   return getStoredAuthSession(config);
 }
 
-export async function clearAuthSession(config?: Partial<SupabaseConfig>): Promise<void> {
+async function clearAuthSessionImpl(config?: Partial<SupabaseConfig>): Promise<void> {
   await purgeLegacyInsecureStorage();
   try {
     const supabase = getSharedSupabaseClient(config);
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
   } catch {
     // ignore network errors on signOut
   }
+  // Cleanup failures must reach the caller; successful local sign-out must not
+  // be reported while credentials remain usable in secure/legacy storage.
+  const { url } = sanitizeConfig(config);
+  let cleanupFailed = false;
+  try { await clearAuthTokenStorage(authStorageKey(url)); } catch { cleanupFailed = true; }
   try {
-    await AsyncStorage.removeItem(MALI_AUTH_SESSION_KEY);
-  } catch {
-    // ignore
-  }
+    const legacyKeys = [MALI_AUTH_SESSION_KEY, 'mali_supabase_auth_token'];
+    for (const key of await AsyncStorage.getAllKeys()) {
+      if (isAuthStorageKey('mali_supabase_auth_token', key)
+        && mayRemoveLegacyAuthValue('mali_supabase_auth_token', key, await AsyncStorage.getItem(key))) legacyKeys.push(key);
+    }
+    await AsyncStorage.multiRemove(legacyKeys);
+  } catch { cleanupFailed = true; }
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(MALI_AUTH_SESSION_KEY);
@@ -214,6 +237,7 @@ export async function clearAuthSession(config?: Partial<SupabaseConfig>): Promis
       // ignore
     }
   }
+  if (cleanupFailed) throw new Error('تعذر تأكيد إزالة بيانات الدخول من الجهاز. يرجى إعادة محاولة تسجيل الخروج.');
 }
 
 export async function savePersistedSessionUser(
@@ -244,7 +268,7 @@ export async function savePersistedSessionUser(
  * الدخول في وضع الضيف المحلي فقط (Offline Guest Mode)
  * معزول تماماً ولا يمنح أي صلاحيات وصول إلى قاعدة البيانات السحابية
  */
-export async function startOfflineGuestSession(): Promise<AuthUser> {
+async function startOfflineGuestSessionImpl(): Promise<AuthUser> {
   await purgeLegacyInsecureStorage();
   const guestUser: AuthUser = {
     id: 'local-offline-guest',
@@ -261,7 +285,7 @@ export async function startOfflineGuestSession(): Promise<AuthUser> {
 /**
  * إنشاء حساب جديد حصرياً عبر Supabase Auth الرسمي
  */
-export async function registerWithEmail(
+async function registerWithEmailImpl(
   name: string,
   email: string,
   password: string,
@@ -313,7 +337,7 @@ export async function registerWithEmail(
       return {
         success: false,
         ok: false,
-        message: `تعذر إنشاء الحساب: ${error.message}`,
+        message: 'تعذر إنشاء الحساب. تحقق من الاتصال وصحة البريد وكلمة المرور، ثم أعد المحاولة.',
       };
     }
 
@@ -343,7 +367,7 @@ export async function registerWithEmail(
         success: true,
         ok: true,
         user: verifiedUser,
-        message: 'تم إنشاء حسابك وتفعيل الخزنة السحابية المشفرة بنجاح.',
+        message: 'تم إنشاء حسابك السحابي بنجاح.',
       };
     }
 
@@ -353,13 +377,13 @@ export async function registerWithEmail(
       success: true,
       ok: true,
       user: verifiedUser,
-      message: 'تم إنشاء حسابك وتفعيل الخزنة السحابية المشفرة بنجاح.',
+      message: 'تم إنشاء حسابك السحابي بنجاح.',
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر الاتصال بخادم المصادقة السحابي: ${e?.message || 'تحقق من اتصالك بالإنترنت'}`,
+      message: 'تعذر الاتصال بخادم المصادقة السحابي. تحقق من اتصالك بالإنترنت ثم أعد المحاولة.',
     };
   }
 }
@@ -379,7 +403,7 @@ export async function signUpWithEmail(
 /**
  * تسجيل الدخول بالبريد الإلكتروني وكلمة المرور حصرياً عبر Supabase Auth الرسمي
  */
-export async function loginWithEmail(
+async function loginWithEmailImpl(
   email: string,
   password: string,
   config?: Partial<SupabaseConfig>
@@ -417,11 +441,11 @@ export async function loginWithEmail(
       user: verifiedUser,
       message: 'تم تسجيل الدخول السحابي بنجاح.',
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر الاتصال بخادم المصادقة: ${e?.message || 'تحقق من اتصالك بالإنترنت'}`,
+      message: 'تعذر الاتصال بخادم المصادقة. تحقق من اتصالك بالإنترنت ثم أعد المحاولة.',
     };
   }
 }
@@ -464,7 +488,7 @@ export async function resetPasswordByEmail(
       return {
         success: false,
         ok: false,
-        message: `تعذر إرسال رابط استعادة كلمة المرور: ${error.message}`,
+        message: 'تعذر إرسال رابط استعادة كلمة المرور. تحقق من الاتصال ثم أعد المحاولة.',
       };
     }
 
@@ -474,11 +498,11 @@ export async function resetPasswordByEmail(
       message:
         'تم إرسال رابط آمن لإعادة تعيين كلمة المرور إلى بريدك الإلكتروني عبر Supabase Auth.',
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر الاتصال بخادم المصادقة: ${e?.message || 'خطأ في الشبكة'}`,
+      message: 'تعذر الاتصال بخادم المصادقة. تحقق من الاتصال ثم أعد المحاولة.',
     };
   }
 }
@@ -514,7 +538,7 @@ export async function resetUserPasswordLocal(
       return {
         success: false,
         ok: false,
-        message: `تعذر تحديث كلمة المرور: ${error.message}`,
+        message: 'تعذر تحديث كلمة المرور. افتح رابط استعادة جديداً وتحقق من الاتصال ثم أعد المحاولة.',
       };
     }
     return {
@@ -530,7 +554,7 @@ export async function resetUserPasswordLocal(
 /**
  * معالجة عودة نافذة OAuth (PKCE Code أو Session) والتحقق الصارم من المصدر (Origin)
  */
-export async function consumeOAuthRedirectIfPresent(
+async function consumeOAuthRedirectImpl(
   supabaseConfig?: Partial<SupabaseConfig>
 ): Promise<AuthUser | null> {
   await purgeLegacyInsecureStorage();
@@ -553,7 +577,8 @@ export async function consumeOAuthRedirectIfPresent(
 
   try {
     if (code) {
-      await supabase.auth.exchangeCodeForSession(code);
+      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      if (exchangeError) throw new Error('تعذر إكمال التحقق من رابط الدخول.');
     }
 
     if (window.history?.replaceState) {
@@ -573,7 +598,7 @@ export async function consumeOAuthRedirectIfPresent(
         {
           type: 'MALI_OAUTH_CALLBACK_COMPLETE',
           hasError: Boolean(errorParam) || !verifiedUser,
-          errorMessage: errorParam || undefined,
+          errorMessage: errorParam ? 'تعذر إكمال مصادقة المزود. افتح طلب دخول جديداً.' : undefined,
         },
         targetOrigin
       );
@@ -587,13 +612,13 @@ export async function consumeOAuthRedirectIfPresent(
     }
 
     return verifiedUser;
-  } catch (err: any) {
+  } catch {
     if (window.opener && window.opener !== window) {
       window.opener.postMessage(
         {
           type: 'MALI_OAUTH_CALLBACK_COMPLETE',
           hasError: true,
-          errorMessage: err?.message || 'فشل التحقق من جلسة OAuth',
+          errorMessage: 'فشل التحقق من جلسة OAuth. افتح طلب دخول جديداً.',
         },
         targetOrigin
       );
@@ -629,6 +654,7 @@ export async function launchSocialOAuthWindow(
   provider: 'google' | 'facebook',
   supabaseConfig?: Partial<SupabaseConfig>
 ): Promise<AuthResponse> {
+  if (Platform.OS !== 'web') return launchNativeSocialOAuth(provider, supabaseConfig);
   await purgeLegacyInsecureStorage();
   const providerLabel = provider === 'google' ? 'Google' : 'Facebook';
 
@@ -637,7 +663,7 @@ export async function launchSocialOAuthWindow(
     const redirectTo =
       Platform.OS === 'web' && typeof window !== 'undefined'
         ? `${window.location.origin}${window.location.pathname}`
-        : 'maliapp://auth-callback';
+        : NATIVE_OAUTH_REDIRECT;
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -715,7 +741,7 @@ export async function launchSocialOAuthWindow(
             finish({
               success: false,
               ok: false,
-              message: `تعذر إكمال مصادقة ${providerLabel}: ${errText}`,
+              message: `تعذر إكمال مصادقة ${providerLabel}. افتح طلب دخول جديداً أو استخدم البريد الإلكتروني.`,
             });
             return;
           }
@@ -774,13 +800,41 @@ export async function launchSocialOAuthWindow(
       ok: false,
       message: `يرجى استخدام متصفح يدعم نوافذ المصادقة الآمنة (PKCE) لتسجيل الدخول عبر ${providerLabel}.`,
     };
-  } catch (e: any) {
+  } catch {
     return {
       success: false,
       ok: false,
-      message: `تعذر بدء مصادقة ${providerLabel}: ${e?.message || 'خطأ غير متوقع'}`,
+      message: `تعذر بدء مصادقة ${providerLabel}. تحقق من الاتصال وافتح طلب دخول جديداً.`,
     };
   }
+}
+
+function launchNativeSocialOAuth(provider: 'google' | 'facebook', config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  if (provider !== 'google' && provider !== 'facebook') return Promise.resolve(nativeOAuthFailure('provider'));
+  const resolved = sanitizeConfig(config), key = `${provider}::${resolved.url}::${resolved.anonKey}`;
+  if (nativeOAuthAttempt) return nativeOAuthAttempt.key === key ? nativeOAuthAttempt.promise : Promise.resolve(nativeOAuthFailure('busy'));
+  let client: SupabaseClient;
+  try { client = getSharedSupabaseClient(config); } catch { return Promise.resolve(nativeOAuthFailure('unavailable')); }
+  const generation = ++nativeAuthGeneration, controller = new AbortController();
+  const promise = (async () => {
+    try {
+      await purgeLegacyInsecureStorage();
+      const { nativeOAuthBrowser } = await import('./nativeOAuthPlatform');
+      return await performNativeOAuth({ client, provider, supabaseUrl: resolved.url, storageKey: authStorageKey(resolved.url),
+        storage: getAuthTokenStorage(authStorageKey(resolved.url)), browser: nativeOAuthBrowser, signal: controller.signal,
+        isCurrent: () => nativeAuthGeneration === generation && sharedClient === client,
+        serialize: action => authOperations.run(action),
+        acceptVerified: async user => { const verified = mapSupabaseUserToAuthUser(user, provider); await saveLocalSessionSummary(verified); return verified; },
+      });
+    } catch { return nativeOAuthFailure('unavailable'); }
+  })().then(result => {
+    if (result.success && (controller.signal.aborted || generation !== nativeAuthGeneration || sharedClient !== client)) return nativeOAuthFailure('stale');
+    if (result.success && nativeOAuthAttempt?.controller === controller && !controller.signal.aborted && generation === nativeAuthGeneration) nativeOAuthAttempt.accepted = true;
+    return result;
+  }).finally(() => { if (nativeOAuthAttempt?.controller === controller) nativeOAuthAttempt = null; })
+    .then(result => result.success && (controller.signal.aborted || generation !== nativeAuthGeneration || sharedClient !== client) ? nativeOAuthFailure('stale') : result);
+  nativeOAuthAttempt = { controller, key, promise, accepted: false };
+  return promise;
 }
 
 export async function signInWithSocialProvider(
@@ -802,8 +856,64 @@ export function getSupabaseOAuthRedirectUrl(
   const redirectTo =
     typeof window !== 'undefined' && window.location?.origin
       ? window.location.origin + window.location.pathname
-      : 'maliapp://auth-callback';
+      : NATIVE_OAUTH_REDIRECT;
   return `${baseUrl}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(
     redirectTo
   )}`;
+}
+
+export function clearAuthSession(config?: Partial<SupabaseConfig>): Promise<void> {
+  cancelNativeOAuth();
+  return authOperations.run(() => clearAuthSessionImpl(config));
+}
+
+export function loginWithEmail(email: string, password: string, config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  cancelNativeOAuth();
+  return authOperations.run(() => loginWithEmailImpl(email, password, config));
+}
+
+export function registerWithEmail(name: string, email: string, password: string, phone: string | undefined, config?: Partial<SupabaseConfig>): Promise<AuthResponse> {
+  cancelNativeOAuth();
+  return authOperations.run(() => registerWithEmailImpl(name, email, password, phone, config));
+}
+
+export function startOfflineGuestSession(): Promise<AuthUser> {
+  cancelNativeOAuth();
+  return authOperations.run(() => startOfflineGuestSessionImpl());
+}
+
+export function consumeOAuthRedirectIfPresent(config?: Partial<SupabaseConfig>): Promise<AuthUser | null> {
+  if (!oauthCallbackInFlight) {
+    oauthCallbackInFlight = authOperations.run(() => consumeOAuthRedirectImpl(config))
+      .finally(() => { oauthCallbackInFlight = null; });
+  }
+  return oauthCallbackInFlight;
+}
+
+/** Auth events never await Supabase calls inside the library callback. */
+export function subscribeToAuthIdentity(
+  callback: (user: AuthUser | null) => void,
+  config?: Partial<SupabaseConfig>
+): () => void {
+  const client = getSharedSupabaseClient(config);
+  let active = true;
+  let generation = 0;
+  const { data } = client.auth.onAuthStateChange((event, session) => {
+    const token = ++generation;
+    if (event === 'SIGNED_OUT') { if (nativeOAuthAttempt) cancelNativeOAuth(); callback(null); return; }
+    if (event !== 'SIGNED_IN' || !session?.user) return;
+    const expectedId = session.user.id;
+    const intentGeneration = nativeAuthGeneration;
+    const nativeOwner = nativeOAuthAttempt;
+    setTimeout(() => {
+      if (!active || token !== generation) return;
+      void client.auth.getUser().then(({ data: verified, error }) => {
+        if (active && token === generation && intentGeneration === nativeAuthGeneration && (!nativeOwner || nativeOwner.accepted)
+          && !error && verified.user?.id === expectedId) {
+          callback(mapSupabaseUserToAuthUser(verified.user));
+        }
+      });
+    }, 0);
+  });
+  return () => { active = false; generation++; data.subscription.unsubscribe(); };
 }

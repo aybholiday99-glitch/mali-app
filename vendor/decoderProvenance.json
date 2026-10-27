@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "identity": "decode-uri-component@0.5.0",
+  "advisory": "GHSA-vcc3-ghjq-m6fr",
+  "upstream": "https://registry.npmjs.org/decode-uri-component/-/decode-uri-component-0.5.0.tgz",
+  "originalArchive": "vendor/decode-uri-component-0.5.0-upstream.tgz",
+  "originalIntegrity": "sha512-1BiQVoK8C9gUbQU6NzAtO/tkz2qOFpEObMWpcFvhx4fYnj4Oc5yzaJN/LD36ihkVUdXyh5ZekzX+yM+ty/SrPg==",
+  "originalIndexSha256": "9401353df38f8010ad7035fe8d666bce6a4902bc1cff809afc4ab23fa2e0bdaa",
+  "moduleFormatOnly": "export default function decodeUriComponent -> module.exports = function decodeUriComponent; package type commonjs. Decoding logic unchanged from official patched release.",
+  "sourceDirectory": "vendor/decode-uri-component-cjs",
+  "files": {
+    "index.d.ts": "f7f52a51b25daac3448d6b455a89738dfa1f004eccaca168318834093a315ba2",
+    "index.js": "684ba79779327ba789733a3a563050370a928a57eb7dd33d19b346f43b32cbb7",
+    "license": "ed7a9a0f74e43951b2520efe1a4349cb9ed5f3dff0b0f268e2e51a4d38df7ea4",
+    "package.json": "47ca32ce4fbc5d19120bb8893bd4b5eedee73ea61f36ecd14c66275b0a284bf7"
+  },
+  "archive": {
+    "path": "vendor/decode-uri-component-0.5.0.tgz",
+    "integrity": "sha512-quDSi6JNt4Qz+NHFRbdvOqsKN/IBkf/bAux9URyaPGWgy8pwt5JWjySteLjvjVppw8mess/P7d7SWHT71VF9eQ=="
+  },
+  "consumer": {
+    "name": "query-string",
+    "version": "7.1.3",
+    "indexSha256": "caa3f2c8b45dfe1e91db22ae10743af68de8d96f26515132bb52485ec0f037fa"
+  }
+}

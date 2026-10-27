@@ -1,0 +1,82 @@
+name: Mali native Android emulator acceptance
+on:
+  push:
+    branches: ['codex/mali-production-audit']
+    paths:
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+      - '.github/workflows/android-acceptance.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+      - '.github/workflows/android-acceptance.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
+permissions:
+  contents: read
+jobs:
+  android-standalone-smoke:
+    name: Standalone Android candidate and emulator smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 49
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Make preinstalled Android SDK tools available
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 4 -type f -name sdkmanager -print -quit)
+          if [ -z "$SDKMANAGER" ]; then echo "Android sdkmanager unavailable"; exit 1; fi
+          SDK_BIN=$(dirname "$SDKMANAGER")
+          echo "$SDK_BIN" >> "$GITHUB_PATH"
+          "$SDKMANAGER" --version
+      - name: Generate isolated Android native project
+        run: npx expo prebuild --platform android --no-install
+      - name: Compile test-signed standalone release APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
+      - name: Run Mali APK on real Android emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 31
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -memory 3072 -cores 3
+          script: bash scripts/androidStandaloneSmoke.sh
+      - name: Upload test-signed release candidate and emulator evidence (never production)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mali-android-release-emulator-evidence
+          if-no-files-found: warn
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android-standalone-evidence/
