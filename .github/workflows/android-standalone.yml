@@ -11,6 +11,17 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'plugins/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-standalone.yml'
+      - 'scripts/androidStandaloneSmoke.sh'
+      - 'src/**'
+      - 'App.tsx'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
 permissions:
   contents: read
 jobs:
